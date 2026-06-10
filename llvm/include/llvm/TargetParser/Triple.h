@@ -63,6 +63,7 @@ public:
     hexagon,     // Hexagon: hexagon
     loongarch32, // LoongArch (32-bit): loongarch32
     loongarch64, // LoongArch (64-bit): loongarch64
+    lvx,         // Liesme VLIW family
     m68k,        // M68k: Motorola 680x0 family
     mips,        // MIPS: mips, mipsallegrex, mipsr6
     mipsel,      // MIPSEL: mipsel, mipsallegrexe, mipsr6el
