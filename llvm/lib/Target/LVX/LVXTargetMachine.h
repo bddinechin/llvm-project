@@ -13,23 +13,32 @@
 #ifndef LLVM_LIB_TARGET_LVX_LVXTARGETMACHINE_H
 #define LLVM_LIB_TARGET_LVX_LVXTARGETMACHINE_H
 
+#include "LVXSubtarget.h"
 #include "llvm/CodeGen/CodeGenTargetMachineImpl.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 
 namespace llvm {
 
-// Phase 1 stub: no LVXSubtarget, TargetLoweringObjectFile, or
-// MachineFunctionInfo override yet — those are added in later phases
-// (Subtarget work, LVXISelLowering, frame lowering respectively). This
-// class exists at this stage only to prove the target registers and
-// builds against the current TargetMachine API.
 class LVXTargetMachine : public CodeGenTargetMachineImpl {
+  LVXSubtarget Subtarget;
+  std::unique_ptr<TargetLoweringObjectFile> TLOF;
+
 public:
   LVXTargetMachine(const Target &T, const Triple &TT, StringRef CPU,
                    StringRef FS, const TargetOptions &Options,
                    std::optional<Reloc::Model> RM,
                    std::optional<CodeModel::Model> CM,
                    CodeGenOptLevel OL, bool JIT);
+
+  const LVXSubtarget *
+  getSubtargetImpl(const Function & /*F*/) const override {
+    return &Subtarget;
+  }
+
+  TargetLoweringObjectFile *getObjFileLowering() const override {
+    return TLOF.get();
+  }
 
   TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
 };

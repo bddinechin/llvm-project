@@ -1,0 +1,447 @@
+//===-- LVXISelLowering.cpp - LVX DAG Lowering Implementation -*- C++ -*-===//
+//
+// This file implements the LVXTargetLowering class.
+//
+//===----------------------------------------------------------------------===//
+
+#include "LVXISelLowering.h"
+#include "LVXSubtarget.h"
+#include "llvm/CodeGen/CallingConvLower.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/IR/DiagnosticInfo.h"
+#include "llvm/Support/ErrorHandling.h"
+
+using namespace llvm;
+
+namespace {
+// The 12 argument-slot registers, per lvx_Convention.yml "argument" and
+// the ABI doc's "first 12 arguments slots ... allocated into the
+// general-purpose registers R0-R11". Shared by every slot allocated
+// below, regardless of which original argument type (i64/f64/i128/
+// v4i64) the slot belongs to -- this is the single shared counter the
+// declarative CC_LVX rules couldn't provide.
+static const MCPhysReg LVXArgGPRs[] = {
+    LVX::R0, LVX::R1, LVX::R2,  LVX::R3,  LVX::R4,  LVX::R5,
+    LVX::R6, LVX::R7, LVX::R8,  LVX::R9,  LVX::R10, LVX::R11,
+};
+} // end anonymous namespace
+
+// CC_LVX_Custom implements the ABI's argument-slot model precisely
+// (lvx_ApplicationBinaryInterface.tex, "Function Arguments and Result"):
+// every argument occupies one or more 8-byte slots; the first 12 slots
+// are R0-R11; slot 12 onward is the Outgoing Arguments stack region; and
+// "if an argument straddles the boundary between slot 11 and slot 12,
+// the part that lies within the first twelve slots is passed in general
+// registers, and the remainder is passed in the Outgoing Arguments
+// region" (quoted from the ABI doc, confirmed verbatim against the
+// .tex source).
+//
+// This single callback handles i64/f64 (1 slot), i128 (2 slots), and
+// v4i64 (4 slots) uniformly: it is registered for all three via
+// CCIfType<...,  CCCustom<"CC_LVX_Custom">> in LVXCallingConv.td, and
+// loops over however many 8-byte slots ValVT requires, attempting
+// AllocateReg for each one (falling through to AllocateStack once the
+// register list is exhausted -- which is exactly the straddle case).
+//
+// Each individual slot is recorded as its own CCValAssign with LocVT
+// forced to i64 (even for the high slots of an i128/v4i64 argument),
+// following the same "split a wide value into same-ValNo, narrower-LocVT
+// pieces" pattern used by CC_Sparc_Assign_Split_64 and
+// CC_PPC32_SPE_CustomSplitFP64 for their analogous 64-bit splits. The
+// caller (LowerFormalArguments/LowerReturn/LowerCall in
+// LVXISelLowering.cpp) is responsible for walking same-ValNo runs of
+// CCValAssign entries and reassembling the original i128/v4i64 value
+// from its i64 pieces (or splitting it into pieces, for outgoing args).
+static bool CC_LVX_Custom(unsigned &ValNo, MVT &ValVT, MVT &LocVT,
+                          CCValAssign::LocInfo &LocInfo,
+                          ISD::ArgFlagsTy &ArgFlags, CCState &State) {
+  unsigned NumSlots;
+  switch (LocVT.SimpleTy) {
+  case MVT::i64:
+  case MVT::f64:
+    NumSlots = 1;
+    break;
+  case MVT::i128:
+    NumSlots = 2;
+    break;
+  case MVT::v4i64:
+    NumSlots = 4;
+    break;
+  default:
+    // Not a type this callback handles: return false (= "I didn't handle
+    // this") so TableGen's generated CC_LVX falls through to the next rule.
+    // Note: CCCustomFn uses the OPPOSITE convention from CCAssignFn --
+    // return TRUE means success (handled), FALSE means failure (not handled).
+    return false;
+  }
+
+  for (unsigned Slot = 0; Slot != NumSlots; ++Slot) {
+    if (MCRegister Reg = State.AllocateReg(LVXArgGPRs)) {
+      State.addLoc(CCValAssign::getCustomReg(ValNo, ValVT, Reg, MVT::i64,
+                                             LocInfo));
+      continue;
+    }
+    // No more argument-slot registers free: per the ABI's straddle rule,
+    // this slot (and every subsequent slot of this same argument) goes
+    // to the Outgoing Arguments stack region.
+    int64_t Offset = State.AllocateStack(8, Align(8));
+    State.addLoc(
+        CCValAssign::getCustomMem(ValNo, ValVT, Offset, MVT::i64, LocInfo));
+  }
+
+  return true; // Successfully handled (CCCustomFn convention: true = success).
+}
+
+#include "LVXGenCallingConv.inc"
+
+LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
+                                     const LVXSubtarget &STI)
+    : TargetLowering(TM, STI), TRI(STI.getRegisterInfo()) {
+  // LVX's native scalar integer type is i64 -- every GPR is 64 bits wide
+  // per LVXRegisterInfo.td.
+  addRegisterClass(MVT::i64, &LVX::GPRRegClass);
+
+  // 128-bit register-pair values.
+  addRegisterClass(MVT::i128, &LVX::GPR128RegClass);
+
+  // 256-bit register-quad values. Without this, the type legalizer would
+  // treat v4i64 as illegal and split/scalarize it before
+  // LowerFormalArguments/LowerCall/LowerReturn ever see it, which would
+  // conflict with the slot-splitting CC_LVX_Custom already performs at
+  // the calling-convention level -- v4i64 must reach those functions
+  // intact as a single legal type.
+  addRegisterClass(MVT::v4i64, &LVX::GPR256RegClass);
+
+  // Compute derived properties from the register classes we just declared
+  // (mirrors the standard boilerplate every target's constructor performs
+  // right after addRegisterClass calls).
+  computeRegisterProperties(STI.getRegisterInfo());
+
+  setStackPointerRegisterToSaveRestore(LVX::R12);
+
+  // Have all idivs/irems expanded to libcalls for now (Phase 3 minimal
+  // bring-up); LVX does have DIVMODD/DIVMODUD/DIVMODW/DIVMODUW
+  // instructions (Phase 2), but wiring SelectionDAG's sdiv/srem/udiv/urem
+  // nodes to them via setOperationAction + a real pattern or custom
+  // lowering is deferred until basic call/return lowering is verified
+  // working end-to-end.
+  setOperationAction(ISD::SDIV, MVT::i64, Expand);
+  setOperationAction(ISD::UDIV, MVT::i64, Expand);
+  setOperationAction(ISD::SREM, MVT::i64, Expand);
+  setOperationAction(ISD::UREM, MVT::i64, Expand);
+
+  // No branch-on-condition-code DAG combine / SELECT_CC lowering yet;
+  // let LegalizeDAG expand select/select_cc through the generic path
+  // until LVX-specific patterns for CMOVED/CMOVEQ are wired up (Phase 5).
+  setOperationAction(ISD::SELECT_CC, MVT::i64, Expand);
+
+  setMinFunctionAlignment(Align(4));
+  setPrefFunctionAlignment(Align(4));
+}
+
+SDValue LVXTargetLowering::LowerOperation(SDValue Op,
+                                          SelectionDAG &DAG) const {
+  // Nothing routed here yet -- every IR construct currently reaching
+  // LowerOperation should already be legal or handled by a TableGen
+  // pattern. If this is hit, a new case needs to be added once a real
+  // test program identifies what's missing.
+  llvm_unreachable(
+      "Unimplemented operation in LVXTargetLowering::LowerOperation");
+}
+
+bool LVXTargetLowering::CanLowerReturn(
+    CallingConv::ID CallConv, MachineFunction &MF, bool IsVarArg,
+    const SmallVectorImpl<ISD::OutputArg> &Outs, LLVMContext &Context,
+    const Type * /*RetTy*/) const {
+  SmallVector<CCValAssign, 16> RVLocs;
+  CCState CCInfo(CallConv, IsVarArg, MF, RVLocs, Context);
+  return CCInfo.CheckReturn(Outs, CC_LVXRet);
+}
+
+Register
+LVXTargetLowering::getRegisterByName(const char * /*RegName*/, LLT /*VT*/,
+                                     const MachineFunction & /*MF*/) const {
+  // TODO(Phase 5): support llvm.read_register / write_register intrinsics
+  // by mapping assembly register names (e.g. "r0", "ra") to LVX:: enum
+  // values, as Lanai does. Not needed for basic call/return lowering.
+  report_fatal_error(
+      "Invalid register name for llvm.read/write_register on LVX");
+}
+
+std::pair<unsigned, const TargetRegisterClass *>
+LVXTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI_,
+                                                StringRef Constraint,
+                                                MVT VT) const {
+  // TODO(Phase 5): real inline-asm register-class constraint parsing
+  // (e.g. "r" -> GPR). Fall back to the generic implementation for now.
+  return TargetLowering::getRegForInlineAsmConstraint(TRI_, Constraint, VT);
+}
+
+TargetLowering::ConstraintWeight
+LVXTargetLowering::getSingleConstraintMatchWeight(
+    AsmOperandInfo &Info, const char *Constraint) const {
+  // TODO(Phase 5): real constraint-weight logic, as Lanai implements.
+  return TargetLowering::getSingleConstraintMatchWeight(Info, Constraint);
+}
+
+//===----------------------------------------------------------------------===//
+// Calling Convention Implementation
+//===----------------------------------------------------------------------===//
+
+SDValue LVXTargetLowering::LowerFormalArguments(
+    SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
+    const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &DL,
+    SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals) const {
+  if (IsVarArg)
+    report_fatal_error("Variadic functions not yet supported on LVX");
+
+  MachineFunction &MF = DAG.getMachineFunction();
+  MachineRegisterInfo &RegInfo = MF.getRegInfo();
+
+  SmallVector<CCValAssign, 16> ArgLocs;
+  CCState CCInfo(CallConv, IsVarArg, MF, ArgLocs, *DAG.getContext());
+  CCInfo.AnalyzeFormalArguments(Ins, CC_LVX);
+
+  // CC_LVX_Custom (LVXCallingConv.td / the callback above) assigns every
+  // argument as one or more i64-typed slots sharing the same ValNo: 1
+  // slot for i64/f64, 2 for i128, 4 for v4i64. Walk ArgLocs grouping
+  // consecutive entries by ValNo, materialize each slot individually
+  // (CopyFromReg for a register slot, a load for a stack slot), then
+  // reassemble multi-slot arguments into their true type.
+  unsigned Idx = 0;
+  while (Idx < ArgLocs.size()) {
+    unsigned ValNo = ArgLocs[Idx].getValNo();
+    SmallVector<SDValue, 4> Pieces;
+
+    while (Idx < ArgLocs.size() && ArgLocs[Idx].getValNo() == ValNo) {
+      const CCValAssign &VA = ArgLocs[Idx];
+      SDValue Piece;
+      if (VA.isRegLoc()) {
+        // A slot passed in one of R0-R11: create a vreg, copy the
+        // incoming physical register into it. Every slot's LocVT is
+        // forced to i64 by CC_LVX_Custom, regardless of the original
+        // argument's true type.
+        Register VReg = RegInfo.createVirtualRegister(&LVX::GPRRegClass);
+        RegInfo.addLiveIn(VA.getLocReg(), VReg);
+        Piece = DAG.getCopyFromReg(Chain, DL, VReg, MVT::i64);
+      } else {
+        // A slot in the Outgoing Arguments stack region (the straddle
+        // case, or an argument entirely past the first 12 slots): load
+        // it from the incoming argument area of the caller's frame.
+        assert(VA.isMemLoc() &&
+               "CCValAssign must be either RegLoc or MemLoc");
+        int FI = MF.getFrameInfo().CreateFixedObject(
+            8, VA.getLocMemOffset(), /*IsImmutable=*/true);
+        SDValue FIN = DAG.getFrameIndex(FI, getPointerTy(DAG.getDataLayout()));
+        Piece = DAG.getLoad(MVT::i64, DL, Chain, FIN,
+                            MachinePointerInfo::getFixedStack(MF, FI));
+      }
+      Pieces.push_back(Piece);
+      ++Idx;
+    }
+
+    // Reassemble the pieces into the argument's true value type. The
+    // true type comes from Ins[ValNo].ArgVT (the pre-CC_LVX_Custom type:
+    // i64/f64 for a single piece, i128 for two, v4i64 for four).
+    EVT ArgVT = Ins[ValNo].ArgVT;
+    SDValue ArgValue;
+    if (Pieces.size() == 1) {
+      ArgValue = Pieces[0];
+      if (ArgVT != MVT::i64)
+        ArgValue = DAG.getNode(ISD::BITCAST, DL, ArgVT, ArgValue);
+    } else if (Pieces.size() == 2) {
+      // i128: a genuine wide integer split across two i64 halves.
+      // BUILD_PAIR is the standard node for this (low half first, per
+      // the ABI's increasing-address slot ordering -- slot N holds the
+      // low 64 bits, slot N+1 the high 64 bits).
+      ArgValue =
+          DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i128, Pieces[0], Pieces[1]);
+      if (ArgVT != MVT::i128)
+        ArgValue = DAG.getNode(ISD::BITCAST, DL, ArgVT, ArgValue);
+    } else {
+      // v4i64: a VECTOR of four i64 elements, not a wide integer --
+      // BUILD_VECTOR is the correct node here (BUILD_PAIR is only for
+      // forming wider integers from narrower integer halves, e.g.
+      // i64+i64->i128, and has no defined meaning for assembling a
+      // vector). No BITCAST is needed since the element type already
+      // matches ArgVT's element type.
+      assert(Pieces.size() == 4 && ArgVT == MVT::v4i64 &&
+             "Unexpected piece count for a non-i128 multi-slot argument");
+      ArgValue = DAG.getBuildVector(MVT::v4i64, DL, Pieces);
+    }
+
+    InVals.push_back(ArgValue);
+  }
+
+  return Chain;
+}
+
+SDValue LVXTargetLowering::LowerReturn(
+    SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
+    const SmallVectorImpl<ISD::OutputArg> &Outs,
+    const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,
+    SelectionDAG &DAG) const {
+  if (IsVarArg)
+    report_fatal_error("Variadic functions not yet supported on LVX");
+
+  MachineFunction &MF = DAG.getMachineFunction();
+
+  SmallVector<CCValAssign, 16> RVLocs;
+  CCState CCInfo(CallConv, IsVarArg, MF, RVLocs, *DAG.getContext());
+  CCInfo.AnalyzeReturn(Outs, CC_LVXRet);
+
+  SDValue Glue;
+  SmallVector<SDValue, 4> RetOps(1, Chain);
+
+  for (unsigned i = 0, e = RVLocs.size(); i != e; ++i) {
+    CCValAssign &VA = RVLocs[i];
+    assert(VA.isRegLoc() &&
+           "Return values must be in registers per CC_LVXRet");
+    Chain = DAG.getCopyToReg(Chain, DL, VA.getLocReg(), OutVals[i], Glue);
+    Glue = Chain.getValue(1);
+    RetOps.push_back(DAG.getRegister(VA.getLocReg(), VA.getLocVT()));
+  }
+
+  RetOps[0] = Chain;
+  if (Glue.getNode())
+    RetOps.push_back(Glue);
+
+  SDValue Ret = DAG.getNode(LVXISD::RET_GLUE, DL, MVT::Other, RetOps);
+  return Ret;
+}
+
+SDValue
+LVXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
+                             SmallVectorImpl<SDValue> &InVals) const {
+  SelectionDAG &DAG = CLI.DAG;
+  SDLoc &DL = CLI.DL;
+  SmallVectorImpl<ISD::OutputArg> &Outs = CLI.Outs;
+  SmallVectorImpl<SDValue> &OutVals = CLI.OutVals;
+  SmallVectorImpl<ISD::InputArg> &Ins = CLI.Ins;
+  SDValue Chain = CLI.Chain;
+  SDValue Callee = CLI.Callee;
+  CallingConv::ID CallConv = CLI.CallConv;
+  bool IsVarArg = CLI.IsVarArg;
+
+  if (IsVarArg)
+    report_fatal_error("Variadic functions not yet supported on LVX");
+  if (CLI.IsTailCall)
+    report_fatal_error("Tail calls not yet supported on LVX");
+
+  MachineFunction &MF = DAG.getMachineFunction();
+
+  // ---- Analyze outgoing arguments (mirrors LowerFormalArguments' use
+  // of CC_LVX, but for the OUTGOING side: each i128/v4i64 OutputArg
+  // still produces one or more i64-typed CCValAssign slots sharing a
+  // ValNo, which must be SPLIT from the wide OutVals[ValNo] value rather
+  // than reassembled). ----
+  SmallVector<CCValAssign, 16> ArgLocs;
+  CCState CCInfo(CallConv, IsVarArg, MF, ArgLocs, *DAG.getContext());
+  CCInfo.AnalyzeCallOperands(Outs, CC_LVX);
+
+  unsigned NumBytes = CCInfo.getAlignedCallFrameSize();
+  Chain = DAG.getCALLSEQ_START(Chain, NumBytes, 0, DL);
+
+  SmallVector<std::pair<unsigned, SDValue>, 12> RegsToPass;
+  SmallVector<SDValue, 12> MemOpChains;
+
+  unsigned Idx = 0;
+  while (Idx < ArgLocs.size()) {
+    unsigned ValNo = ArgLocs[Idx].getValNo();
+    SDValue Val = OutVals[ValNo];
+    EVT ValVT = Val.getValueType();
+
+    // Split the (possibly wide) outgoing value into the same number of
+    // i64 pieces CC_LVX_Custom assigned it -- the inverse of the
+    // BUILD_PAIR/BUILD_VECTOR reassembly LowerFormalArguments performs
+    // on the incoming side.
+    SmallVector<SDValue, 4> Pieces;
+    if (ValVT == MVT::i64 || ValVT == MVT::f64) {
+      Pieces.push_back(ValVT == MVT::i64
+                            ? Val
+                            : DAG.getNode(ISD::BITCAST, DL, MVT::i64, Val));
+    } else if (ValVT == MVT::i128) {
+      Pieces.push_back(DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i64, Val,
+                                   DAG.getIntPtrConstant(0, DL)));
+      Pieces.push_back(DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i64, Val,
+                                   DAG.getIntPtrConstant(1, DL)));
+    } else if (ValVT == MVT::v4i64) {
+      for (unsigned El = 0; El != 4; ++El)
+        Pieces.push_back(DAG.getNode(ISD::EXTRACT_VECTOR_ELT, DL, MVT::i64,
+                                     Val, DAG.getVectorIdxConstant(El, DL)));
+    } else {
+      llvm_unreachable("Unexpected outgoing argument type for LVX CC_LVX");
+    }
+
+    for (SDValue Piece : Pieces) {
+      const CCValAssign &VA = ArgLocs[Idx++];
+      if (VA.isRegLoc()) {
+        RegsToPass.push_back(std::make_pair(VA.getLocReg(), Piece));
+      } else {
+        assert(VA.isMemLoc() &&
+               "CCValAssign must be either RegLoc or MemLoc");
+        SDValue StackPtr =
+            DAG.getCopyFromReg(Chain, DL, LVX::R12, getPointerTy(DAG.getDataLayout()));
+        SDValue PtrOff = DAG.getNode(
+            ISD::ADD, DL, getPointerTy(DAG.getDataLayout()), StackPtr,
+            DAG.getIntPtrConstant(VA.getLocMemOffset(), DL));
+        MemOpChains.push_back(
+            DAG.getStore(Chain, DL, Piece, PtrOff, MachinePointerInfo()));
+      }
+    }
+  }
+
+  if (!MemOpChains.empty())
+    Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, MemOpChains);
+
+  // ---- Build the glued chain of CopyToReg nodes for every register
+  // argument, then assemble the LVXcall node's operand list. ----
+  SDValue Glue;
+  for (auto &Reg : RegsToPass) {
+    Chain = DAG.getCopyToReg(Chain, DL, Reg.first, Reg.second, Glue);
+    Glue = Chain.getValue(1);
+  }
+
+  SmallVector<SDValue, 8> Ops;
+  Ops.push_back(Chain);
+  Ops.push_back(Callee);
+  for (auto &Reg : RegsToPass)
+    Ops.push_back(DAG.getRegister(Reg.first, MVT::i64));
+  if (Glue.getNode())
+    Ops.push_back(Glue);
+
+  // TODO(Phase 3 continuation): direct (GlobalAddress callee, -> CALL)
+  // vs indirect (register callee, -> ICALL) opcode dispatch happens in
+  // LVXISelDAGToDAG::Select when it pattern-matches this LVXISD::CALL
+  // node -- see the TODO already there.
+  Chain = DAG.getNode(LVXISD::CALL, DL, DAG.getVTList(MVT::Other, MVT::Glue),
+                      Ops);
+  Glue = Chain.getValue(1);
+
+  Chain = DAG.getCALLSEQ_END(Chain, NumBytes, 0, Glue, DL);
+  Glue = Chain.getValue(1);
+
+  // ---- Analyze and reassemble the return value(s), mirroring
+  // LowerFormalArguments' reassembly logic exactly (CC_LVXRet has no
+  // CCCustom straddle splitting, so this side stays one CCValAssign per
+  // Ins[i] -- no grouping/BUILD_PAIR/BUILD_VECTOR needed here, unlike
+  // the CC_LVX argument side above). ----
+  if (!Ins.empty()) {
+    SmallVector<CCValAssign, 8> RVLocs;
+    CCState RetCCInfo(CallConv, IsVarArg, MF, RVLocs, *DAG.getContext());
+    RetCCInfo.AnalyzeCallResult(Ins, CC_LVXRet);
+
+    for (const CCValAssign &VA : RVLocs) {
+      assert(VA.isRegLoc() &&
+             "Return values must be in registers per CC_LVXRet");
+      SDValue RetVal =
+          DAG.getCopyFromReg(Chain, DL, VA.getLocReg(), VA.getLocVT(), Glue);
+      Chain = RetVal.getValue(1);
+      Glue = RetVal.getValue(2);
+      InVals.push_back(RetVal);
+    }
+  }
+
+  return Chain;
+}

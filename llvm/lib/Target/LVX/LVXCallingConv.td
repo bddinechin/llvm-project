@@ -15,16 +15,15 @@
 //   - An argument that straddles slot 11/12 has its low part in R11 and
 //     its high part on the stack.
 //
-// IMPORTANT — Phase 5 TODO: TableGen's declarative CC rules cannot share a
-// single slot counter across different value types (i64 vs i128 vs v4i64)
-// or implement the slot-11/12 straddle rule. CC_LVX below uses simple
-// independent CCAssignToReg lists per type as a Phase 1/2 placeholder that
-// is correct only for argument lists containing a single value type with
-// no more than 12 total slots. Before Phase 5 is complete, the i64/i128/
-// v4i64 rules and the straddle rule must be replaced with a CCCustom C++
-// callback (e.g. CC_LVX_Custom) that maintains one shared slot index across
-// all argument types, as is done for similar register-pair ABIs in other
-// targets (e.g. Mips o32, ARM AAPCS).
+// IMPORTANT — implemented via CCCustom (see CC_LVX_Custom in
+// LVXISelLowering.cpp): TableGen's declarative CC rules alone cannot
+// share a single slot counter across different value types (i64 vs
+// i128 vs v4i64) or implement the slot-11/12 straddle rule, so this file
+// only handles type promotion/bitconversion declaratively and defers
+// all register/stack slot assignment to one C++ callback that tracks a
+// shared slot index across every CC_LVX rule and splits an argument
+// across registers and the stack at exactly the slot-11/12 boundary, as
+// the ABI doc requires.
 //
 // Return values (up to 32 bytes / 4 slots) use the same register list as
 // arguments: R0-R3 ("result" in lvx_Convention.yml). Larger or
@@ -57,34 +56,15 @@ def CC_LVX : CallingConv<[
   // the slot.
   CCIfType<[f16, f32], CCBitConvertToType<i64>>,
 
-  // ---- 64-bit scalar arguments: slots 0-11 in R0-R11, else stack ------
-  CCIfType<[i64, f64],
-    CCAssignToReg<[R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11]>>,
-
-  // ---- 128-bit arguments: register pairs within R0-R11 -----------------
-  // NOTE: TableGen's CC infrastructure has no built-in way to share a
-  // single slot counter between the GPR (R0-R11) and GPR128 (R0R1..R10R11)
-  // assignment lists, nor to implement the slot-11/12 straddle rule (low
-  // half in R11, high half on the stack). Both require a CCCustom C++
-  // callback (e.g. CC_LVX_128) registered in LVXISelLowering (Phase 5),
-  // which must track a shared slot index across all CC_LVX rules. The
-  // rule below is a placeholder that is correct only when no i64/f64
-  // arguments precede a i128 argument; it will be replaced by CCCustom.
-  CCIfType<[i128],
-    CCAssignToReg<[R0R1, R2R3, R4R5, R6R7, R8R9, R10R11]>>,
-
-  // ---- 256-bit arguments: register quads within R0-R11 -----------------
-  // Same caveat as above — placeholder pending CCCustom.
-  CCIfType<[v4i64],
-    CCAssignToReg<[R0R1R2R3, R4R5R6R7, R8R9R10R11]>>,
-
-  // ---- Overflow: Outgoing Arguments region on the stack -----------------
-  // Slot 12 is at SP+0, slot 13 at SP+8, etc. All stack slots are 8-byte
-  // aligned regardless of the argument's natural alignment, per
-  // "the only alignment enforced is 8 bytes."
-  CCIfType<[i64, f64, f16, f32], CCAssignToStack<8, 8>>,
-  CCIfType<[i128],               CCAssignToStack<16, 8>>,
-  CCIfType<[v4i64],              CCAssignToStack<32, 8>>
+  // ---- 64/128/256-bit arguments: shared slot counter via CCCustom -----
+  // CC_LVX_Custom (LVXISelLowering.cpp) handles i64, f64, i128, and
+  // v4i64 uniformly, allocating 1/1/2/4 8-byte slots respectively from
+  // a single counter shared across all of them, splitting across
+  // R0-R11 and the Outgoing Arguments stack region at exactly the
+  // slot-11/12 boundary per the ABI doc's straddle rule. This replaces
+  // separate CCAssignToReg/CCAssignToStack rules per type, since those
+  // cannot share state across CCIfType branches.
+  CCIfType<[i64, f64, i128, v4i64], CCCustom<"CC_LVX_Custom">>
 ]>;
 
 //===----------------------------------------------------------------------===//

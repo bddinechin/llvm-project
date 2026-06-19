@@ -3,8 +3,8 @@ add_llvm_component_library(LVXDesc
   LINK_COMPONENTS
     MC
     Support
+  LINK_LIBS
     LVXInfo
   ADD_TO_COMPONENT
     LVX
 )
-

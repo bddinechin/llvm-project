@@ -5,4 +5,3 @@ add_llvm_component_library(LVXInfo
   ADD_TO_COMPONENT
     LVX
 )
-

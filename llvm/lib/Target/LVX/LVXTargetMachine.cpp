@@ -1,21 +1,22 @@
 //===-- LVXTargetMachine.cpp - Define TargetMachine for LVX -------------===//
 //
-// Phase 1 stub implementation. Mirrors the current LanaiTargetMachine.cpp
-// shape (confirmed against this checkout) but trimmed to what's needed to
-// register the target and compile: no Subtarget, no real instruction
-// selector, no TargetTransformInfo override yet.
+// Phase 3: now constructs a real LVXSubtarget member, mirroring
+// LanaiTargetMachine.cpp's initializer-list pattern (confirmed against
+// this checkout).
 //
 //===----------------------------------------------------------------------===//
 
 #include "LVXTargetMachine.h"
+#include "LVXISelDAGToDAG.h"
 #include "TargetInfo/LVXTargetInfo.h"
+#include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/MC/TargetRegistry.h"
 
 using namespace llvm;
 
 // getEffectiveRelocModel is a per-target local helper in current LLVM (not
-// a shared utility — confirmed against LanaiTargetMachine.cpp in this
+// a shared utility -- confirmed against LanaiTargetMachine.cpp in this
 // checkout, which defines its own static copy). LVX defaults to
 // Reloc::Static absent an explicit choice; revisit once the ABI's
 // position-independence requirements are settled (Lanai defaults to
@@ -38,19 +39,26 @@ LVXTargetMachine::LVXTargetMachine(
                                                         // (RV64G-derived,
                                                         // see Phase 1 chat)
           TT, CPU, FS, Options, getEffectiveRelocModel(RM),
-          getEffectiveCodeModel(CM, CodeModel::Small), OL) {
+          getEffectiveCodeModel(CM, CodeModel::Small), OL),
+      Subtarget(TT, CPU, FS, *this, Options, getCodeModel(), OL),
+      TLOF(std::make_unique<TargetLoweringObjectFileELF>()) {
   initAsmInfo();
 }
 
 namespace {
-// Minimal pass config: no addInstSelector/addPreSched2/addPreEmitPass
-// overrides yet — those land in Phase 3/5 once LVXISelLowering and the
-// frame lowering exist. Until then this behaves like the generic
-// TargetPassConfig base.
 class LVXPassConfig : public TargetPassConfig {
 public:
   LVXPassConfig(LVXTargetMachine &TM, PassManagerBase &PM)
       : TargetPassConfig(TM, PM) {}
+
+  LVXTargetMachine &getLVXTargetMachine() const {
+    return getTM<LVXTargetMachine>();
+  }
+
+  bool addInstSelector() override {
+    addPass(createLVXISelDag(getLVXTargetMachine(), getOptLevel()));
+    return false;
+  }
 };
 } // end anonymous namespace
 

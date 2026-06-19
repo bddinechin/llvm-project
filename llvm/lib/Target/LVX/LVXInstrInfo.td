@@ -36,10 +36,58 @@ include "LVXRegisterInfo.td"
 include "LVXInstrFormats.td"
 
 //===----------------------------------------------------------------------===//
+// LVX-specific SelectionDAG nodes
+//
+// Every target needs at least these custom nodes to implement call/return
+// lowering: a CALL node (the actual call instruction, gluing the callee
+// address and argument registers together) and a glued return node (so
+// LowerReturn can tie the return values to the RET instruction).
+// CALLSEQ_START/CALLSEQ_END are generic ISD nodes already declared in
+// TargetSelectionDAG.td and need no LVX-specific wrapper. Modeled directly
+// on Lanai's Call/RetGlue (confirmed current via LanaiInstrInfo.td in this
+// checkout).
+//===----------------------------------------------------------------------===//
+
+def SDT_LVXCall : SDTypeProfile<0, -1, [SDTCisVT<0, i64>]>;
+def LVXcall : SDNode<"LVXISD::CALL", SDT_LVXCall,
+                     [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
+                      SDNPVariadic]>;
+
+// RET_GLUE: return with glue. SDTNone with SDNPHasChain|SDNPOptInGlue|
+// SDNPVariadic is the correct pattern (per RISC-V's riscv_ret_glue,
+// MSP430's retflag, etc.) -- SDTNone means no additional type constraints
+// on the variadic operands (the outgoing return-value register copies),
+// not that the node takes zero operands. Our earlier attempt to use
+// SDTypeProfile<0,-1,[]> instead was wrong: it generates an out-of-bounds
+// type constraint table index in LVXGenSDNodeInfo.inc, causing a segfault
+// in verifyTargetNode. The original SDTNone was always the right choice.
+def LVXretglue : SDNode<"LVXISD::RET_GLUE", SDTNone,
+                        [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
+
+//===----------------------------------------------------------------------===//
 // Scheduling classes (itinerary stubs — filled in during Phase 5)
 //===----------------------------------------------------------------------===//
 
 def GenericItineraries : ProcessorItineraries<[], [], []>;
+
+//===----------------------------------------------------------------------===//
+// Subtarget features and processor model
+//
+// LVXGenSubtargetInfo.inc generation requires at least one ProcessorModel
+// def to have something to parse. ProcessorModel's second template
+// argument is a SchedMachineModel, not a ProcessorItineraries (a
+// real TableGen type distinction caught at build time) -- GenericModel
+// below is a placeholder with no real scheduling information yet,
+// matching the pattern used by minimal targets before a real scheduler
+// model is written (Phase 5).
+//===----------------------------------------------------------------------===//
+
+def GenericModel : SchedMachineModel {
+  let NoModel = 1;
+  let CompleteModel = 0;
+}
+
+def : ProcessorModel<"generic", GenericModel, []>;
 
 def ALU_TINY      : InstrItinClass;
 def ALU_LITE      : InstrItinClass;
@@ -1524,6 +1572,12 @@ def GOTO  : BCU_UB_Inst<0b10, "goto",  [(br bb:$target)], BCU_XFER> {
   let isTerminator = 1;
   let isBarrier    = 1;
 }
+// CALL has no declarative SelectionDAG pattern: binding the LVXcall
+// pseudo-node's callee operand to this instruction's PC-relative
+// brtarget27s2 (direct call, global symbol) vs ICALL's register operand
+// (indirect call, register) depends on the callee's DAG node kind, which
+// is exactly the kind of selection logic that belongs in
+// LVXISelDAGToDAG::Select (Phase 3) rather than a TableGen pattern.
 def CALL  : BCU_UB_Inst<0b11, "call",  [], BCU_XFER> {
   let isCall = 1;
   let Defs   = [RA];
@@ -1536,10 +1590,12 @@ def CB    : BCU_CB_Inst<"cb", []> {
   let isBranch     = 1;
   let isTerminator = 1;
 }
-// RET has no SelectionDAG pattern: ISD::RET is lowered by
-// LVXISelLowering::LowerReturn (Phase 5) into this instruction directly,
-// the same approach used by RISC-V, Lanai, etc.
-def RET   : BCU_RTS_Inst<0b10100, "ret", [], BCU_XFER> {
+// RET is selected via the LVXretglue pseudo-node, which LowerReturn emits
+// to tie the return value registers to this instruction (Phase 3). The
+// pattern says "any LVXretglue node selects to RET"; the actual outgoing
+// register assignment is performed by CopyToReg nodes inserted by
+// LowerReturn before this point, not by this pattern itself.
+def RET   : BCU_RTS_Inst<0b10100, "ret", [(LVXretglue)], BCU_XFER> {
   let isReturn     = 1;
   let isTerminator = 1;
   let isBarrier    = 1;
@@ -1599,6 +1655,38 @@ def EORD_i  : ALU_DWRI_Inst<0b1100, "eord",  []>;
 def NEORD_i : ALU_DWRI_Inst<0b1101, "neord", []>;
 def ANDND_i : ALU_DWRI_Inst<0b1110, "andnd", []>;
 def IORND_i : ALU_DWRI_Inst<0b1111, "iornd", []>;
+
+// ---- COPYD: synthetic register-to-register copy, per lvx_Synthetic.yml ---
+// "COPYD %0 %1 = %2" specializes ALU_DWRI's IORD_i (rW = imm | rZ) with
+// imm fixed to 0, i.e. COPYD $rW, $rZ  ==>  iord $rW = 0, $rZ  ==>
+// rW = 0 | rZ = rZ. Shares IORD_i's exact encoding (opcode 0b1010,
+// ALU_DWRI format) but exposes only $rW/$rZ as operands -- imm is
+// hardcoded rather than user-supplied, and the assembly string omits
+// the (always-zero) immediate entirely, matching the synthetic
+// instruction's own two-operand syntax ("%0 %1 = %2", not IORD_i's
+// three-token "$rW = $imm, $rZ").
+//
+// This is the instruction LVXISelLowering (LowerFormalArguments/
+// LowerCall) emits to realign mis-aligned i128/v4i64 argument pieces
+// into a true GPR128/GPR256 register tuple: per the ABI doc, "some
+// multi-register arguments may end up in mis-aligned register tuples.
+// It is the callee's responsibility to move such arguments into
+// well-aligned register tuples before using them as operands of wide
+// load-store and SIMD instructions" (and the caller's responsibility
+// on the outgoing side) -- moving one 64-bit register at a time via
+// COPYD is exactly the mechanism the ABI doc describes.
+def COPYD : LVXInst<(outs GPR:$rW), (ins GPR:$rZ),
+                    "copyd $rW = $rZ", [], ALU_TINY> {
+  bits<6> rW;
+  bits<6> rZ;
+  let Inst{30-29} = 0b11;
+  let Inst{28}    = 0b0;
+  let Inst{27-24} = 0b1010; // IORD_i's opcode
+  let Inst{23-18} = rW;
+  let Inst{17-16} = 0b00;
+  let Inst{15-6}  = 0;      // imm, hardcoded to 0
+  let Inst{5-0}   = rZ;
+}
 
 // ---- ALU_BFWR: Bitfield ---------------------------------------------------
 
@@ -1693,6 +1781,40 @@ def SBFUSD  : ALU_DWRR1_Inst<0b1011, "sbfusd",  []>;
 
 def DIVMODD  : ALU_DDMWRR_Inst<0b1100, "divmodd",  []>;
 def DIVMODUD : ALU_DDMWRR_Inst<0b1101, "divmodud", []>;
+
+// ---------- ALU_CATDQ: catenate two double words into a register pair -----
+// Per lvx_Format.yml ("ALU Catenate Double to Quadruple Word") and
+// lvx_Opcode.txt's confirmed bit layout:
+//   | P | 11 | 0 | 1111 | registerM(5) | _ | 10 | 010 | 1 | registerY(6) | registerZ(6) |
+// registerM is the GPR128 destination pair; registerY/registerZ are the
+// two GPR sources. This is the real instruction behind the COPYD-based
+// realignment scheme described in lvx_Synthetic.yml: CATDQ assembles an
+// aligned 128-bit pair from two arbitrary (possibly non-adjacent) 64-bit
+// source registers in a single instruction, which is exactly what's
+// needed to move a mis-aligned i128 argument (per the ABI doc's
+// "callee's responsibility to move such arguments into well-aligned
+// register tuples") into place more efficiently than two separate
+// COPYDs.
+class ALU_CATDQ_Inst<string mnemonic, list<dag> pattern>
+    : LVXInst<(outs GPR128:$rM), (ins GPR:$rY, GPR:$rZ),
+              !strconcat(mnemonic, " $rM = $rY, $rZ"),
+              pattern, ALU_LITE> {
+  bits<5> rM;
+  bits<6> rY;
+  bits<6> rZ;
+  let Inst{30-29} = 0b11;
+  let Inst{28}    = 0b0;
+  let Inst{27-24} = 0b1111;
+  let Inst{23-19} = rM;
+  let Inst{18}    = 0b0;
+  let Inst{17-16} = 0b10;
+  let Inst{15-13} = 0b010;
+  let Inst{12}    = 0b1;
+  let Inst{11-6}  = rY;
+  let Inst{5-0}   = rZ;
+}
+
+def CATDQ : ALU_CATDQ_Inst<"catdq", []>;
 
 // ---- ALU_DBWR: Unary double -----------------------------------------------
 
