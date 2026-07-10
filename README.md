@@ -4,6 +4,22 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/8273/badge)](https://www.bestpractices.dev/projects/8273)
 [![libc++](https://github.com/llvm/llvm-project/actions/workflows/libcxx-build-and-test.yaml/badge.svg?branch=main&event=schedule)](https://github.com/llvm/llvm-project/actions/workflows/libcxx-build-and-test.yaml?query=event%3Aschedule)
 
+## About this fork
+
+This fork (`bddinechin/llvm-project`) hosts two independent, experimental
+projects, each on its own branch off upstream `main`:
+
+- **[`lvx-llvm`](https://github.com/bddinechin/llvm-project/tree/lvx-llvm)**
+  — an LLVM backend targeting the LVX VLIW architecture (`lvx_v1` core):
+  instruction selection, calling convention, frame lowering, and real
+  assembly output verified against the LVX GNU Binutils port.
+- **`lvx-mlir`** — a separate project, also branched from upstream `main`.
+
+`main` itself tracks upstream `llvm/llvm-project` unmodified; it does not
+contain either project's code.
+
+---
+
 Welcome to the LLVM project!
 
 This repository contains the source code for LLVM, a toolkit for the
