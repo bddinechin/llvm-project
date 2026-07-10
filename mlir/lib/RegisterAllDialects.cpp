@@ -50,6 +50,10 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/AllInterfaces.h"
 #include "mlir/Dialect/Linalg/Transforms/RuntimeOpVerification.h"
+#include "mlir/Dialect/LVX/IR/LVX.h"
+#include "mlir/Dialect/LVXCF/IR/LVXCF.h"
+#include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
+#include "mlir/Dialect/LVXSCF/IR/LVXSCF.h"
 #include "mlir/Dialect/MLProgram/IR/MLProgram.h"
 #include "mlir/Dialect/MLProgram/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/MPI/IR/MPI.h"
@@ -130,6 +134,10 @@ void mlir::registerAllDialects(DialectRegistry &registry) {
                   irdl::IRDLDialect,
                   linalg::LinalgDialect,
                   LLVM::LLVMDialect,
+                  lvx::LVXDialect,
+                  lvx_cf::LVXCFDialect,
+                  lvx_func::LVXFuncDialect,
+                  lvx_scf::LVXSCFDialect,
                   math::MathDialect,
                   memref::MemRefDialect,
                   shard::ShardDialect,

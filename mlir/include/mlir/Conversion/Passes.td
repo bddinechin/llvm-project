@@ -1814,4 +1814,28 @@ def ConvertXeGPUToXeVMPass : Pass<"convert-xegpu-to-xevm"> {
   ];
 }
 
+//===----------------------------------------------------------------------===//
+// ConvertToLVX
+//===----------------------------------------------------------------------===//
+
+def ConvertToLVXPass : Pass<"convert-to-lvx", "ModuleOp"> {
+  let summary = "Lower Arith, ControlFlow, SCF, MemRef, and Func ops to the "
+                "LVX family of dialects";
+  let description = [{
+    Lowers operations from the Arith, ControlFlow (cf), SCF, MemRef, and Func
+    dialects into `lvx` (real LVX_v1 mnemonics, `!lvx.reg` values),
+    `lvx_cf` (unstructured branches), `lvx_scf` (structured `for` loops,
+    kept structural rather than lowered further), and `lvx_func`
+    (ABI-constrained function definitions/calls). Structured control flow
+    (`scf.for`) is converted directly to `lvx_scf.for`; do not run
+    `convert-scf-to-cf` before this pass, since that would discard the loop
+    structure this dialect (and later register allocation / software
+    pipelining passes) rely on.
+  }];
+  let dependentDialects = [
+    "lvx::LVXDialect", "lvx_cf::LVXCFDialect", "lvx_scf::LVXSCFDialect",
+    "lvx_func::LVXFuncDialect"
+  ];
+}
+
 #endif // MLIR_CONVERSION_PASSES
