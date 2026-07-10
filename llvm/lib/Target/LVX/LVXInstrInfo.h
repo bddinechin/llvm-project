@@ -57,6 +57,23 @@ public:
                    const DebugLoc &DL, Register DestReg, Register SrcReg,
                    bool KillSrc, bool RenamableDest = false,
                    bool RenamableSrc = false) const override;
+
+  // Spill/reload GPR/GPR128/GPR256 values via SD/LD, SQ/LQ, SO/LO
+  // respectively (Phase 5). The register class determines which of the
+  // three instruction pairs is used, mirroring copyPhysReg's dispatch.
+  void storeRegToStackSlot(MachineBasicBlock &MBB,
+                           MachineBasicBlock::iterator MI, Register SrcReg,
+                           bool isKill, int FrameIndex,
+                           const TargetRegisterClass *RC, Register VReg,
+                           MachineInstr::MIFlag Flags =
+                               MachineInstr::NoFlags) const override;
+
+  void loadRegFromStackSlot(MachineBasicBlock &MBB,
+                            MachineBasicBlock::iterator MI, Register DestReg,
+                            int FrameIndex, const TargetRegisterClass *RC,
+                            Register VReg, unsigned SubReg = 0,
+                            MachineInstr::MIFlag Flags =
+                                MachineInstr::NoFlags) const override;
 };
 
 } // end namespace llvm

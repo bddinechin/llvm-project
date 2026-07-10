@@ -35,6 +35,16 @@ public:
 
   BitVector getReservedRegs(const MachineFunction &MF) const override;
 
+  // requiresFrameIndexScavenging is deliberately NOT overridden: that flag
+  // tells PEI to defer frame-index elimination to a second post-pass and
+  // run the *main* replaceFrameIndices walk with RS forced to null (see
+  // PrologEpilogInserter.cpp's FrameIndexEliminationScavenging), which is
+  // wrong for LVX's single-pass eliminateFrameIndex below (it scavenges
+  // inline, immediately, exactly like Lanai's).
+  bool requiresRegisterScavenging(const MachineFunction &MF) const override {
+    return true;
+  }
+
   bool eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
                            unsigned FIOperandNum,
                            RegScavenger *RS = nullptr) const override;

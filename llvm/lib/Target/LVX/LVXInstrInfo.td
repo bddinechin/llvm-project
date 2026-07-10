@@ -65,6 +65,49 @@ def LVXretglue : SDNode<"LVXISD::RET_GLUE", SDTNone,
                         [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
 //===----------------------------------------------------------------------===//
+// Call-frame pseudo instructions
+//
+// Select targets for the generic ISD::CALLSEQ_START/CALLSEQ_END nodes
+// LowerCall emits around every call. Unlike targets that adjust SP per
+// call site, LVX's Outgoing Arguments region is sized once for the whole
+// function (MFI.getMaxCallFrameSize(), baked into the frame by
+// LVXFrameLowering's prologue/epilogue) — so these pseudos carry no real
+// codegen effect; LVXFrameLowering::eliminateCallFramePseudoInstr just
+// erases them post-selection. They still need to exist as real,
+// selectable instructions, though: without them SelectionDAGISel has
+// nothing to select CALLSEQ_START/END to at all and aborts.
+//===----------------------------------------------------------------------===//
+
+class LVXPseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
+    : Instruction {
+  let Namespace = "LVX";
+  let OutOperandList = outs;
+  let InOperandList = ins;
+  let AsmString = asmstr;
+  let Pattern = pattern;
+  let isPseudo = 1;
+  let isCodeGenOnly = 1;
+}
+
+// ISD::CALLSEQ_START/END are target-independent nodes, but (per every
+// target in this tree, e.g. ARC/Lanai's own callseq_start/callseq_end)
+// have no globally predefined TableGen fragment name -- each target
+// declares its own local SDNode wrapper with its pointer-sized type.
+def SDT_LVXCallSeqStart : SDCallSeqStart<[SDTCisVT<0, i64>, SDTCisVT<1, i64>]>;
+def SDT_LVXCallSeqEnd   : SDCallSeqEnd<[SDTCisVT<0, i64>, SDTCisVT<1, i64>]>;
+def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_LVXCallSeqStart,
+                           [SDNPHasChain, SDNPOutGlue]>;
+def callseq_end   : SDNode<"ISD::CALLSEQ_END", SDT_LVXCallSeqEnd,
+                           [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
+
+def ADJCALLSTACKDOWN : LVXPseudo<(outs), (ins i64imm:$amt1, i64imm:$amt2),
+                                 "# ADJCALLSTACKDOWN $amt1, $amt2",
+                                 [(callseq_start timm:$amt1, timm:$amt2)]>;
+def ADJCALLSTACKUP : LVXPseudo<(outs), (ins i64imm:$amt1, i64imm:$amt2),
+                               "# ADJCALLSTACKUP $amt1, $amt2",
+                               [(callseq_end timm:$amt1, timm:$amt2)]>;
+
+//===----------------------------------------------------------------------===//
 // Scheduling classes (itinerary stubs — filled in during Phase 5)
 //===----------------------------------------------------------------------===//
 

@@ -21,15 +21,12 @@ protected:
   const LVXSubtarget &STI;
 
 public:
-  // StackAlignment = 16 bytes (128 bits), per the ABI doc's "the only
-  // alignment enforced is 8 bytes" note for argument slots — but the ABI
-  // doc separately specifies stack alignment of 16 bytes elsewhere (see
-  // LVXRegisterInfo.td's S128 data-layout token from Phase 1). Using 16
-  // here; revisit if the ABI doc's stack-frame section says otherwise
-  // once we read it again closely in Phase 5.
+  // ABI doc §Stack Frame Addressing: "The stack pointer must always be
+  // aligned on a 32-byte boundary. This implies that all stack frames
+  // must be a multiple of 32 bytes in size."
   explicit LVXFrameLowering(const LVXSubtarget &Subtarget)
       : TargetFrameLowering(StackGrowsDown,
-                            /*StackAlignment=*/Align(16),
+                            /*StackAlignment=*/Align(32),
                             /*LocalAreaOffset=*/0),
         STI(Subtarget) {}
 

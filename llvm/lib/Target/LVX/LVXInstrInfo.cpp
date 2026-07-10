@@ -19,11 +19,15 @@ using namespace llvm;
 //                   const TargetRegisterInfo &TRI,
 //                   unsigned CFSetupOpcode, unsigned CFDestroyOpcode,
 //                   unsigned CatchRetOpcode, unsigned ReturnOpcode)
-// LVX has no call-frame setup/destroy pseudo-instructions and no
-// catch-return instruction (no exception handling defined yet), so those
-// three use ~0u, the standard LLVM sentinel for "no such opcode" used
-// throughout TargetInstrInfo. RET is a real opcode (LVX::RET), so that one
-// is passed through properly.
+// CFSetupOpcode/CFDestroyOpcode are LVX::ADJCALLSTACKDOWN/UP (Phase 5,
+// LVXInstrInfo.td) -- SelectionDAGISel needs real, selectable targets for
+// the generic ISD::CALLSEQ_START/END nodes LowerCall emits around every
+// call, even though LVXFrameLowering::eliminateCallFramePseudoInstr just
+// erases them afterward (LVX's Outgoing Arguments region is sized once
+// for the whole function, not adjusted per call site). LVX still has no
+// catch-return instruction (no exception handling defined yet), so that
+// one uses ~0u, the standard LLVM sentinel for "no such opcode". RET is a
+// real opcode (LVX::RET), so that one is passed through properly.
 //
 // RegisterInfo (our own member, not the subtarget's) is passed as the
 // TargetRegisterInfo& argument: going through STI.getRegisterInfo() here
@@ -43,8 +47,10 @@ using namespace llvm;
 // (c) RegisterInfo is fully constructed immediately afterward, strictly
 // before LVXInstrInfo is considered constructed or usable by any caller.
 LVXInstrInfo::LVXInstrInfo(const LVXSubtarget &STI)
-    : LVXGenInstrInfo(STI, RegisterInfo, /*CFSetupOpcode=*/~0u,
-                      /*CFDestroyOpcode=*/~0u, /*CatchRetOpcode=*/~0u,
+    : LVXGenInstrInfo(STI, RegisterInfo,
+                      /*CFSetupOpcode=*/LVX::ADJCALLSTACKDOWN,
+                      /*CFDestroyOpcode=*/LVX::ADJCALLSTACKUP,
+                      /*CatchRetOpcode=*/~0u,
                       /*ReturnOpcode=*/LVX::RET),
       RegisterInfo() {}
 
@@ -137,4 +143,71 @@ void LVXInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   }
 
   llvm_unreachable("Unsupported register class pair in LVX copyPhysReg");
+}
+
+// Store/load operand shapes (LVXInstrInfo.td):
+//   SD:  (outs),        (ins GPR:$rT,    simm10:$off, GPR:$rZ)
+//   LD:  (outs GPR:$rW),(ins variant:$var, simm10:$off, GPR:$rZ)
+//   SQ:  (outs),        (ins GPR128:$rU, simm10:$off, GPR:$rZ)
+//   LQ:  (outs GPR128:$rM),(ins variant:$var, simm10:$off, GPR:$rZ)
+//   SO:  (outs),        (ins GPR256:$rV, simm10:$off, GPR:$rZ)
+//   LO:  (outs GPR256:$rN),(ins variant:$var, simm10:$off, GPR:$rZ)
+// The offset operand always precedes the base-register operand -- opposite
+// of Lanai's ADD_I_LO-derived layout -- which is why the FrameIndex is
+// added last in every BuildMI call below, and matters again in
+// LVXRegisterInfo::eliminateFrameIndex when locating the offset operand
+// relative to the frame-index operand it replaces.
+void LVXInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
+                                       MachineBasicBlock::iterator MI,
+                                       Register SrcReg, bool isKill,
+                                       int FrameIndex,
+                                       const TargetRegisterClass *RC,
+                                       Register /*VReg*/,
+                                       MachineInstr::MIFlag Flags) const {
+  DebugLoc DL;
+  if (MI != MBB.end())
+    DL = MI->getDebugLoc();
+
+  unsigned Opc;
+  if (RC == &LVX::GPRRegClass)
+    Opc = LVX::SD;
+  else if (RC == &LVX::GPR128RegClass)
+    Opc = LVX::SQ;
+  else if (RC == &LVX::GPR256RegClass)
+    Opc = LVX::SO;
+  else
+    llvm_unreachable("Unsupported register class in LVX storeRegToStackSlot");
+
+  BuildMI(MBB, MI, DL, get(Opc))
+      .addReg(SrcReg, getKillRegState(isKill))
+      .addImm(0) // off
+      .addFrameIndex(FrameIndex)
+      .setMIFlags(Flags);
+}
+
+void LVXInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
+                                        MachineBasicBlock::iterator MI,
+                                        Register DestReg, int FrameIndex,
+                                        const TargetRegisterClass *RC,
+                                        Register /*VReg*/, unsigned /*SubReg*/,
+                                        MachineInstr::MIFlag Flags) const {
+  DebugLoc DL;
+  if (MI != MBB.end())
+    DL = MI->getDebugLoc();
+
+  unsigned Opc;
+  if (RC == &LVX::GPRRegClass)
+    Opc = LVX::LD;
+  else if (RC == &LVX::GPR128RegClass)
+    Opc = LVX::LQ;
+  else if (RC == &LVX::GPR256RegClass)
+    Opc = LVX::LO;
+  else
+    llvm_unreachable("Unsupported register class in LVX loadRegFromStackSlot");
+
+  BuildMI(MBB, MI, DL, get(Opc), DestReg)
+      .addImm(0) // variant = 0 (normal/non-speculative)
+      .addImm(0) // off
+      .addFrameIndex(FrameIndex)
+      .setMIFlags(Flags);
 }
