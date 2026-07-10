@@ -41,20 +41,17 @@ using namespace llvm;
 // the stack (de)allocation in emitPrologue/emitEpilogue: the immediate is
 // bounded by simm10 ([-512,511]), but with big outgoing-call-argument areas
 // OutgoingArgSize (and therefore FPOffset/RAOffset) can exceed that. This
-// materializes Base+Offset into scratch register R16 via MAKE+ADDD when
-// needed (same MAKE simm16 limit noted in emitPrologue's stack-allocation
-// step), returning the register/immediate pair callers should use in place
-// of (Base, Offset).
+// materializes Base+Offset into scratch register R16 via
+// LVXInstrInfo::loadImmediate (MAKE/MAKE_X/MAKE_Y, Phase 5.1) + ADDD when
+// needed, returning the register/immediate pair callers should use in
+// place of (Base, Offset).
 static std::pair<Register, int64_t>
 materializeOffset(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
                   const DebugLoc &DL, const LVXInstrInfo *TII, Register Base,
                   int64_t Offset) {
   if (isInt<10>(Offset))
     return {Base, Offset};
-  assert(isInt<16>(Offset) &&
-        "Offset exceeds MAKE's simm16 range -- needs a wider "
-        "immediate-materialization sequence, not yet modeled");
-  BuildMI(MBB, MBBI, DL, TII->get(LVX::MAKE), LVX::R16).addImm(Offset);
+  TII->loadImmediate(MBB, MBBI, DL, LVX::R16, Offset);
   BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD), LVX::R16)
       .addReg(LVX::R16)
       .addReg(Base);
@@ -94,22 +91,18 @@ void LVXFrameLowering::emitPrologue(MachineFunction &MF,
   // Step 1: Allocate the stack frame.
   // "addd $r12 = -FrameSize, $r12" when it fits ADDD_i's simm10 immediate
   // ([-512,511]); otherwise materialize -FrameSize into a scratch register
-  // via MAKE (simm16, [-32768,32767] -- the only immediate-load
-  // instruction modeled so far, see LVXInstrInfo.td's ALU_DWI_Inst) and add
-  // it with the register-register ADDD. R16 ($r16, one of the "veneer /
-  // long-branch temporary" scratch registers per LVXRegisterInfo.td) is
-  // free here since nothing is live yet at function entry.
+  // via LVXInstrInfo::loadImmediate (MAKE/MAKE_X/MAKE_Y, Phase 5.1 -- any
+  // int64_t fits) and add it with the register-register ADDD. R16 ($r16,
+  // one of the "veneer / long-branch temporary" scratch registers per
+  // LVXRegisterInfo.td) is free here since nothing is live yet at
+  // function entry.
   if (StackSize > 0) {
     if (isInt<10>(-(int64_t)StackSize)) {
       BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD_i), LVX::R12)
           .addImm(-(int64_t)StackSize)
           .addReg(LVX::R12);
     } else {
-      assert(isInt<16>(-(int64_t)StackSize) &&
-             "Frame size exceeds MAKE's simm16 range -- needs a wider "
-             "immediate-materialization sequence, not yet modeled");
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::MAKE), LVX::R16)
-          .addImm(-(int64_t)StackSize);
+      TII->loadImmediate(MBB, MBBI, DL, LVX::R16, -(int64_t)StackSize);
       BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD), LVX::R12)
           .addReg(LVX::R12)
           .addReg(LVX::R16);
@@ -156,11 +149,7 @@ void LVXFrameLowering::emitPrologue(MachineFunction &MF,
           .addImm((int64_t)StackSize)
           .addReg(LVX::R12);
     } else {
-      assert(isInt<16>((int64_t)StackSize) &&
-             "Frame size exceeds MAKE's simm16 range -- needs a wider "
-             "immediate-materialization sequence, not yet modeled");
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::MAKE), LVX::R14)
-          .addImm((int64_t)StackSize);
+      TII->loadImmediate(MBB, MBBI, DL, LVX::R14, (int64_t)StackSize);
       BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD), LVX::R14)
           .addReg(LVX::R14)
           .addReg(LVX::R12);
@@ -215,19 +204,16 @@ void LVXFrameLowering::emitEpilogue(MachineFunction &MF,
   }
 
   // Step 2: Deallocate the stack frame.
-  // "addd $r12 = FrameSize, $r12" when it fits simm10; otherwise MAKE +
-  // ADDD via scratch R16, same fallback as emitPrologue's allocation step.
+  // "addd $r12 = FrameSize, $r12" when it fits simm10; otherwise MAKE/
+  // MAKE_X/MAKE_Y + ADDD via scratch R16, same fallback as emitPrologue's
+  // allocation step.
   if (StackSize > 0) {
     if (isInt<10>((int64_t)StackSize)) {
       BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD_i), LVX::R12)
           .addImm((int64_t)StackSize)
           .addReg(LVX::R12);
     } else {
-      assert(isInt<16>((int64_t)StackSize) &&
-             "Frame size exceeds MAKE's simm16 range -- needs a wider "
-             "immediate-materialization sequence, not yet modeled");
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::MAKE), LVX::R16)
-          .addImm((int64_t)StackSize);
+      TII->loadImmediate(MBB, MBBI, DL, LVX::R16, (int64_t)StackSize);
       BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD), LVX::R12)
           .addReg(LVX::R12)
           .addReg(LVX::R16);

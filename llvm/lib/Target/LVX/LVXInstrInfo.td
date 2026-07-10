@@ -168,6 +168,14 @@ def simm16 : Operand<i64> {
 }
 def simm16imm : ImmLeaf<i64, [{ return isInt<16>(Imm); }]>;
 
+// Wide-immediate operands for MAKE.X (43-bit) / MAKE.Y (64-bit, "wrapped"
+// per lvx-mds/refs) -- see ALU_DWI_X_Inst/ALU_DWI_Y_Inst below. No
+// Encoder/DecoderMethod yet: LVX has no MCCodeEmitter/Disassembler to
+// generate against (confirmed no -gen-emitter/-gen-decoder backend is
+// invoked for this target), so there is nothing to wire these to yet.
+def simm43 : Operand<i64>;
+def simm64 : Operand<i64>;
+
 def uimm6 : Operand<i64> {
   let DecoderMethod = "decodeUImmOperand<6>";
 }
@@ -223,6 +231,45 @@ class LVXInst<dag outs, dag ins, string asmstr, list<dag> pattern,
   let Inst{31}       = 0;   // P bit: always 0 for single-issue
 }
 
+// LVXInst is fixed at one 32-bit syllable. A handful of instructions (so
+// far just MAKE.X/MAKE.Y, see ALU_DWI_X_Inst/ALU_DWI_Y_Inst below) are
+// genuinely 2 or 3 syllables (64/96-bit) -- one logical instruction with
+// extra IMMX extension syllables carrying more immediate bits, per
+// lvx-mds/refs and the real GNU Binutils port's wordcount=2/3 opcode
+// table entries (opcodes/lvx-opc.c). LVX has no MCCodeEmitter yet
+// (confirmed: no -gen-emitter backend is invoked for this target), so
+// these Inst bits are documentation for that future encoder, not
+// load-bearing today -- the only current users (LVXFrameLowering,
+// LVXRegisterInfo::eliminateFrameIndex) build these via BuildMI, not
+// through a DAG pattern or encoder.
+class LVXInst64<dag outs, dag ins, string asmstr, list<dag> pattern,
+                InstrItinClass itin>
+    : Instruction {
+  field bits<64> Inst;
+  field bits<64> SoftFail = 0;
+  let Namespace      = "LVX";
+  let Size           = 8;
+  let OutOperandList = outs;
+  let InOperandList  = ins;
+  let AsmString      = asmstr;
+  let Pattern        = pattern;
+  let Itinerary      = itin;
+}
+
+class LVXInst96<dag outs, dag ins, string asmstr, list<dag> pattern,
+                InstrItinClass itin>
+    : Instruction {
+  field bits<96> Inst;
+  field bits<96> SoftFail = 0;
+  let Namespace      = "LVX";
+  let Size           = 12;
+  let OutOperandList = outs;
+  let InOperandList  = ins;
+  let AsmString      = asmstr;
+  let Pattern        = pattern;
+  let Itinerary      = itin;
+}
+
 //===----------------------------------------------------------------------===//
 // Format classes
 //
@@ -250,6 +297,73 @@ class ALU_DWI_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
   let Inst{23-18} = rW;
   let Inst{17-16} = 0b00;
   let Inst{15-0}  = imm;
+}
+
+// ---------- ALU_DWI.X / ALU_DWI.Y: rW = wide imm (43-bit / 64-bit) --------
+//
+// Widened forms of ALU_DWI (so far only MAKE has one): word 0 (first in
+// memory) carries the same recognizable bits 30-16 as the simple form
+// plus registerW, confirmed bit-for-bit against opcodes/lvx-opc.c's
+// "make" wordcount=2/3 table entries (.opcode=0xe0000000/.mask=0xff030000
+// for word 0 of both -- an exact superset-match of simple MAKE's own
+// .opcode=0x60000000/.mask pattern over bits 30-16, with bit 31
+// additionally forced to 1). Bit 31 is 1 on every syllable except the
+// true last one of the instruction (word 1 for .X, word 2 for .Y), whose
+// mask leaves bit 31 unconstrained in lvx-opc.c -- i.e. free for the real
+// parallel bit there, exactly like any other instruction's own final
+// syllable. .Y's middle syllable (word 1) is likewise forced to 1
+// (opcode=0x80000000/mask=0xe0000000 fixes its top 3 bits to 100,
+// confirmed against the same table). Cross-checked directly against
+// lvx-mds/refs/FE/YAML/lvx/lvx_v1/Opcode.txt's ALU_DWI.X/ALU_DWI.Y bit
+// diagrams (lines 813-819, 1118-1125), which agree bit-for-bit.
+//
+// That final syllable's bit is hardcoded 0b0 here rather than left
+// free/"?": this backend has no VLIW bundling (LVXInst's own Inst{31}=0
+// comment: "always 0 for single-issue"), so every bundle is exactly one
+// instruction and its own last syllable is always the bundle's last
+// syllable too -- there is no separate instruction that could ever
+// follow it in the same bundle to justify leaving the bit open.
+//
+// The wide immediate's exact chunk boundaries across the extension
+// syllable(s) are intentionally left unspecified ("?"): see the
+// LVXInst64/LVXInst96 comment above for why that's fine for now.
+class ALU_DWI_X_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
+    : LVXInst64<(outs GPR:$rW), (ins simm43:$imm),
+                !strconcat(mnemonic, ".x $rW = $imm"),
+                pattern, ALU_TINY> {
+  bits<6>  rW;
+  bits<43> imm;
+  let Inst{31}    = 0b1;    // forced: word 1 (this instruction) follows
+  let Inst{30-29} = 0b11;
+  let Inst{28}    = 0b0;
+  let Inst{27-24} = opc;
+  let Inst{23-18} = rW;
+  let Inst{17-16} = 0b00;
+  let Inst{15-0}  = ?;      // TODO(Phase 4): extend6/lower10 packing
+  let Inst{63}    = 0b0;    // last syllable: no bundling, always 0
+  let Inst{62-61} = 0b00;
+  let Inst{60-32} = ?;      // TODO(Phase 4): upper27 packing
+}
+
+class ALU_DWI_Y_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
+    : LVXInst96<(outs GPR:$rW), (ins simm64:$imm),
+                !strconcat(mnemonic, ".y $rW = $imm"),
+                pattern, ALU_TINY> {
+  bits<6>  rW;
+  bits<64> imm;
+  let Inst{31}    = 0b1;    // forced: word 1 (this instruction) follows
+  let Inst{30-29} = 0b11;
+  let Inst{28}    = 0b0;
+  let Inst{27-24} = opc;
+  let Inst{23-18} = rW;
+  let Inst{17-16} = 0b00;
+  let Inst{15-0}  = ?;      // TODO(Phase 4): lower10 packing
+  let Inst{63}    = 0b1;    // forced: word 2 (this instruction) follows
+  let Inst{62-61} = 0b00;
+  let Inst{60-32} = ?;      // TODO(Phase 4): upper27 packing
+  let Inst{95}    = 0b0;    // last syllable: no bundling, always 0
+  let Inst{94-93} = 0b00;
+  let Inst{92-64} = ?;      // TODO(Phase 4): extend27 packing
 }
 
 // ---------- ALU_DWRI: rW = imm10, rZ ---------------------------------------
@@ -1681,6 +1795,13 @@ def SETPS : BCU_SETPS_Inst<"set", []>;
 
 def MAKE  : ALU_DWI_Inst<0b0000, "make",  []>;
 def PCREL : ALU_DWI_Inst<0b0001, "pcrel", []>;
+
+// Wide-immediate MAKE (Phase 5.1): same operation, 43-bit / 64-bit
+// immediate. Selected explicitly by LVXInstrInfo::loadImmediate based on
+// how many bits the immediate needs -- not reachable via a DAG pattern
+// (nothing generates SelectionDAG immediates this wide yet).
+def MAKE_X : ALU_DWI_X_Inst<0b0000, "make", []>;
+def MAKE_Y : ALU_DWI_Y_Inst<0b0000, "make", []>;
 
 // ---- ALU_DWRI: Integer immediate binary -----------------------------------
 

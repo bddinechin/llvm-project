@@ -74,6 +74,15 @@ public:
                             Register VReg, unsigned SubReg = 0,
                             MachineInstr::MIFlag Flags =
                                 MachineInstr::NoFlags) const override;
+
+  // Emits the narrowest of MAKE/MAKE_X/MAKE_Y that can materialize Imm
+  // into DestReg (Phase 5.1: wide-immediate MAKE.X/.Y). Every int64_t
+  // value fits MAKE_Y (64-bit), so this never fails. Shared by
+  // LVXFrameLowering (stack-size/frame-marker offsets beyond simm10) and
+  // LVXRegisterInfo::eliminateFrameIndex (large frame-index offsets).
+  void loadImmediate(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
+                     const DebugLoc &DL, Register DestReg,
+                     int64_t Imm) const;
 };
 
 } // end namespace llvm

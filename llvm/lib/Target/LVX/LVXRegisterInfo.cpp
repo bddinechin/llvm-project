@@ -9,6 +9,7 @@
 #include "LVXRegisterInfo.h"
 #include "LVXFrameLowering.h"
 #include "LVXInstrInfo.h"
+#include "LVXSubtarget.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -66,7 +67,7 @@ bool LVXRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   MachineInstr &MI = *II;
   MachineFunction &MF = *MI.getParent()->getParent();
   MachineFrameInfo &MFI = MF.getFrameInfo();
-  const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
+  const LVXInstrInfo *TII = MF.getSubtarget<LVXSubtarget>().getInstrInfo();
   const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
   bool HasFP = TFI->hasFP(MF);
   DebugLoc DL = MI.getDebugLoc();
@@ -104,15 +105,15 @@ bool LVXRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   }
 
   // Offset out of simm10 range: scavenge a scratch register, materialize
-  // FrameReg + Offset into it via MAKE (load immediate, ALU_DWI) + ADDD
+  // FrameReg + Offset into it via LVXInstrInfo::loadImmediate
+  // (MAKE/MAKE_X/MAKE_Y, Phase 5.1 -- any int64_t offset fits) + ADDD
   // (register-register form), then rewrite the instruction to address
   // through that scratch register at offset 0.
   assert(RS && "Register scavenging must be enabled for large frame offsets");
   Register Scratch = RS->scavengeRegisterBackwards(
       LVX::GPRRegClass, II, /*RestoreAfter=*/false, SPAdj);
 
-  BuildMI(*MI.getParent(), II, DL, TII->get(LVX::MAKE), Scratch)
-      .addImm(Offset);
+  TII->loadImmediate(*MI.getParent(), II, DL, Scratch, Offset);
   BuildMI(*MI.getParent(), II, DL, TII->get(LVX::ADDD), Scratch)
       .addReg(Scratch)
       .addReg(FrameReg);

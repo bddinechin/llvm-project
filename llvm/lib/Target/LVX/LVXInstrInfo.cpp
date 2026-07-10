@@ -7,6 +7,7 @@
 #include "LVXInstrInfo.h"
 #include "LVXSubtarget.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include "llvm/Support/MathExtras.h"
 
 #define GET_INSTRINFO_CTOR_DTOR
 #include "LVXGenInstrInfo.inc"
@@ -210,4 +211,14 @@ void LVXInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
       .addImm(0) // off
       .addFrameIndex(FrameIndex)
       .setMIFlags(Flags);
+}
+
+void LVXInstrInfo::loadImmediate(MachineBasicBlock &MBB,
+                                 MachineBasicBlock::iterator MI,
+                                 const DebugLoc &DL, Register DestReg,
+                                 int64_t Imm) const {
+  unsigned Opc = isInt<16>(Imm)   ? LVX::MAKE
+               : isInt<43>(Imm)   ? LVX::MAKE_X
+                                   : LVX::MAKE_Y;
+  BuildMI(MBB, MI, DL, get(Opc), DestReg).addImm(Imm);
 }
