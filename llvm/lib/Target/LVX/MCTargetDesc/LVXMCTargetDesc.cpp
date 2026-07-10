@@ -1,6 +1,8 @@
+#include "LVXInstPrinter.h"
 #include "LVXMCTargetDesc.h"
 #include "TargetInfo/LVXTargetInfo.h"
 #include "llvm/MC/MCAsmInfoELF.h"
+#include "llvm/MC/MCInstPrinter.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
@@ -64,6 +66,16 @@ static MCAsmInfo *createLVXMCAsmInfo(const MCRegisterInfo &MRI,
   return new LVXMCAsmInfo(TT, Options);
 }
 
+static MCInstPrinter *createLVXMCInstPrinter(const Triple & /*T*/,
+                                             unsigned SyntaxVariant,
+                                             const MCAsmInfo &MAI,
+                                             const MCInstrInfo &MII,
+                                             const MCRegisterInfo &MRI) {
+  if (SyntaxVariant == 0)
+    return new LVXInstPrinter(MAI, MII, MRI);
+  return nullptr;
+}
+
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeLVXTargetMC() {
   TargetRegistry::RegisterMCAsmInfo(getTheLVXTarget(), createLVXMCAsmInfo);
   TargetRegistry::RegisterMCInstrInfo(getTheLVXTarget(),
@@ -72,4 +84,6 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeLVXTargetMC() {
                                     createLVXMCRegisterInfo);
   TargetRegistry::RegisterMCSubtargetInfo(getTheLVXTarget(),
                                           createLVXMCSubtargetInfo);
+  TargetRegistry::RegisterMCInstPrinter(getTheLVXTarget(),
+                                        createLVXMCInstPrinter);
 }

@@ -133,11 +133,16 @@ void LVXFrameLowering::emitPrologue(MachineFunction &MF,
           .addReg(Base);
     }
 
-    // Save return address.
+    // Save return address. $ra is a control register, not a GPR -- SD's
+    // rT operand is GPR-typed, so it can't be stored directly (confirmed
+    // by the real assembler rejecting "sd off[$rZ] = $ra" outright).
+    // GETRA (Phase 5.2) moves it into scratch GPR R16 first, matching
+    // the real ISA's GET/SET register-transfer convention.
     {
+      BuildMI(MBB, MBBI, DL, TII->get(LVX::GETRA), LVX::R16).addReg(LVX::RA);
       auto [Base, Off] = materializeOffset(MBB, MBBI, DL, TII, LVX::R12, RAOffset);
       BuildMI(MBB, MBBI, DL, TII->get(LVX::SD))
-          .addReg(LVX::RA) // rT = $ra
+          .addReg(LVX::R16) // rT = $ra (via GETRA)
           .addImm(Off)
           .addReg(Base);
     }
@@ -184,13 +189,16 @@ void LVXFrameLowering::emitEpilogue(MachineFunction &MF,
     int64_t FPOffset = (int64_t)OutgoingArgSize;
     int64_t RAOffset = (int64_t)OutgoingArgSize + 8;
 
-    // Restore $ra.
+    // Restore $ra. LD's destination is GPR-typed (same reason as the
+    // GETRA save above), so load into scratch R16 first, then SETRA it
+    // back into the actual $ra control register.
     {
       auto [Base, Off] = materializeOffset(MBB, MBBI, DL, TII, LVX::R12, RAOffset);
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::LD), LVX::RA)
+      BuildMI(MBB, MBBI, DL, TII->get(LVX::LD), LVX::R16)
           .addImm(0) // variant = 0
           .addImm(Off)
           .addReg(Base);
+      BuildMI(MBB, MBBI, DL, TII->get(LVX::SETRA)).addReg(LVX::RA).addReg(LVX::R16);
     }
 
     // Restore caller FP.

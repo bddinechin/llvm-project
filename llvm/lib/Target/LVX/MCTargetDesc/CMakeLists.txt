@@ -1,4 +1,5 @@
 add_llvm_component_library(LVXDesc
+  LVXInstPrinter.cpp
   LVXMCTargetDesc.cpp
   LINK_COMPONENTS
     MC

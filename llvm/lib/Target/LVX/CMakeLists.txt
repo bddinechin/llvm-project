@@ -13,16 +13,17 @@ tablegen(LLVM LVXGenSubtargetInfo.inc   -gen-subtarget)
 add_public_tablegen_target(LVXCommonTableGen)
 
 # NOTE: matches the current LanaiCodeGen shape (confirmed against this
-# checkout's Lanai/CMakeLists.txt) trimmed to what Phase 3 needs. Not yet
-# added, pending later phases: LVXAsmPrinter.cpp, LVXMCInstLower.cpp
-# (Phase 4 -- MC layer / asm printing), and an AsmParser/Disassembler
-# subdirectory (Phase 4).
+# checkout's Lanai/CMakeLists.txt) trimmed to what's needed so far. Not yet
+# added: an AsmParser/Disassembler subdirectory, and an MCCodeEmitter/
+# MCAsmBackend (needed for -filetype=obj -- still Phase 4 work beyond this
+# InstPrinter/MCInstLower piece).
 add_llvm_target(LVXCodeGen
   LVXAsmPrinter.cpp
   LVXFrameLowering.cpp
   LVXInstrInfo.cpp
   LVXISelDAGToDAG.cpp
   LVXISelLowering.cpp
+  LVXMCInstLower.cpp
   LVXRegisterInfo.cpp
   LVXSelectionDAGInfo.cpp
   LVXSubtarget.cpp

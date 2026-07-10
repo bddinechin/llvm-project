@@ -327,9 +327,18 @@ class ALU_DWI_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
 // The wide immediate's exact chunk boundaries across the extension
 // syllable(s) are intentionally left unspecified ("?"): see the
 // LVXInst64/LVXInst96 comment above for why that's fine for now.
+//
+// AsmString uses the PLAIN mnemonic, no ".x"/".y" suffix: confirmed
+// against both the real GNU Binutils port (opcodes/lvx-opc.c's "make"
+// wordcount=1/2/3 entries all share the literal as_op string "make", no
+// dotted variant) and lvx-mds/refs's regression-test corpus
+// (BE/GBU/lvx/lvx_v1/LVX_OPCODE_FLAG_MODE64.s: "make $r43 = -549755813888"
+// for a double-width encoding, same "make" mnemonic as the simple form).
+// The real assembler disambiguates width purely by which operand class
+// (immediate magnitude) matches, not by mnemonic spelling.
 class ALU_DWI_X_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
     : LVXInst64<(outs GPR:$rW), (ins simm43:$imm),
-                !strconcat(mnemonic, ".x $rW = $imm"),
+                !strconcat(mnemonic, " $rW = $imm"),
                 pattern, ALU_TINY> {
   bits<6>  rW;
   bits<43> imm;
@@ -347,7 +356,7 @@ class ALU_DWI_X_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
 
 class ALU_DWI_Y_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
     : LVXInst96<(outs GPR:$rW), (ins simm64:$imm),
-                !strconcat(mnemonic, ".y $rW = $imm"),
+                !strconcat(mnemonic, " $rW = $imm"),
                 pattern, ALU_TINY> {
   bits<6>  rW;
   bits<64> imm;
@@ -370,7 +379,7 @@ class ALU_DWI_Y_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
 // | 0 | 1 1 | 0 | opc4 | rW(6) | 0 0 | signed10 | rZ(6) |
 class ALU_DWRI_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins simm10:$imm, GPR:$rZ),
-              !strconcat(mnemonic, " $rW = $imm, $rZ"),
+              !strconcat(mnemonic, " $rW = $rZ, $imm"),
               pattern, ALU_TINY> {
   bits<6>  rW;
   bits<10> imm;
@@ -388,7 +397,7 @@ class ALU_DWRI_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
 // | 0 | 1 1 | 0 | opc2 | stop[1:0] | rW(6) | 0 1 | stop[5:2] | start(6) | rZ(6) |
 class ALU_BFWR_Inst<bits<2> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins stopbit_op:$stop, startbit_op:$start, GPR:$rZ),
-              !strconcat(mnemonic, " $rW, $stop, $start, $rZ"),
+              !strconcat(mnemonic, " $rW = $rZ, $stop, $start"),
               pattern, ALU_TINY> {
   bits<6> rW;
   bits<6> stop;
@@ -408,7 +417,7 @@ class ALU_BFWR_Inst<bits<2> opc, string mnemonic, list<dag> pattern>
 // ---------- ALU_DBMWRI: byte matrix immediate ------------------------------
 class ALU_DBMWRI_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins simm10:$imm, GPR:$rZ),
-              !strconcat(mnemonic, " $rW = $imm, $rZ"),
+              !strconcat(mnemonic, " $rW = $rZ, $imm"),
               pattern, ALU_TINY> {
   bits<6>  rW;
   bits<10> imm;
@@ -427,7 +436,7 @@ class ALU_DBMWRI_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
 class ALU_DWRR0_Inst<bits<4> opc, string mnemonic, list<dag> pattern,
                      InstrItinClass itin = ALU_TINY>
     : LVXInst<(outs GPR:$rW), (ins GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, " $rW = $rY, $rZ"),
+              !strconcat(mnemonic, " $rW = $rZ, $rY"),
               pattern, itin> {
   bits<6> rW;
   bits<6> rY;
@@ -447,7 +456,7 @@ class ALU_DWRR0_Inst<bits<4> opc, string mnemonic, list<dag> pattern,
 // | 0 | 1 1 | 0 | intcomp(4) | rW(6) | 1 0 | 0 0 1 | 0 | rY(6) | rZ(6) |
 class ALU_DCWRR_Inst<string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins intcomp:$cmp, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${cmp} $rW = $rY, $rZ"),
+              !strconcat(mnemonic, "${cmp} $rW = $rZ, $rY"),
               pattern, ALU_TINY> {
   bits<4> cmp;
   bits<6> rW;
@@ -467,7 +476,7 @@ class ALU_DCWRR_Inst<string mnemonic, list<dag> pattern>
 // ---------- ALU_DWRR2: logical double, subop=010, bit12=0 ------------------
 class ALU_DWRR2_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, " $rW = $rY, $rZ"),
+              !strconcat(mnemonic, " $rW = $rZ, $rY"),
               pattern, ALU_TINY> {
   bits<6> rW;
   bits<6> rY;
@@ -486,7 +495,7 @@ class ALU_DWRR2_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
 // ---------- ALU_DWRRS: saturating/abs double, subop=010, bit12=0 -----------
 class ALU_DWRRS_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, " $rW = $rY, $rZ"),
+              !strconcat(mnemonic, " $rW = $rZ, $rY"),
               pattern, ALU_TINY> {
   bits<6> rW;
   bits<6> rY;
@@ -531,7 +540,7 @@ class ALU_DCMWRR_Inst<string mnemonic, list<dag> pattern>
 class ALU_DSWRR_Inst<bit dir, bits<3> opc, string mnemonic, list<dag> pattern,
                      InstrItinClass itin = ALU_TINY>
     : LVXInst<(outs GPR:$rW), (ins GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, " $rW = $rY, $rZ"),
+              !strconcat(mnemonic, " $rW = $rZ, $rY"),
               pattern, itin> {
   bits<6> rW;
   bits<6> rY;
@@ -552,7 +561,7 @@ class ALU_DSWRR_Inst<bit dir, bits<3> opc, string mnemonic, list<dag> pattern,
 class ALU_DSWRI_Inst<bit dir, bits<3> opc, string mnemonic, list<dag> pattern,
                      InstrItinClass itin = ALU_TINY>
     : LVXInst<(outs GPR:$rW), (ins uimm6:$shamt, GPR:$rZ),
-              !strconcat(mnemonic, " $rW = $shamt, $rZ"),
+              !strconcat(mnemonic, " $rW = $rZ, $shamt"),
               pattern, itin> {
   bits<6> rW;
   bits<6> shamt;
@@ -572,7 +581,7 @@ class ALU_DSWRI_Inst<bit dir, bits<3> opc, string mnemonic, list<dag> pattern,
 // ---------- ALU_DWRR1: scaled-add / saturating add double ------------------
 class ALU_DWRR1_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, " $rW = $rY, $rZ"),
+              !strconcat(mnemonic, " $rW = $rZ, $rY"),
               pattern, ALU_TINY> {
   bits<6> rW;
   bits<6> rY;
@@ -591,7 +600,7 @@ class ALU_DWRR1_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
 // ---------- ALU_DDMWRR: divmod double, pair dest ---------------------------
 class ALU_DDMWRR_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR128:$rM), (ins GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, " $rM = $rY, $rZ"),
+              !strconcat(mnemonic, " $rM = $rZ, $rY"),
               pattern, ALU_FULL> {
   bits<5> rM;
   bits<6> rY;
@@ -633,7 +642,7 @@ class ALU_DBWR_Inst<bits<4> subop, string mnemonic, list<dag> pattern>
 // | 0 | 1 1 | 0 | mulop(2) | highmult(2) | rW(6) | 1 0 | 1 1 0 | 0 | rY | rZ |
 class ALU_DMWRR_Inst<bits<2> mulop, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins highmult:$hm, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${hm} $rW = $rY, $rZ"),
+              !strconcat(mnemonic, "${hm} $rW = $rZ, $rY"),
               pattern, ALU_LITE> {
   bits<2> hm;
   bits<6> rW;
@@ -654,7 +663,7 @@ class ALU_DMWRR_Inst<bits<2> mulop, string mnemonic, list<dag> pattern>
 // ---------- ALU_DMEWRR/DMEWRRR: widening multiply, widemult modifier --------
 class ALU_DMEWRR_Inst<bits<2> mulop, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins widemult:$wm, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${wm} $rW = $rY, $rZ"),
+              !strconcat(mnemonic, "${wm} $rW = $rZ, $rY"),
               pattern, ALU_LITE> {
   bits<2> wm;
   bits<6> rW;
@@ -676,7 +685,7 @@ class ALU_DMEWRR_Inst<bits<2> mulop, string mnemonic, list<dag> pattern>
 // | 0 | 1 1 | 0 | opc4 | rM(5) | _ | 1 0 | 0 0 0 | 1 | rO(5) | _ | rP(5) | _ |
 class ALU_QWRR0_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR128:$rM), (ins GPR128:$rO, GPR128:$rP),
-              !strconcat(mnemonic, " $rM = $rO, $rP"),
+              !strconcat(mnemonic, " $rM = $rP, $rO"),
               pattern, ALU_LITE> {
   bits<5> rM;
   bits<5> rO;
@@ -698,7 +707,7 @@ class ALU_QWRR0_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
 // ---------- ALU_QCWRR: quad compare ----------------------------------------
 class ALU_QCWRR_Inst<string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR128:$rM), (ins intcomp:$cmp, GPR128:$rO, GPR128:$rP),
-              !strconcat(mnemonic, "${cmp} $rM = $rO, $rP"),
+              !strconcat(mnemonic, "${cmp} $rM = $rP, $rO"),
               pattern, ALU_LITE> {
   bits<4> cmp;
   bits<5> rM;
@@ -772,7 +781,7 @@ class ALU_QBWR_Inst<bits<4> subop, string mnemonic, list<dag> pattern>
 class ALU_WWRR0_Inst<bits<4> opc, string mnemonic, list<dag> pattern,
                      InstrItinClass itin = ALU_TINY>
     : LVXInst<(outs GPR:$rW), (ins signextw:$sig, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${sig} $rW = $rY, $rZ"),
+              !strconcat(mnemonic, "${sig} $rW = $rZ, $rY"),
               pattern, itin> {
   bits<1> sig;
   bits<6> rW;
@@ -793,7 +802,7 @@ class ALU_WWRR0_Inst<bits<4> opc, string mnemonic, list<dag> pattern,
 class ALU_WCWRR_Inst<string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins intcomp:$cmp, signextw:$sig,
                                    GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${cmp}${sig} $rW = $rY, $rZ"),
+              !strconcat(mnemonic, "${cmp}${sig} $rW = $rZ, $rY"),
               pattern, ALU_TINY> {
   bits<4> cmp;
   bits<1> sig;
@@ -814,7 +823,7 @@ class ALU_WCWRR_Inst<string mnemonic, list<dag> pattern>
 // ---------- ALU_WAVG: 32-bit word average, signextw modifier ---------------
 class ALU_WAVG_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins signextw:$sig, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${sig} $rW = $rY, $rZ"),
+              !strconcat(mnemonic, "${sig} $rW = $rZ, $rY"),
               pattern, ALU_TINY> {
   bits<1> sig;
   bits<6> rW;
@@ -834,7 +843,7 @@ class ALU_WAVG_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
 // ---------- ALU_WWRR2: 32-bit word logical (no signextw — result is logical) 
 class ALU_WWRR2_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, " $rW = $rY, $rZ"),
+              !strconcat(mnemonic, " $rW = $rZ, $rY"),
               pattern, ALU_TINY> {
   bits<6> rW;
   bits<6> rY;
@@ -853,7 +862,7 @@ class ALU_WWRR2_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
 // ---------- ALU_WCWRRR: CRC word ops, subop=010, bit12=1 -------------------
 class ALU_WCWRRR_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, " $rW = $rY, $rZ"),
+              !strconcat(mnemonic, " $rW = $rZ, $rY"),
               pattern, ALU_LITE> {
   bits<6> rW;
   bits<6> rY;
@@ -872,7 +881,7 @@ class ALU_WCWRRR_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
 // ---------- ALU_WWRRS: 32-bit word saturating/abs, signextw modifier -------
 class ALU_WWRRS_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins signextw:$sig, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${sig} $rW = $rY, $rZ"),
+              !strconcat(mnemonic, "${sig} $rW = $rZ, $rY"),
               pattern, ALU_TINY> {
   bits<1> sig;
   bits<6> rW;
@@ -893,7 +902,7 @@ class ALU_WWRRS_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
 class ALU_WSWRR_Inst<bit dir, bits<3> opc, string mnemonic, list<dag> pattern,
                      InstrItinClass itin = ALU_TINY>
     : LVXInst<(outs GPR:$rW), (ins signextw:$sig, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${sig} $rW = $rY, $rZ"),
+              !strconcat(mnemonic, "${sig} $rW = $rZ, $rY"),
               pattern, itin> {
   bits<1> sig;
   bits<6> rW;
@@ -915,7 +924,7 @@ class ALU_WSWRR_Inst<bit dir, bits<3> opc, string mnemonic, list<dag> pattern,
 class ALU_WSWRI_Inst<bit dir, bits<3> opc, string mnemonic, list<dag> pattern,
                      InstrItinClass itin = ALU_TINY>
     : LVXInst<(outs GPR:$rW), (ins signextw:$sig, uimm6:$shamt, GPR:$rZ),
-              !strconcat(mnemonic, "${sig} $rW = $shamt, $rZ"),
+              !strconcat(mnemonic, "${sig} $rW = $rZ, $shamt"),
               pattern, itin> {
   bits<1> sig;
   bits<6> rW;
@@ -936,7 +945,7 @@ class ALU_WSWRI_Inst<bit dir, bits<3> opc, string mnemonic, list<dag> pattern,
 // ---------- ALU_WWRR1: 32-bit word scaled-add / saturating add, signextw ---
 class ALU_WWRR1_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins signextw:$sig, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${sig} $rW = $rY, $rZ"),
+              !strconcat(mnemonic, "${sig} $rW = $rZ, $rY"),
               pattern, ALU_TINY> {
   bits<1> sig;
   bits<6> rW;
@@ -956,7 +965,7 @@ class ALU_WWRR1_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
 // ---------- ALU_WDMWRR: 32-bit word divmod, pair dest, signextw modifier ---
 class ALU_WDMWRR_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR128:$rM), (ins signextw:$sig, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${sig} $rM = $rY, $rZ"),
+              !strconcat(mnemonic, "${sig} $rM = $rZ, $rY"),
               pattern, ALU_FULL> {
   bits<1> sig;
   bits<5> rM;
@@ -999,7 +1008,7 @@ class ALU_BWRW_Inst<bits<4> subop, string mnemonic, list<dag> pattern>
 class ALU_WMWRR_Inst<bits<2> mulop, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins highmult:$hm, signextw:$sig,
                                    GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${hm}${sig} $rW = $rY, $rZ"),
+              !strconcat(mnemonic, "${hm}${sig} $rW = $rZ, $rY"),
               pattern, ALU_LITE> {
   bits<2> hm;
   bits<1> sig;
@@ -1028,7 +1037,7 @@ class ALU_WMWRR_Inst<bits<2> mulop, string mnemonic, list<dag> pattern>
 class ALU_FDADD_Inst<bits<3> subop, bits<2> fp_sub, bit half,
                      string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins floatmode:$fm, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${fm} $rW = $rY, $rZ"),
+              !strconcat(mnemonic, "${fm} $rW = $rZ, $rY"),
               pattern, ALU_LITE> {
   bits<3> fm;
   bits<6> rW;
@@ -1050,7 +1059,7 @@ class ALU_FDADD_Inst<bits<3> subop, bits<2> fp_sub, bit half,
 class ALU_FDCWRR_Inst<bits<2> fp_sub, bit half, string mnemonic,
                       list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins floatcomp:$fc, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${fc} $rW = $rY, $rZ"),
+              !strconcat(mnemonic, "${fc} $rW = $rZ, $rY"),
               pattern, ALU_LITE> {
   bits<3> fc;
   bits<6> rW;
@@ -1073,7 +1082,7 @@ class ALU_FDCWRR_Inst<bits<2> fp_sub, bit half, string mnemonic,
 class ALU_FDMMWR_Inst<bits<3> opc, bits<2> fp_sub, bit half,
                       string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, " $rW = $rY, $rZ"),
+              !strconcat(mnemonic, " $rW = $rZ, $rY"),
               pattern, ALU_LITE> {
   bits<6> rW;
   bits<6> rY;
@@ -1195,7 +1204,7 @@ class ALU_FDFMA_Inst<bits<3> subop, bits<2> fp_sub, bit half,
 class ALU_FWCOP_Inst<bits<2> subop, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins imultiply:$imu, floatmode:$fm,
                                    conjugate:$con, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${imu}${fm}${con} $rW = $rY, $rZ"),
+              !strconcat(mnemonic, "${imu}${fm}${con} $rW = $rZ, $rY"),
               pattern, ALU_LITE> {
   bits<1> imu;
   bits<3> fm;
@@ -1256,7 +1265,7 @@ class BCU_UB_Inst<bits<2> opc, string mnemonic, list<dag> pattern,
 
 class BCU_CB_Inst<string mnemonic, list<dag> pattern>
     : LVXInst<(outs), (ins bcucond:$cond, brtarget17s2:$target, GPR:$rZ),
-              !strconcat(mnemonic, "${cond} $target, $rZ"),
+              !strconcat(mnemonic, "${cond} $rZ? $target"),
               pattern, BCU_BRRP> {
   bits<4>  cond;
   bits<17> target;
@@ -1271,7 +1280,7 @@ class BCU_CB_Inst<string mnemonic, list<dag> pattern>
 class BCU_CCB_Inst<string mnemonic, list<dag> pattern>
     : LVXInst<(outs), (ins ccbcomp:$cmp, brtarget11s2:$target,
                            GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${cmp} $target, $rY, $rZ"),
+              !strconcat(mnemonic, "${cmp} $rZ, $rY ? $target"),
               pattern, BCU_BRRP2> {
   bits<4>  cmp;
   bits<11> target;
@@ -1380,6 +1389,32 @@ class BCU_SETPS_Inst<string mnemonic, list<dag> pattern>
   let Inst{5-0}   = rZ;
 }
 
+// ---------- BCU_GETRA: rZ = $ra (read-side counterpart of SETRA) ----------
+// Confirmed against lvx-mds/refs/FE/YAML/lvx/lvx_v1/Opcode.txt: GET
+// (format BCU_GSR) is bit-for-bit identical in shape to SET (format
+// BCU_SET/BCU_SETHW) -- same P|00|01|1111|opc5|___|system-field(9)|
+// registerZ(6) layout -- differing only in opc5 (SET=0b10000,
+// GET=0b10001) and operand direction (SET writes GPR->ctrl, GET reads
+// ctrl->GPR). The general GET forms take a 9-bit systemS2/systemS3
+// selector spanning the full ~512-entry system-register space (SFRs/XCRs
+// per lvx-target's register overview) -- out of scope here, since the
+// only current need is reading $ra back out for LVXFrameLowering's Frame
+// Marker restore. Scoped down to a single fixed-$ra form the same way
+// BCU_SETRA_Inst is scoped down from the general BCU_SET_Inst.
+class BCU_GETRA_Inst<string mnemonic, list<dag> pattern>
+    : LVXInst<(outs GPR:$rZ), (ins CR_RA:$ctrl),
+              !strconcat(mnemonic, " $rZ = $ctrl"),
+              pattern, BCU2_TINY_LSU> {
+  bits<6> rZ;
+  let Inst{30-29} = 0b00;
+  let Inst{28-27} = 0b01;
+  let Inst{26-23} = 0b1111;
+  let Inst{22-18} = 0b10001;  // GET opcode selector (vs SET's 0b10000)
+  let Inst{17-15} = 0b000;
+  let Inst{14-6}  = 0b000000000; // system field fixed: $ra, HWEncoding 0
+  let Inst{5-0}   = rZ;
+}
+
 //===----------------------------------------------------------------------===//
 // LSU format classes
 //===----------------------------------------------------------------------===//
@@ -1387,7 +1422,7 @@ class BCU_SETPS_Inst<string mnemonic, list<dag> pattern>
 // ---------- LSU_LSBO: load scalar, base+offset, variant modifier -----------
 class LSU_LSBO_Inst<bits<3> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins variant:$var, simm10:$off, GPR:$rZ),
-              !strconcat(mnemonic, "${var} $rW = [$rZ + $off]"),
+              !strconcat(mnemonic, "${var} $rW = $off[$rZ]"),
               pattern, LSU_AUXW> {
   bits<2>  var;
   bits<6>  rW;
@@ -1405,7 +1440,7 @@ class LSU_LSBO_Inst<bits<3> opc, string mnemonic, list<dag> pattern>
 // ---------- LSU_LSBI: load scalar, base+index, variant modifier ------------
 class LSU_LSBI_Inst<bits<3> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR:$rW), (ins variant:$var, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${var} $rW = [$rZ + $rY]"),
+              !strconcat(mnemonic, "${var} $rW = $rY[$rZ]"),
               pattern, LSU_AUXW> {
   bits<2> var;
   bits<6> rW;
@@ -1426,7 +1461,7 @@ class LSU_LSBI_Inst<bits<3> opc, string mnemonic, list<dag> pattern>
 // | 0 | 01 | 111 | variant(2) | rM(5) | 0 | 10 | 111 | _ | rY(6) | rZ(6) |
 class LSU_LQBI_Inst<string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR128:$rM), (ins variant:$var, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${var} $rM = [$rZ + $rY]"),
+              !strconcat(mnemonic, "${var} $rM = $rY[$rZ]"),
               pattern, LSU_AUXW> {
   bits<2> var;
   bits<5> rM;
@@ -1448,7 +1483,7 @@ class LSU_LQBI_Inst<string mnemonic, list<dag> pattern>
 // | 0 | 01 | 111 | variant(2) | rN(4) | 0 | 1 | 10 | 111 | _ | rY(6) | rZ(6) |
 class LSU_LOBI_Inst<string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR256:$rN), (ins variant:$var, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${var} $rN = [$rZ + $rY]"),
+              !strconcat(mnemonic, "${var} $rN = $rY[$rZ]"),
               pattern, LSU_AUXW> {
   bits<2> var;
   bits<4> rN;
@@ -1470,7 +1505,7 @@ class LSU_LOBI_Inst<string mnemonic, list<dag> pattern>
 
 class LSU_LQBO_Inst<string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR128:$rM), (ins variant:$var, simm10:$off, GPR:$rZ),
-              !strconcat(mnemonic, "${var} $rM = [$rZ + $off]"),
+              !strconcat(mnemonic, "${var} $rM = $off[$rZ]"),
               pattern, LSU_AUXW> {
   bits<2>  var;
   bits<5>  rM;
@@ -1489,7 +1524,7 @@ class LSU_LQBO_Inst<string mnemonic, list<dag> pattern>
 // ---------- LSU_LOBO: load quad, base+offset, variant modifier -------------
 class LSU_LOBO_Inst<string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR256:$rN), (ins variant:$var, simm10:$off, GPR:$rZ),
-              !strconcat(mnemonic, "${var} $rN = [$rZ + $off]"),
+              !strconcat(mnemonic, "${var} $rN = $off[$rZ]"),
               pattern, LSU_AUXW> {
   bits<2>  var;
   bits<4>  rN;
@@ -1509,7 +1544,7 @@ class LSU_LOBO_Inst<string mnemonic, list<dag> pattern>
 // ---------- LSU_SSBO: store scalar -----------------------------------------
 class LSU_SSBO_Inst<bits<5> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs), (ins GPR:$rT, simm10:$off, GPR:$rZ),
-              !strconcat(mnemonic, " [$rZ + $off] = $rT"),
+              !strconcat(mnemonic, " $off[$rZ] = $rT"),
               pattern, LSU_MEMW_AUXR> {
   bits<6>  rT;
   bits<10> off;
@@ -1526,7 +1561,7 @@ class LSU_SSBO_Inst<bits<5> opc, string mnemonic, list<dag> pattern>
 // | 0 | 01 | opc5(5) | rT(6) | 11 | 111 | _ | rY(6) | rZ(6) |
 class LSU_SSBI_Inst<bits<5> opc, string mnemonic, list<dag> pattern>
     : LVXInst<(outs), (ins GPR:$rT, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, " [$rZ + $rY] = $rT"),
+              !strconcat(mnemonic, " $rY[$rZ] = $rT"),
               pattern, LSU_MEMW_AUXR> {
   bits<6> rT;
   bits<6> rY;
@@ -1544,7 +1579,7 @@ class LSU_SSBI_Inst<bits<5> opc, string mnemonic, list<dag> pattern>
 
 class LSU_SQBO_Inst<string mnemonic, list<dag> pattern>
     : LVXInst<(outs), (ins GPR128:$rU, simm10:$off, GPR:$rZ),
-              !strconcat(mnemonic, " [$rZ + $off] = $rU"),
+              !strconcat(mnemonic, " $off[$rZ] = $rU"),
               pattern, LSU_MEMW_AUXR> {
   bits<5>  rU;
   bits<10> off;
@@ -1562,7 +1597,7 @@ class LSU_SQBO_Inst<string mnemonic, list<dag> pattern>
 // | 0 | 01 | 10100 | rU(5) | 0 | 11 | 111 | _ | rY(6) | rZ(6) |
 class LSU_SQBI_Inst<string mnemonic, list<dag> pattern>
     : LVXInst<(outs), (ins GPR128:$rU, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, " [$rZ + $rY] = $rU"),
+              !strconcat(mnemonic, " $rY[$rZ] = $rU"),
               pattern, LSU_MEMW_AUXR> {
   bits<5> rU;
   bits<6> rY;
@@ -1581,7 +1616,7 @@ class LSU_SQBI_Inst<string mnemonic, list<dag> pattern>
 
 class LSU_SOBO_Inst<string mnemonic, list<dag> pattern>
     : LVXInst<(outs), (ins GPR256:$rV, simm10:$off, GPR:$rZ),
-              !strconcat(mnemonic, " [$rZ + $off] = $rV"),
+              !strconcat(mnemonic, " $off[$rZ] = $rV"),
               pattern, LSU_MEMW_AUXR> {
   bits<4>  rV;
   bits<10> off;
@@ -1600,7 +1635,7 @@ class LSU_SOBO_Inst<string mnemonic, list<dag> pattern>
 // | 0 | 01 | 10100 | rV(4) | 0 | 1 | 11 | 111 | _ | rY(6) | rZ(6) |
 class LSU_SOBI_Inst<string mnemonic, list<dag> pattern>
     : LVXInst<(outs), (ins GPR256:$rV, GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, " [$rZ + $rY] = $rV"),
+              !strconcat(mnemonic, " $rY[$rZ] = $rV"),
               pattern, LSU_MEMW_AUXR> {
   bits<4> rV;
   bits<6> rY;
@@ -1640,7 +1675,7 @@ class LSU_FENCE_Inst<string mnemonic, list<dag> pattern>
 class LSU_FXBO_Inst<bits<4> opc, string mnemonic, list<dag> pattern,
                     InstrItinClass itin = LSU>
     : LVXInst<(outs), (ins simm10:$off, GPR:$rZ),
-              !strconcat(mnemonic, " [$rZ + $off]"),
+              !strconcat(mnemonic, " $off[$rZ]"),
               pattern, itin> {
   bits<10> off;
   bits<6>  rZ;
@@ -1660,7 +1695,7 @@ class LSU_FXBO_Inst<bits<4> opc, string mnemonic, list<dag> pattern,
 class LSU_FXBI_Inst<bits<4> opc, string mnemonic, list<dag> pattern,
                     InstrItinClass itin = LSU>
     : LVXInst<(outs), (ins GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, " [$rZ + $rY]"),
+              !strconcat(mnemonic, " $rY[$rZ]"),
               pattern, itin> {
   bits<6> rY;
   bits<6> rZ;
@@ -1790,6 +1825,10 @@ def BARRIER : BCU_IPC_Inst<0b01011, "barrier", []>;
 def SET   : BCU_SET_Inst<"set", []>;
 def SETRA : BCU_SETRA_Inst<"set", []>;
 def SETPS : BCU_SETPS_Inst<"set", []>;
+
+// GETRA is the read-side counterpart, scoped to $ra only (Phase 5.2) --
+// see BCU_GETRA_Inst above.
+def GETRA : BCU_GETRA_Inst<"get", []>;
 
 // ---- ALU_DWI: Load immediate / PC-relative --------------------------------
 
@@ -1961,7 +2000,7 @@ def DIVMODUD : ALU_DDMWRR_Inst<0b1101, "divmodud", []>;
 // COPYDs.
 class ALU_CATDQ_Inst<string mnemonic, list<dag> pattern>
     : LVXInst<(outs GPR128:$rM), (ins GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, " $rM = $rY, $rZ"),
+              !strconcat(mnemonic, " $rM = $rZ, $rY"),
               pattern, ALU_LITE> {
   bits<5> rM;
   bits<6> rY;
