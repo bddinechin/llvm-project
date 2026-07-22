@@ -71,10 +71,19 @@ Two concerns:
    across the *entire* loop body, not just up to its last textual use
    before the op — the body executes multiple times, and on iteration 2+
    that value must still be valid. This mirrors the concern the CGO'25
-   Snitch-backend paper calls out in its own allocator (§3.3). Concretely:
-   for any outer value referenced inside an `lvx_scf.for`, extend its
-   interval's end to at least the number of the loop's terminator
-   (`lvx_scf.yield`), not just its last use position.
+   Snitch-backend paper calls out in its own allocator (§3.3).
+
+   **Empirical finding (supersedes the paragraph above)**: no bespoke
+   extension rule turned out to be necessary. Because the loop body is
+   numbered *inline* (point 1), a use inside the body is just a normal,
+   later-numbered use of the outer value from the interval-builder's point
+   of view — extending `end` to "the last point the value is used" already
+   covers it correctly, with no special-casing for the loop terminator.
+   Verified by probing the existing upstream `-test-print-liveness` pass
+   against a hand-built `lvx_scf.for` with an outer-captured operand before
+   writing any of our own code: `mlir::Liveness`'s per-block live-out sets
+   already include values captured into a nested region's ops, which is a
+   second, independent way the same answer falls out (see below).
 
 ### Source of raw liveness
 
@@ -87,12 +96,31 @@ exactly that shape. Correctness matters more than compile speed here, so we
 skip the paper's *alternative* fast reducible-CFG-only interval method
 (§6/related discussion) as an unneeded optimization.
 
-**To verify before relying on it**: whether `mlir::Liveness` already
-handles "outer value live across a nested region" (the `lvx_scf.for` case
-above) the way we want. Write a standalone test with an `lvx_scf.for` first
-and check `getLiveIn`/`getLiveOut` results before trusting it for the
-loop-extension rule; if it doesn't give the right answer by default, union
-in captured operands from ops-with-regions by hand.
+**Verified**: `mlir::Liveness` correctly includes a value captured from an
+outer scope into a nested `lvx_scf.for` region in that region's live-in/
+live-out sets, confirmed by probing the pre-existing upstream
+`-test-print-liveness` pass against a hand-built loop before writing any of
+our own code — no hand-rolled "union in captured operands" workaround was
+needed.
+
+### Implementation shape (as built)
+
+The implementation (`mlir/{include,lib}/mlir/Dialect/LVX/Analysis/LiveIntervals.{h,cpp}`)
+does three passes over the numbered instruction stream:
+
+1. Seed each value's `start` at its definition point (block argument or op
+   result), and detect `fixedReg` from `!lvx.reg<rN>` types.
+2. Extend `end` by directly scanning every operand of every op in numbering
+   order — this alone is sufficient for correctness, including the loop
+   case above, given inline loop-body numbering.
+3. Extend `end` again using `mlir::Liveness`'s per-block `out()` sets, as a
+   defensive safety net for any pass-through-block case the direct scan
+   might miss. Empirically this pass turned out to be redundant (it never
+   changed the result on any test case, including the loop test) given pass
+   2, but it's kept since it's cheap and guards against a class of bug
+   (values live across a block with no direct reference in it) that direct
+   operand-scanning alone doesn't obviously rule out for more complex CFGs
+   than the ones tested so far.
 
 ### Building intervals
 
@@ -130,11 +158,23 @@ precondition).
 ### Testing
 
 Expose this as a standalone analysis/pass pair — an `LVXLiveIntervals`
-analysis class plus a thin `-lvx-print-live-intervals` test pass that
-annotates each op/result with a `// live [i, j]` comment, mirroring the
-existing `TestLiveness.cpp` convention already in this tree
+analysis class plus a thin `-lvx-print-live-intervals` test pass
+(`mlir/test/lib/Dialect/LVX/TestLiveIntervals.cpp`), mirroring the existing
+`TestLiveness.cpp` convention already in this tree
 (`mlir/test/lib/Analysis/TestLiveness.cpp`) so it's FileCheck-testable
 independent of steps 2/3.
+
+**Gotcha (hit and fixed while building this)**: an `OperationPass<lvx_func::FuncOp>`
+runs once per function in the module, and MLIR's pass manager runs those
+instances *concurrently by default* when there's more than one sibling
+function. A test pass that prints via `llvm::outs()` will hit a
+`raw_ostream::SetBufferAndMode` assertion (buffered stream, concurrent
+writers); `llvm::errs()` (unbuffered) avoids the crash but still
+interleaves output byte-by-byte across functions, corrupting FileCheck
+output. Fix used here, matching `TestLiveness.cpp`'s convention: print via
+`llvm::errs()` *and* pass `-mlir-disable-threading` in the RUN line
+(`2>&1 | FileCheck %s`, since `errs()` is stderr) — this applies to any
+future per-function test pass in this tree, not just this one.
 
 ## Step 2 — Register assignment only, bail out on pressure
 
