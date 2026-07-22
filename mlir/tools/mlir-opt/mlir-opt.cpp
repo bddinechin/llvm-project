@@ -116,6 +116,7 @@ void registerTestLinalgTransforms();
 void registerTestLivenessAnalysisPass();
 void registerTestLivenessPass();
 void registerTestLLVMLegalizePatternsPass();
+void registerTestLVXLiveIntervalsPass();
 void registerTestLoopFusion();
 void registerTestLoopMappingPass();
 void registerTestLoopUnrollingPass();
@@ -266,6 +267,7 @@ static void registerTestPasses() {
   mlir::test::registerTestLivenessAnalysisPass();
   mlir::test::registerTestLivenessPass();
   mlir::test::registerTestLLVMLegalizePatternsPass();
+  mlir::test::registerTestLVXLiveIntervalsPass();
   mlir::test::registerTestLoopFusion();
   mlir::test::registerTestLoopMappingPass();
   mlir::test::registerTestLoopUnrollingPass();
