@@ -1,7 +1,8 @@
 # Register allocation design: linear scan
 
-Status: design confirmed, implementation not yet started (see `docs/lvx/`
-for related design notes as they're added).
+Status: Steps 1 and 2 implemented and tested (`-lvx-print-live-intervals`,
+`-lvx-allocate-registers`); not yet committed. See `docs/lvx/` for related
+design notes as they're added.
 
 ## Goal and source
 
@@ -206,12 +207,99 @@ a call. Ignoring this produces *silently wrong* code (not just suboptimal)
 for any interval live across a call in a caller-saved register, once
 callees actually use those registers.
 
-**Decision (confirmed)**: synthesize a tiny fixed/pre-colored interval for
-each caller-saved register at every `lvx_func.call` site (zero-width,
-pinned, no associated value). This reuses the same "fixed interval"
-machinery as ABI-pinned args/results (Step 1), so the main scan naturally
-forces any value live across a call into a callee-saved register, or (step
-3) a spill — no special-casing in the core loop.
+**Original decision (superseded — unsound as stated)**: the walkthrough's
+plan was to synthesize a zero-width fixed interval for each caller-saved
+register at every call site and let it compete for `active` slots via the
+normal fixed-interval machinery. Working through the implementation exposed
+two problems with this:
+
+1. **False positive at the boundary.** A value whose *last* use is the call
+   itself (e.g. one of the call's own arguments) has `end == callNumber`.
+   Fig. 1's `ExpireOldIntervals` only removes an interval when
+   `end < newStart` (strict), so that value is still "active" — and holding
+   some caller-saved register R — at the exact instant the synthetic
+   clobber interval for R is inserted. That reads as a genuine register
+   conflict and would hard-error on completely ordinary code (any call with
+   arguments, essentially).
+2. **Too late to matter.** For a value that *does* survive past the call
+   while sitting in a caller-saved register — the real case this is meant
+   to catch — the conflict is only visible once the scan reaches the call's
+   position, by which point that value's register was already greedily
+   assigned earlier in the scan. The base algorithm has no live-range
+   splitting (Step 2/3 decision above), so there's nothing to *do* with the
+   conflict at that point except wrongly error out on code a smarter
+   allocator would accept.
+
+**Revised mechanism**: decide *before* the greedy scan runs, per
+allocation item (see the coalescing note below — an "item" may be a single
+value or a coalesced loop-carried group), whether its `[start, end]` range
+strictly contains at least one call site (`start < callNumber < end` —
+strict on both ends, so a value merely produced or consumed *by* the call
+itself doesn't count). Collect all `lvx_func.call` op numbers once up
+front (sorted, for a cheap binary-search-style check) and precompute one
+`crossesCall` bit per item. Register selection then restricts to the
+callee-saved subset for any item with `crossesCall == true`; ordinary
+items use the full preference order (below). No synthetic intervals, no
+special-casing inside `ExpireOldIntervals` — the restriction happens purely
+at the "which register do I hand out" step, which is a strictly simpler
+place to enforce it than trying to retrofit a conflict into the active-list
+scan after the fact.
+
+### Loop-carried register coalescing (not anticipated in the walkthrough)
+
+`lvx_scf::ForOp::verify()` requires
+`initArgs[i].getType() == results[i].getType()` for every loop-carried
+value, and `verifyRegions()` requires the matching `lvx_scf.yield` operand
+type to equal that same type too. Concretely, for iter_arg index `i`, three
+*distinct* SSA values — the init operand feeding the loop, the op's own
+result, and the operand `lvx_scf.yield` produces at the end of the body —
+must end up with the **identical** `!lvx.reg<rN>` type once allocated, or
+the rewritten IR fails verification outright. (The in-body block argument,
+`getRegionIterArgs()[i]`, is *not* constrained by the verifier to match —
+but assigning it a different physical register than the channel it reads
+from/feeds back into would be operationally wrong on real hardware, since
+nothing in this IR inserts a register-to-register copy at the loop
+boundary to reconcile a mismatch. So it's included in the group too.)
+
+This wasn't visible while just computing live intervals (Step 1 treats
+these as four ordinary, independently-computed SSA values — correctly, for
+liveness purposes), but it is a hard constraint for Step 2, which actually
+assigns architectural registers. Independently allocating the four values
+would, in the `loop` test case already in the tree, very likely assign the
+init operand and the loop's result *different* registers (their computed
+Step-1 intervals — `[5, 6]` and `[6, 10]` in that test — merely touch at
+one point, not overlap, so nothing in the base algorithm would naturally
+force them together).
+
+**Mechanism**: before running the scan, walk every `lvx_scf.for` in the
+function and, for each iter_arg index, group `{initArg, bodyIterArg,
+yieldOperand, result}` into one *allocation item* whose range is the union
+of the four members' individual Step-1 intervals (`min(starts)` to
+`max(ends)`). This item is what participates in the scan (one slot in
+`active`, one register decision) instead of its four members
+individually; once a register is chosen (or the item is fixed, if any
+member happens to carry a `fixedReg` — conflicting fixed regs within one
+group is a hard error, a malformed program), every member's SSA value gets
+that same `!lvx.reg<rN>` type in the rewrite step. All other values
+(including the loop's own induction variable, which has no life outside
+the body) keep their individual Step-1 intervals unchanged.
+
+### Known limitation: general `lvx_cf` block-argument merges
+
+`lvx_cf.br`/`lvx_cf.cond_br` support passing operands into a destination
+block's arguments, which is this dialect's only other value-merging
+mechanism besides `lvx_scf.for`. A block argument fed by more than one
+predecessor with different values is a real phi-like merge point, and
+correctness would need the same kind of coalescing (or, lacking that, an
+explicit inserted `lvx.mv` copy) as the loop case above. **This is not
+implemented in Step 2.** Reasons this is an acceptable gap for now, not an
+oversight: `ConvertToLVX` never currently lowers anything into a
+value-carrying `lvx_cf` branch (no `scf.if`/`scf.while` lowering exists
+yet), so no test or real lowering path exercises it; and the paper's own
+base algorithm has no merge-point concept at all (its non-SSA model
+side-steps this by reusing one variable name). Revisit if/when a lowering
+starts producing merge blocks — flagged here so it isn't silently
+mishandled later.
 
 ### Multi-result ops
 
@@ -222,16 +310,76 @@ no "coalesce dest with a source" concern either.
 
 ### Bail-out semantics
 
-When `ExpireOldIntervals` leaves `|active| == R` and a new interval needs a
-register: `op->emitError()` naming the value and the conflicting live
-range, then `signalPassFailure()` — consistent with how the rest of this
-codebase reports pass failures.
+Two distinct hard-error cases, both `emitError` (via `value.getLoc()`,
+which resolves correctly for both op results and block arguments) +
+`signalPassFailure()`:
+
+- A *fixed* item's register is already held by something else still in
+  `active` when the fixed item is reached — a genuine ABI conflict in the
+  IR itself (two overlapping values independently pinned to the same
+  physical register). Not expected to trigger on any current lowering
+  output, but worth a real diagnostic rather than an assert if it ever
+  does, since it'd indicate a bug elsewhere (e.g. in `ConvertToLVX`) rather
+  than in the allocator.
+- A *non-fixed* item finds no free candidate in its allowed pool (full
+  62-register order, or the callee-saved-only subset if `crossesCall`).
+  This is the expected/designed bail-out this step exists to produce.
+
+**Bug found and fixed while implementing this**: the first case above,
+applied naively, spuriously fires on completely ordinary code. Consider
+`%3 = ...; %4 = lvx.mv %3 : (!lvx.reg) -> !lvx.reg<r0>` — `%3`'s interval
+ends at the same instruction number where `%4`'s fixed interval begins.
+Fig. 1's own `ExpireOldIntervals` rule (`end < start`, strict) is exactly
+what we *want* for two ordinary items sharing a boundary (it's what forces
+an op's result into a different register than an operand it's still
+reading — see "Multi-result ops" below) — but applied to a *fixed* item's
+conflict check, that same strictness means `%3` reads as "still active,
+still holding some register" at the exact instant `%4` needs to claim that
+register, even when `%3`'s only remaining "use" is being consumed by the
+very op that produces `%4`. Any `lvx.mv %x : (...) -> !lvx.reg<rN>` (the
+standard ABI copy-out pattern used throughout this dialect) hits this if
+`%x` happens to have been assigned register `rN` earlier in the scan — not
+a rare coincidence, since low-numbered registers are early in the
+preference order and thus commonly assigned. Fix: when checking a *fixed*
+item for a conflict, first expire active items with `end <= start`
+(inclusive), not just `end < start` — i.e. the boundary-inclusive rule
+applies only to the fixed-item conflict check, not to ordinary
+(non-fixed) `ExpireOldIntervals` calls, which keep Fig. 1's exact rule.
+Caught by testing `@straight` (`mlir/test/Dialect/LVX/register-allocation.mlir`)
+before this ever reached the user — every `!lvx.reg<rN>`-returning function
+in the test suite exercises this pattern via its final `lvx.mv`.
 
 ### Output representation
 
 Since the dialect's design principle is "physical registers as types,"
 this pass rewrites every `!lvx.reg` operand/result type in place to its
-assigned `!lvx.reg<rN>`, rather than producing an out-of-band coloring map.
+assigned `!lvx.reg<rN>` via `Value::setType`, rather than producing an
+out-of-band coloring map. No new ops are inserted (that's out of scope
+until Step 3's spill/reload rewriting) — this step only ever changes
+types.
+
+### Implementation shape (as being built)
+
+- `mlir/include/mlir/Dialect/LVX/Transforms/{Passes.td,Passes.h,CMakeLists.txt}`
+  and `mlir/lib/Dialect/LVX/Transforms/{RegisterAllocation.cpp,CMakeLists.txt}`,
+  mirroring the existing `ConvertToLVXPass` TableGen-based pass convention
+  (`Passes.td` + `GEN_PASS_DECL`/`GEN_PASS_DEF`, registered from
+  `mlir/lib/RegisterAllPasses.cpp` via `lvx::registerLVXPasses()`) rather
+  than the test-only `PassWrapper` pattern Step 1's test pass used — this
+  is a real, production pass, not a test probe.
+- Pass name: `-lvx-allocate-registers`, scoped `OperationPass<lvx_func::FuncOp>`
+  (`Pass<"lvx-allocate-registers", "::mlir::lvx_func::FuncOp">`), matching
+  Step 1's per-function granularity.
+- One test-only pass option, `max-registers` (default 62, the real pool
+  size), letting lit tests exercise the bail-out path without hand-writing
+  62 simultaneously-live values — set it low in a test to force a
+  synthetic "ran out of registers" case.
+- Internally: build a list of allocation items (individual Step-1
+  intervals, except `lvx_scf.for` loop-carried groups collapsed per the
+  coalescing rule above), each with `{values, start, end, fixedReg,
+  crossesCall}`; sort by `start`; run Fig. 1's `ExpireOldIntervals` +
+  assign-from-preference-order loop; rewrite types for every successfully
+  assigned (or already-fixed) item's member values.
 
 ## Step 3 — Full linear scan with spill/restore
 
@@ -281,9 +429,20 @@ but this hasn't been exercised yet.
 ## Confirmed decisions (recap)
 
 - Reuse `mlir::Liveness` as the dataflow engine (not hand-rolled).
-- Model call sites as clobbering all caller-saved registers via fixed
-  intervals, from Step 2 onward (not deferred).
+- Model call sites as clobbering all caller-saved registers, from Step 2
+  onward (not deferred) — via a precomputed per-item `crossesCall`
+  restriction (see above), not synthetic fixed intervals as originally
+  sketched.
+- `lvx_scf.for` loop-carried values (init operand / body iter_arg / yield
+  operand / result) are coalesced into one allocation item per iter_arg
+  index, required by `ForOp`'s own verifier — not anticipated in the
+  original walkthrough, discovered while designing Step 2.
+- General `lvx_cf` block-argument merges are *not* coalesced in Step 2
+  (documented known limitation, not currently reachable from any lowering
+  path).
 - `R14` allocatable in Step 2; revisited when Step 3 introduces stack
   frames.
 - Step 1 gets its own standalone test pass
   (`-lvx-print-live-intervals`), separate from the allocation pass itself.
+  Step 2 is a real, TableGen-registered pass (`-lvx-allocate-registers`),
+  not a test-only probe.
