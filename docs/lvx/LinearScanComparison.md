@@ -13,6 +13,9 @@ actually implemented.
 > Christian Wimmer and Michael Franz, "Linear Scan Register Allocation on
 > SSA Form," CGO 2010 (`/home/guembu/Downloads/Wimmer_2010_CGO.pdf`).
 
+> Fernando Magno Quintão Pereira and Jens Palsberg, "SSA Elimination after
+> Register Allocation," CC 2009 (`/home/guembu/Downloads/Pereira_2009_CC.pdf`).
+
 Compared against what's implemented here (`docs/lvx/RegisterAllocation.md`,
 Poletto & Sarkar 1999) and against Poletto & Sarkar itself. The two papers
 are not independent alternatives -- Wimmer co-authored the 2002 paper's
@@ -22,6 +25,15 @@ interval splitting, "second-chance binpacking") → Mössenböck & Pfeiffer
 2002 (fixed intervals, SSA-*aware*) → Wimmer & Mössenböck 2005 (interval
 splitting refinements) → Wimmer & Franz 2010 (SSA-*native*: allocate
 directly on SSA form, no dataflow analysis needed to build intervals).
+
+Pereira & Palsberg 2009 is not part of the linear-scan lineage above at
+all -- it's from the *SSA-based graph-coloring* thread (Hack, Pereira's own
+puzzle-solving allocator), a separately-evolved family that shares only the
+underlying problem (register allocation on SSA-form programs), not any
+algorithmic ancestry with Poletto/Mössenböck/Wimmer. It's included here
+because it answers a question the other three papers only mention in
+passing: given a program with φ-related variables that ended up sharing a
+register, what has to be true for that to be *safe*, precisely?
 
 ## Lineage, not two independent approaches
 
@@ -201,13 +213,90 @@ piece worth keeping regardless of that framing -- it is a legitimate
 argument for eventually dropping the `mlir::Liveness` safety net in Step
 1, not just an empirical hunch that it happens to be unneeded so far.
 
-## Decision: not fixing these now
+## Pereira & Palsberg 2009: point-by-point findings
 
-None of the identified gaps -- from either paper -- are correctness bugs
-in reachable code paths:
+**CSSA and the precise safety condition for coalescing this project has
+been missing.** Mössenböck 2002 and Wimmer 2010 each note in passing that
+aggressive coalescing can force *more* registers than necessary (see the
+"hard merge vs. soft hints" entry above) -- but neither gives a checkable
+criterion for when it's actually unsafe, only a qualitative "usually a bad
+trade." Pereira & Palsberg's Conventional SSA (CSSA) form makes this
+precise (Definition 1): variables related by a φ-function may share a
+register only if, for every pair, they **do not interfere**. Their intro
+cites their own earlier result (Pereira & Palsberg, APLAS 2005) that
+coalescing without this check can force a strictly worse register count
+than a correct allocation would need.
 
-- The φ-merge gap is dead code -- nothing in the current lowering
-  produces a real merge block.
+**This is the exact, previously-undiagnosed cause of the "combined
+accumulator" bug.** `buildAllocItems`'s union-find (`RegisterAllocation.cpp`)
+coalesces every `lvx_scf.for` loop-carried tuple and every `lvx_cf` branch
+edge into one register with no interference check at all -- pure
+aggressive coalescing, unconditionally. `docs/lvx/RegisterAllocation.md`'s
+"Nested `lvx_scf.for`" section already documents a concrete failure of
+this (`%sum = lvx.addd %acc, %innerResult` compiling to a self-add) as a
+"known, narrower remaining gap," but without a name for *why* it happens.
+Pereira's Definition 1 supplies that name: `%acc` and the inner loop's own
+result are coalesced by this project's union-find (both flow through the
+same loop-carried channel), but they interfere (`%acc` is read again,
+via the `addd`, after the inner result is already live) -- exactly the
+"CSSA property violated" case the whole paper exists to detect and avoid.
+This isn't a new bug the paper reveals; it's a precise diagnosis of one
+already on record.
+
+**The paper's own fix doesn't apply as-is, but the diagnosis suggests a
+much smaller one.** Pereira & Palsberg's actual contribution -- *spill-free
+SSA elimination* -- solves a harder, more general problem than this
+project has: given a CSSA-form, register-allocated program with φ-functions
+still unresolved, replace each one with copy/swap instructions without
+needing a spare register, by showing the necessary parallel copies always
+form a restricted graph shape ("spartan": unions of cycles and paths, never
+Sreedhar's more general "windmills") solvable via `ImplementSpartan`
+(Section 5) with no temporary register required even for memory-to-memory
+transfers. lvx-mlir doesn't have that problem in the first place, because
+it never lets a φ (or `lvx_scf.for`'s loop-carried channel) survive
+unresolved into a separate elimination pass -- it resolves the "same
+register or not" question during allocation itself, by forcing coalescing.
+Adopting CSSA/spartan-graph machinery wholesale would mean *creating* the
+problem Pereira solves, not reusing the solution.
+
+What *is* directly reusable is much narrower: use Definition 1 as a guard
+before each `unite` call in `buildAllocItems`. The live intervals needed
+to check it already exist (Step 1 computes them for every value); this
+project doesn't need CSSA's general machinery to ask "would this specific
+union create an interference," it can just check the two intervals against
+each other, exactly as `expireOldIntervals`/the conflict-detection code in
+Step 2 already do for other purposes. Where a union would be unsafe, fall
+back to what this project already does everywhere else a value needs to
+move between registers: insert an explicit `lvx.mv` copy (the same pattern
+as the ABI copy-in/copy-out, the induction-variable copy-in, and the
+hardware-loop increment), rather than forcing one register onto two
+interfering values. This is a small, local, correctness-motivated change,
+not an architectural one -- unlike Wimmer's `Resolve` phase, it doesn't
+require giving up the "no unresolved parallel copies" design at all; it
+just stops assuming every structurally-related tuple is safe to merge
+without checking.
+
+**One incidental parallel worth noting.** Pereira's paper frames "spare
+register" (permanently reserving one register to implement memory-to-memory
+copies during φ-elimination) as the naive, costly baseline their spill-free
+approach improves on (5.2% more spill code in their SPEC measurements,
+Section 1). This project already pays that exact cost for an unrelated
+reason: Step 3 permanently reserves `r29`-`r31` as spill/compare scratch
+registers (`docs/lvx/RegisterAllocation.md`, "Reserved scratch registers").
+That reservation already exists and is already paid for, so if the
+interference-check-then-copy fix above needs a scratch register at some
+program point where every general-purpose register is genuinely live, it
+has one available for free -- no new cost, unlike Pereira's baseline where
+reserving that register was the thing being optimized away.
+
+## Decision: not fixing most of these now
+
+Most of the identified gaps -- from all three papers -- are still not
+correctness bugs in reachable code paths:
+
+- The general φ-merge gap (differing values from different predecessors)
+  is dead code -- nothing in the current lowering produces a real merge
+  block with non-uniform incoming values.
 - The stricter `JOIN`/fixed-conflict check and the missing
   holes/`inactive` set are precision/conservatism gaps, not wrong output.
 - Even the weighted spill heuristic is optimizing a path (Step 3
@@ -220,23 +309,39 @@ in reachable code paths:
   (Step 1's redundant safety-net pass) get slightly cheaper; it isn't
   fixing a bug either.
 
-Spending effort on spill-quality tuning, interval splitting, or general
-φ-coalescing before a single real numeric kernel has run end-to-end
-(still blocked on `divmod`/`cmoved` emission support and the broken
-`lvx-gem5` build -- `docs/lvx/AssemblyEmission.md`) would be polishing a
-component nothing has actually stressed yet.
+**The interference-check gap Pereira 2009 diagnoses is the one exception.**
+Unlike the rest of this list, it isn't speculative: it's the precise cause
+of a bug already on record (`docs/lvx/RegisterAllocation.md`'s "combined
+accumulator" case) in code that *is* reachable -- nested `lvx_scf.for` is
+exercised end-to-end (`scf-to-cf.mlir`'s `@nested` case), just not this
+specific sub-pattern. It's also no longer true that no real kernel has run
+end-to-end: `docs/lvx/EndToEndValidation.md` records one that did, and
+found three *other* real bugs this same aggressive-coalescing/live-interval
+family of issues wasn't the cause of. That exercise didn't happen to hit
+the combined-accumulator pattern specifically (its one loop-carried value
+was simply replaced by, not combined with, anything), so this gap is still
+unconfirmed by execution -- but it's a known bug with a named cause and a
+small, scoped fix, not a hypothetical one. Worth doing sooner than the
+items below, once picked up.
 
 **If/when revisited, roughly in priority order**:
-1. Mössenböck's weighted `AssignMemLoc` -- the cheapest win, a heuristic
-   swap within the existing no-splitting design, once a real spill-heavy
-   kernel shows the current furthest-endpoint heuristic making a bad call.
-2. Interval splitting + a Wimmer-style `Resolve` phase -- a bigger,
+1. The Pereira-diagnosed interference check in `buildAllocItems` -- guard
+   each `unite` call with a live-interval overlap check (data already
+   computed in Step 1), falling back to an explicit `lvx.mv` copy when
+   unsafe. Fixes a real, already-documented bug rather than a speculative
+   gap; small and local, no architectural change.
+2. Mössenböck's weighted `AssignMemLoc` -- a heuristic swap within the
+   existing no-splitting design, once a real spill-heavy kernel shows the
+   current furthest-endpoint heuristic making a bad call.
+3. Interval splitting + a Wimmer-style `Resolve` phase -- a bigger,
    structural addition, worth it only once spilling a value for its
    *entire* interval (today's behavior) is shown to cost real performance
    on a real kernel.
-3. Dropping the `mlir::Liveness` safety net in Step 1 in favor of
+4. Dropping the `mlir::Liveness` safety net in Step 1 in favor of
    Wimmer's dataflow-free construction, on the strength of his proof
    rather than re-deriving it -- a simplification with no behavior change,
-   lowest urgency of the three.
-4. The φ-merge and holes/`inactive`-set gaps stay architecture to add when
-   something in the actual lowering pipeline needs them, not before.
+   lowest urgency of the group.
+5. The general φ-merge (differing predecessor values) and holes/`inactive`-
+   set gaps, and Pereira's full CSSA/spartan-graph machinery for resolving
+   *unresolved* parallel copies, stay architecture to add when something in
+   the actual lowering pipeline needs them, not before.
