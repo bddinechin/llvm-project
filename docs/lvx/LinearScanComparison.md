@@ -16,6 +16,9 @@ actually implemented.
 > Fernando Magno Quintão Pereira and Jens Palsberg, "SSA Elimination after
 > Register Allocation," CC 2009 (`/home/guembu/Downloads/Pereira_2009_CC.pdf`).
 
+> Sebastian Hack, Daniel Grund, and Gerhard Goos, "Register Allocation for
+> Programs in SSA-Form," CC 2006 (`/home/guembu/Downloads/Hack_2006_CC.pdf`).
+
 Compared against what's implemented here (`docs/lvx/RegisterAllocation.md`,
 Poletto & Sarkar 1999) and against Poletto & Sarkar itself. The two papers
 are not independent alternatives -- Wimmer co-authored the 2002 paper's
@@ -26,14 +29,21 @@ interval splitting, "second-chance binpacking") → Mössenböck & Pfeiffer
 splitting refinements) → Wimmer & Franz 2010 (SSA-*native*: allocate
 directly on SSA form, no dataflow analysis needed to build intervals).
 
-Pereira & Palsberg 2009 is not part of the linear-scan lineage above at
-all -- it's from the *SSA-based graph-coloring* thread (Hack, Pereira's own
-puzzle-solving allocator), a separately-evolved family that shares only the
-underlying problem (register allocation on SSA-form programs), not any
-algorithmic ancestry with Poletto/Mössenböck/Wimmer. It's included here
-because it answers a question the other three papers only mention in
-passing: given a program with φ-related variables that ended up sharing a
-register, what has to be true for that to be *safe*, precisely?
+Pereira & Palsberg 2009 and Hack, Grund & Goos 2006 are not part of the
+linear-scan lineage above at all -- they're from the *SSA-based
+graph-coloring* thread (Hack, Pereira's own puzzle-solving allocator), a
+separately-evolved family that shares only the underlying problem
+(register allocation on SSA-form programs), not any algorithmic ancestry
+with Poletto/Mössenböck/Wimmer. The two are directly connected to each
+other, not independent: Hack 2006 is reference [13] in Pereira 2009's own
+bibliography, and Pereira's earlier chordal-graph-coloring paper (APLAS
+2005, cited by both) is reference [19] in Hack 2006's -- same
+Karlsruhe/UCLA-adjacent research group, building on each other's results.
+Both are included here because together they answer a question the
+linear-scan papers only mention in passing: given a program with
+φ-related variables that ended up sharing a register, what has to be true
+for that to be *safe*, precisely, and how cheap can resolving the ones
+that *aren't* safe actually be?
 
 ## Lineage, not two independent approaches
 
@@ -289,9 +299,103 @@ program point where every general-purpose register is genuinely live, it
 has one available for free -- no new cost, unlike Pereira's baseline where
 reserving that register was the thing being optimized away.
 
+## Hack, Grund & Goos 2006: point-by-point findings
+
+**A formal proof for something this project has twice found empirically.**
+Hack's core theorem: interference graphs of *strict* SSA-form programs
+(every use dominated by its definition -- true of any program `-convert-
+to-lvx` produces) are **chordal**. Chordal graphs are perfect (chromatic
+number = largest clique) and, crucially, always admit a *perfect
+elimination order* obtainable directly from a post-order walk of the
+program's dominance tree -- no search needed, no NP-complete "does a PEO
+exist" question to answer. This is a second, independent formal
+justification for the same phenomenon already noted twice in this
+document: Wimmer's dataflow-free interval construction above, and Step
+1's own empirical finding that `mlir::Liveness`'s dataflow correction pass
+"turned out to be redundant." Wimmer's proof is about *building intervals*
+without dataflow; Hack's is about *coloring* being reducible to a
+dominance-order walk instead of general graph search. Different papers,
+different mechanisms, same underlying cause -- SSA's dominance property
+does almost all the work, and this project's Step 1 numbering
+(`ReversePostOrderTraversal` plus inline `lvx_scf.for` numbering,
+`docs/lvx/RegisterAllocation.md`) already produces a dominance-respecting
+order for exactly this reason, independently of either paper.
+
+**This chordality result is precisely what Lee/Palsberg/Pereira 2007
+(`docs/lvx/MultiRegisterClasses.md`) shows doesn't survive aliasing.**
+Worth stating explicitly since the two papers were read separately: Hack's
+"SSA makes coloring easy" and Lee 2007's "aliased register allocation is
+NP-complete even for the friendliest SSA-like programs" are not in
+tension, they're the same boundary described from two sides. Hack's
+result needs one flat, non-aliased register class; the moment LVX's
+pair/quad aliasing enters (`docs/lvx/MultiRegisterClasses.md`), chordality
+and the free perfect-elimination-order are exactly what's lost, which is
+*why* the problem becomes NP-complete instead of staying polynomial. This
+project's current Steps 1-3 sit safely on the easy side of that boundary
+(one register class, `!lvx.reg`, `kFullOrder`); the SIMD phase is what
+would cross it.
+
+**φ-resolution via swap/permutation, and why it's unusually cheap on
+LVX specifically.** Hack's §4.2-4.3 addresses the same "how do we turn a
+φ-function into real instructions" problem as Pereira 2009 above, from a
+different angle: a block's φ-operations, executed simultaneously, are
+provably a *permutation* on registers (Figure 2's worked example: two
+φ's at a loop header literally swap `R1`/`R2` on the back edge), and any
+permutation decomposes into at most `n-1` transpositions with **no spare
+register needed** if the target has a swap instruction (`xchg` on x86) or
+three `xor`s if it doesn't.
+
+LVX has no dedicated register-register swap opcode -- checked directly
+against ground truth (`lvx-mds/refs/FE/YAML/lvx/lvx_v1/Description.yml`):
+the only `*SWAP*` entries are `RSWAP` (a system-register swap, not
+general-purpose) and the `ASWAP`/`ACSWAP` families (atomic *memory*
+swap/compare-swap via the LSU, unrelated to register-register exchange).
+But it doesn't need one, for a reason neither Hack's nor Pereira's paper
+had available to them (both target scalar, non-VLIW machines): LVX's
+bundle semantics already give a *stronger* primitive than a pairwise
+swap, for free. Confirmed directly in the already-verified `lvx-gem5`
+reference model, not inferred (`static_inst.cc`, `LvxStaticInst::execute`):
+every sub-instruction in a bundle runs its `Fetch` (register reads) phase
+*before any* sub-instruction in that bundle runs its `Commit` (register
+writes) phase -- "so all source reads (fetch) happen before any register
+write (commit) — VLIW parallel semantics," in the code's own comment.
+That is exactly the "all φ-operations execute simultaneously" semantics
+Hack's paper defines for a block's φ-matrix (§1, §4.2) -- LVX's ordinary
+bundle execution model *is* a hardware parallel-copy primitive. A whole
+φ-block's worth of permutation can be implemented as a bundle of ordinary
+`copyd` instructions, with no cycle/path decomposition, no swap-vs-xor
+case analysis, and no spare register ever needed, for any permutation
+that fits in one bundle's move-capable issue slots. From the gem5
+reference model's own execution-unit assignment (`static_inst.cc`,
+`enum Exu`): up to four ALU-class slots per bundle (`EXU_ALU0`/`EXU_ALU1`
+plus `EXU_LSU0`/`EXU_LSU1` when not otherwise used for real loads/stores)
+can each carry a `copyd`, so a permutation touching up to four registers
+is exactly free; a larger one would need staging across multiple bundles
+(each bundle still absorbing up to four registers' worth of movement at
+once, not one pairwise swap at a time as Hack's transposition-based
+algorithm would need) -- still meaningfully cheaper than either paper's
+general-purpose algorithm, which was designed for machines without this
+option.
+
+**Not usable today, and why.** This is a real property of the target, not
+of this project's own code -- `-lvx-emit-asm` currently emits exactly one
+instruction per bundle (`docs/lvx/AssemblyEmission.md`, "Bundling": real
+VLIW co-issue is explicit future work). Exploiting any of the above would
+need that bundling support built first, and only becomes relevant at all
+once there's an actual unresolved φ/parallel-copy to resolve -- which,
+per the Pereira 2009 discussion above, this project doesn't have today by
+construction (coalescing resolves the question during allocation, not
+after). The concrete payoff is specific and deferred: *if* Wimmer's
+splitting + general `Resolve` phase is ever adopted (this document's own
+"if/when revisited" list below), the φ/parallel-copy resolution step that
+phase needs is unusually cheap to implement correctly on LVX -- no
+spartan-graph analysis (Pereira) or transposition decomposition (Hack)
+required, just emit the permutation as ordinary bundled moves -- *provided*
+real multi-instruction bundling exists by then.
+
 ## Decision: not fixing most of these now
 
-Most of the identified gaps -- from all three papers -- are still not
+Most of the identified gaps -- from all four papers -- are still not
 correctness bugs in reachable code paths:
 
 - The general φ-merge gap (differing values from different predecessors)
@@ -308,6 +412,10 @@ correctness bugs in reachable code paths:
 - The dataflow-elimination proof would only let something already-cheap
   (Step 1's redundant safety-net pass) get slightly cheaper; it isn't
   fixing a bug either.
+- Hack 2006's chordality result and bundle-based φ-resolution are both
+  confirmations/future-payoff findings, not gaps at all -- there's nothing
+  to fix, only something to remember when the `Resolve`-phase item below
+  is eventually picked up.
 
 **The interference-check gap Pereira 2009 diagnoses is the one exception.**
 Unlike the rest of this list, it isn't speculative: it's the precise cause
@@ -336,7 +444,13 @@ items below, once picked up.
 3. Interval splitting + a Wimmer-style `Resolve` phase -- a bigger,
    structural addition, worth it only once spilling a value for its
    *entire* interval (today's behavior) is shown to cost real performance
-   on a real kernel.
+   on a real kernel. When this is picked up, its φ/parallel-copy
+   resolution step should target LVX's bundled-`copyd` primitive (Hack
+   2006 discussion above) rather than porting Wimmer's, Hack's, or
+   Pereira's general-purpose resolution algorithms verbatim -- doing so
+   also requires real multi-instruction bundling in `-lvx-emit-asm`
+   first (`docs/lvx/AssemblyEmission.md`), which doesn't exist yet
+   either.
 4. Dropping the `mlir::Liveness` safety net in Step 1 in favor of
    Wimmer's dataflow-free construction, on the strength of his proof
    rather than re-deriving it -- a simplification with no behavior change,
