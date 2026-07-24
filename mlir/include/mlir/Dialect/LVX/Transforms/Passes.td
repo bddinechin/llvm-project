@@ -13,9 +13,9 @@ include "mlir/Pass/PassBase.td"
 
 def LVXAllocateRegistersPass
     : Pass<"lvx-allocate-registers", "::mlir::lvx_func::FuncOp"> {
-  let summary = "Assign physical registers via linear scan (no spilling)";
+  let summary = "Assign physical registers via linear scan, with spilling";
   let description = [{
-    Step 2 of the linear-scan register allocator described in
+    Steps 2 and 3 of the linear-scan register allocator described in
     docs/lvx/RegisterAllocation.md (Poletto & Sarkar, TOPLAS 1999, Fig. 1):
     runs `LVXLiveIntervals` (Step 1) to compute live intervals, coalesces
     each `lvx_scf.for` loop-carried channel (init operand / body iter_arg /
@@ -23,21 +23,32 @@ def LVXAllocateRegistersPass
     register choice to callee-saved registers for any item whose range
     strictly straddles an `lvx_func.call`, then runs the standard
     increasing-start-order scan with `ExpireOldIntervals`, assigning each
-    unfixed item the first free register in a fixed preference order.
+    unfixed item the first free register in a fixed preference order --
+    falling back to `SpillAtInterval` (spilling whichever of the current
+    item or the furthest-ending spillable active item lives longer) when
+    none is free.
 
-    There is no spilling in this step: if no free register (of the
-    allowed kind) exists for an item, the pass emits an error naming the
-    value and its live range and fails, rather than falling back to
-    memory. Every successfully assigned or already-ABI-pinned value has
-    its `!lvx.reg` type rewritten in place to `!lvx.reg<rN>`; no new
-    operations are inserted.
+    Spilled values are memory-resident for their whole original interval
+    (no live-range splitting): a spill store is inserted right after the
+    value's definition, and a fresh reload right before each use, using a
+    small reserved scratch-register pool disjoint from the general
+    allocatable one. A stack-pointer-relative prologue/epilogue is emitted
+    automatically whenever at least one spill occurs. Two cases remain a
+    hard error rather than being spilled: a coalesced `lvx_scf.for`
+    loop-carried channel (not yet implemented), and a single instruction
+    needing more simultaneously-reloaded operands than the scratch pool
+    holds (realistically only `lvx_func.call` with many spilled
+    arguments). Every successfully assigned or already-ABI-pinned value
+    has its `!lvx.reg` type rewritten in place to `!lvx.reg<rN>`.
   }];
   let options = [
-    Option<"maxRegisters", "max-registers", "unsigned", /*default=*/"62",
+    Option<"maxRegisters", "max-registers", "unsigned", /*default=*/"59",
            "Size of the allocatable register pool, counted from the start "
            "of the fixed preference order. Exists so lit tests can force "
-           "the bail-out path without hand-writing 62 live values; the "
-           "real pool (all GPRs except the reserved R12/R13) is 62.">,
+           "spilling (or, at the extreme, the remaining hard-error paths) "
+           "without hand-writing dozens of live values; the real pool "
+           "(all GPRs except the reserved R12/R13 and the 3 spill-scratch "
+           "registers) is 59.">,
   ];
 }
 

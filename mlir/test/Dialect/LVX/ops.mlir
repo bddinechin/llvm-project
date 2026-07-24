@@ -6,6 +6,8 @@ lvx_func.func @scalar_ops(%a: !lvx.reg, %b: !lvx.reg) -> !lvx.reg {
   %c = lvx.li 41 : i64 : !lvx.reg
   // CHECK: lvx.mv %{{.*}} : (!lvx.reg) -> !lvx.reg
   %m = lvx.mv %c : (!lvx.reg) -> !lvx.reg
+  // CHECK: lvx.sp : <r12>
+  %sp = lvx.sp : !lvx.reg<r12>
   // CHECK: lvx.addd %{{.*}}, %{{.*}} : (!lvx.reg, !lvx.reg) -> !lvx.reg
   %0 = lvx.addd %a, %b : (!lvx.reg, !lvx.reg) -> !lvx.reg
   // CHECK: lvx.sbfw %{{.*}}, %{{.*}} : (!lvx.reg, !lvx.reg) -> !lvx.reg

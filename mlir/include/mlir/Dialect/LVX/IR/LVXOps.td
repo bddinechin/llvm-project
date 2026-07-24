@@ -54,6 +54,20 @@ def LVX_MvOp : LVX_Op<"mv", [Pure]> {
   let assemblyFormat = "$source attr-dict `:` functional-type($source, $result)";
 }
 
+def LVX_SpOp : LVX_Op<"sp", [Pure]> {
+  let summary = "materialize the current stack-pointer value (pseudo)";
+  let description = [{
+    Synthetic pseudo-instruction (not a real opcode, like `lvx.li`/`lvx.mv`
+    above) that materializes the function's current stack-pointer value as
+    an SSA value, typed `!lvx.reg<r12>` (R12 is `lvx_Convention.yml`'s
+    `stack` register). Inserted by the register allocator's spill rewrite
+    (docs/lvx/RegisterAllocation.md, Step 3) to give spill `lvx.sd`/`lvx.ld`
+    instructions a base operand; not user-written.
+  }];
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "attr-dict `:` type($result)";
+}
+
 //===----------------------------------------------------------------------===//
 // Integer arithmetic (paired 64-bit `d` / 32-bit `w` real mnemonics).
 //===----------------------------------------------------------------------===//
