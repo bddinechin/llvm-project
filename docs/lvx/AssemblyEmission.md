@@ -49,10 +49,18 @@ approach the validation harness itself is built on.
 - Registers: `$r0`..`$r63` (dialect's `stringifyRegister` omits the `$`;
   emission must prepend it).
 - Arithmetic/copy (no modifier): `<mnemonic> $rd = $rs1, $rs2` (binary),
-  `<mnemonic> $rd = $rs` (unary/copy) -- `addd`, `sbfd`, `muld`, `andd`,
-  `iord`, `eord`, `slld`, `srad`, `srld`, `notd` and the `w`-suffixed
-  32-bit forms, plus `copyd`/`copyw` (what `lvx.mv` lowers to -- see
-  below) and `make` (what `lvx.li` lowers to).
+  `<mnemonic> $rd = $rs` (unary/copy) -- `addd`, `muld`, `andd`, `iord`,
+  `eord`, `slld`, `srad`, `srld`, `notd` and the `w`-suffixed 32-bit forms,
+  plus `copyd`/`copyw` (what `lvx.mv` lowers to -- see below) and `make`
+  (what `lvx.li` lowers to). **`sbfd`/`sbfw`/`fsbfd`/`fsbfw` are the one
+  exception**: real hardware's "subtract FROM" semantics mean
+  `$rd = $rs1, $rs2` computes `$rs2 - $rs1`, the reverse of every other
+  binary op here -- found the hard way (a hardware-loop trip count
+  silently computed backwards, looking like a hang rather than a crash)
+  when a real kernel was run end to end; see
+  `docs/lvx/EndToEndValidation.md` and `emitBinarySubtractFrom` in
+  EmitAsm.cpp, which swaps the printed operand order so `lvx.sbfd`'s own
+  `$lhs`/`$rhs` IR operands keep meaning the natural `lhs - rhs`.
 - Memory: `<mnemonic> $rd = <offset>[$base]` for loads, `<mnemonic>
   <offset>[$base] = $rvalue` for stores -- note the store's operand order
   mirrors every other op's "thing written = things read" convention, the
@@ -199,13 +207,16 @@ this way, not by reasoning about the code: the induction-variable
 copy-in gap (`lvx-scf-to-cf`'s own section above) and the module-wide
 (not per-function) block-label numbering requirement ("Confirmed syntax").
 
-**Attempted, not landed**: a full link-and-run under the real `lvx-gem5`
-ISS (assemble → link with a tiny `_start` driver, mirroring
-`validation/lib/crt.S` → run via `tests/lvx/run_lvx.py`). The assembled
-straight-line/branches/loop kernels linked cleanly, but the current
-`lvx-gem5/build/LVX/gem5.opt` binary segfaults with `SIGILL` on *any*
-input — confirmed pre-existing and unrelated to this work by reproducing
+**Later landed** (`docs/lvx/EndToEndValidation.md`): a full link-and-run
+under the real `lvx-gem5` ISS was attempted here and blocked at the time —
+the `lvx-gem5/build/LVX/gem5.opt` binary segfaulted with `SIGILL` on *any*
+input, confirmed pre-existing and unrelated to this work by reproducing
 the identical crash on `lvx-gem5`'s own already-verified `compute.s` smoke
-test. This is an `lvx-gem5`-side build/environment issue (that project was
-being actively rebuilt at the time), not something to chase down here;
-worth retrying once that's resolved.
+test (that project was being actively rebuilt at the time). By the time a
+real kernel was carried all the way through execution, the rebuild had
+completed and gem5 ran correctly; that same end-to-end exercise also found
+and fixed three real, previously-latent bugs (register-allocator branch-
+argument coalescing, `sbfd`'s reversed operand order, and an induction-
+variable live-interval gap) that pure structural/FileCheck testing could
+never have caught, since none of them produced wrong-*shaped* IR or
+assembly, only wrong *numbers*.

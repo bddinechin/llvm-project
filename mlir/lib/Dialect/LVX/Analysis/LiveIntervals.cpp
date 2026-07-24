@@ -78,6 +78,35 @@ void LVXLiveIntervals::buildIntervals(lvx_func::FuncOp func) {
     }
   });
 
+  // `lvx_scf.for`'s induction variable (the body's block argument 0) *and*
+  // its `step` operand both have an implicit extra use invisible to plain
+  // SSA/dataflow liveness: both `-lvx-scf-to-cf` lowering paths
+  // (docs/lvx/AssemblyEmission.md, docs/lvx/HardwareLoops.md) synthesize an
+  // in-place "iv = iv + step" increment right before the body's
+  // terminator, *after* this pass has already run -- reading both iv and
+  // step at that point -- so if either one also has no other use that
+  // naturally keeps it alive that far (iv when the body doesn't otherwise
+  // read it; step always, since it's only ever an operand of the `for` op
+  // itself, never referenced inside the body in the original IR), the true
+  // live range still extends to the end of the body even though the
+  // explicit IR at this point shows no use there at all. Every existing
+  // hand-written test happened to never read iv inside the body, so this
+  // went unnoticed until a real `-convert-to-lvx`-produced kernel that does
+  // was run end-to-end: without this extension, another value can get
+  // allocated the same register as iv or step in the gap between its last
+  // explicit use and the body's end, and the synthesized increment
+  // silently reads and propagates the wrong value forward.
+  func.walk([&](lvx_scf::ForOp forOp) {
+    Block *body = forOp.getBody();
+    unsigned bodyEnd = getNumber(&body->back());
+    BlockArgument iv = body->getArgument(0);
+    LiveInterval &iv_interval = getOrCreate(iv, valueToIntervalIndex, intervals);
+    iv_interval.end = std::max(iv_interval.end, bodyEnd);
+    LiveInterval &step_interval =
+        getOrCreate(forOp.getStep(), valueToIntervalIndex, intervals);
+    step_interval.end = std::max(step_interval.end, bodyEnd);
+  });
+
   // Extend intervals for values that pass through a block untouched (live
   // out of it per real dataflow liveness, but with no direct use recorded
   // above because the block never references them). A value's `start` is

@@ -34,6 +34,35 @@ lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
   lvx_func.return %4 : !lvx.reg<r0>
 }
 
+// `sbfd` is a real "subtract FROM" opcode: `sbfd $rd = $rs1, $rs2` computes
+// `$rs2 - $rs1`, not `$rs1 - $rs2` -- confirmed against
+// lvx-mds/refs/FE/YAML/lvx/lvx_v1/Description.yml's own description ("The
+// %2 is subtracted from the %3") and empirically on real gem5
+// (docs/lvx/EndToEndValidation.md, where a naively-printed "subtract" of 5
+// and 0 executed to -5). `lvx.sbfd %lhs, %rhs`'s own IR-level semantics
+// still mean the natural "result = lhs - rhs" that `arith.subi` and every
+// other caller assumes; only the *printed* operand order is swapped
+// (`%1, %0` below, not `%0, %1`) to compensate at the assembly boundary --
+// see `emitBinarySubtractFrom` in EmitAsm.cpp.
+// CHECK-LABEL: subtract:
+// CHECK-NEXT: copyd $r2 = $r0
+// CHECK-NEXT: ;;
+// CHECK-NEXT: copyd $r0 = $r1
+// CHECK-NEXT: ;;
+// CHECK-NEXT: sbfd $r1 = $r0, $r2
+// CHECK-NEXT: ;;
+// CHECK-NEXT: copyd $r0 = $r1
+// CHECK-NEXT: ;;
+// CHECK-NEXT: ret
+// CHECK-NEXT: ;;
+lvx_func.func @subtract(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
+  %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
+  %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg
+  %2 = lvx.sbfd %0, %1 : (!lvx.reg, !lvx.reg) -> !lvx.reg
+  %3 = lvx.mv %2 : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %3 : !lvx.reg<r0>
+}
+
 // A branch diamond: `lvx_cf.cond_br`'s bcucond modifier concatenates onto
 // `cb` with a leading dot (`cb.wnez`, not `cb wnez`). The false edge
 // (^bb1 -> ^bb2, i.e. .LBB0 -> .LBB1) and ^bb1's own unconditional branch
@@ -77,7 +106,13 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // A counted, constant-step-1 loop is eligible for the hardware-loop path
 // (docs/lvx/HardwareLoops.md): a single `loopdo` replaces the
 // compare+cond_br header entirely. `%trip` (r29) = ub - lb via `sbfd`;
-// the induction variable's explicit copy-in becomes a real (here,
+// real `sbfd`/`sbfw`/`fsbfd`/`fsbfw` are "subtract FROM" opcodes --
+// `sbfd $rd = $rs1, $rs2` computes `$rs2 - $rs1`, the reverse of every
+// other binary op's `$rd = $rs1 op $rs2` reading (confirmed against
+// lvx-mds's Description.yml and empirically on real gem5) -- so the
+// *printed* operand order below is `lb, ub` even though the IR-level
+// `lvx.sbfd` operands are `(ub, lb)`; see emitBinarySubtractFrom's comment
+// in EmitAsm.cpp. The induction variable's explicit copy-in becomes a real (here,
 // same-register, harmless) `copyd $r0 = $r0`. `loopdo`'s `body` successor
 // is never printed as a jump target -- real hardware falls through to it
 // -- and, critically, the body's own branch back to `exit` is *also*
@@ -98,7 +133,7 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // CHECK-NEXT: ;;
 // CHECK-NEXT: make $r4 = 0
 // CHECK-NEXT: ;;
-// CHECK-NEXT: sbfd $r29 = $r2, $r0
+// CHECK-NEXT: sbfd $r29 = $r0, $r2
 // CHECK-NEXT: ;;
 // CHECK-NEXT: copyd $r0 = $r0
 // CHECK-NEXT: ;;

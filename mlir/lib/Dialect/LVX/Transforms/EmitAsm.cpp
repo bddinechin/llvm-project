@@ -128,6 +128,30 @@ private:
     return success();
   }
 
+  /// `SBFD`/`SBFW`/`FSBFD`/`FSBFW` are real "subtract FROM" opcodes: per
+  /// ground truth (lvx-mds Description.yml, "The %2 is subtracted from the
+  /// %3"), `mnemonic $rd = $rs1, $rs2` computes `$rs2 - $rs1`, the reverse
+  /// of every other binary op's `$rd = $rs1 op $rs2` reading -- confirmed
+  /// both from the spec text and empirically on real gem5 (a naive
+  /// `$rd = $rs1, $rs2` for `$rs1=5, $rs2=0` executes to -5, not 5).
+  /// `SbfdOp`/`SbfwOp`/`FsbfdOp`/`FsbfwOp`'s own `$lhs`/`$rhs` IR operands
+  /// keep the natural "result = lhs - rhs" meaning every caller already
+  /// assumes (arith.subi lowering, i1 sign-extension, the hardware-loop
+  /// trip-count computation in SCFToCF.cpp); this swaps the *printed*
+  /// operand order so the natural IR semantics survive translation to the
+  /// real "subtract from" encoding, rather than pushing the inversion onto
+  /// every call site.
+  LogicalResult emitBinarySubtractFrom(Operation *op, StringRef mnemonic) {
+    FailureOr<std::string> rd = reg(op->getResult(0));
+    FailureOr<std::string> rs1 = reg(op->getOperand(1));
+    FailureOr<std::string> rs2 = reg(op->getOperand(0));
+    if (failed(rd) || failed(rs1) || failed(rs2))
+      return failure();
+    os << "\t" << mnemonic << " " << *rd << " = " << *rs1 << ", " << *rs2
+       << "\n\t;;\n";
+    return success();
+  }
+
   LogicalResult emitTernary(Operation *op, StringRef mnemonic) {
     FailureOr<std::string> rd = reg(op->getResult(0));
     FailureOr<std::string> rs1 = reg(op->getOperand(0));
@@ -234,6 +258,13 @@ private:
         .Case([&](CompwOp op) { return emitCompare(op, "compw", stringifyIntComp(op.getPredicate())); })
         .Case([&](FcompdOp op) { return emitCompare(op, "fcompd", stringifyFloatComp(op.getPredicate())); })
         .Case([&](FcompwOp op) { return emitCompare(op, "fcompw", stringifyFloatComp(op.getPredicate())); })
+        // "Subtract FROM" opcodes: real hardware's operand order is the
+        // reverse of this dialect's `$lhs, $rhs` -- see
+        // emitBinarySubtractFrom's comment.
+        .Case([&](SbfdOp op) { return emitBinarySubtractFrom(op, "sbfd"); })
+        .Case([&](SbfwOp op) { return emitBinarySubtractFrom(op, "sbfw"); })
+        .Case([&](FsbfdOp op) { return emitBinarySubtractFrom(op, "fsbfd"); })
+        .Case([&](FsbfwOp op) { return emitBinarySubtractFrom(op, "fsbfw"); })
         // Explicitly unsupported: real-hardware modeling mismatches, not
         // just missing syntax -- see docs/lvx/AssemblyEmission.md, "Scope:
         // supported ops".
