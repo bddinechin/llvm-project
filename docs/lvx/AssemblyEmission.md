@@ -114,6 +114,106 @@ register-allocation tests use them structurally, but no straight-line
 kernel test reaches assembly emission through one yet), so this is a
 documented gap, not a silently-passing broken path.
 
+### A narrower fix for `divmod`, sketched but not implemented
+
+The `divmod` bullet above says "needs register-pair/`RegClass`
+allocation" -- true for the *general* problem (an arbitrary candidate
+that needs to live in an arbitrary aligned pair, `docs/lvx/
+MultiRegisterClasses.md`'s future SIMD phase), but `divmod`'s own case is
+narrower than that: it's always the *same* op needing the *same* kind of
+pair, at a point where the allocator already has ordinary registers
+picked out for the quotient and remainder. That narrower shape has a
+narrower fix, reusing machinery this project already has, with no changes
+to Steps 1-3 themselves.
+
+**Ground truth, confirmed against `lvx-mds/refs/FE/YAML/lvx/lvx_v1/
+Description.yml` and `lvx_Format.yml`, not assumed:**
+
+- `DIVMODD`'s format (`ALU_DDMWRR`) destination operand is `{ pairedReg:
+  registerM }` -- a distinct operand class from `{ singleReg: ... }`,
+  encoded in a 5-bit field (`registerM: "-----"`) versus `singleReg`'s
+  6 bits, i.e. `registerM` names one of 32 register *pairs* directly,
+  not an arbitrary single register. This is a real, hardware-defined
+  aligned-pair addressing mode, not something this project would need to
+  invent a convention for.
+- `DIVMODD`'s own `execution:` block packs the result into one 128-bit
+  value: `result1.64[0]` (the low 64 bits) is the quotient, `result1.64[1]`
+  (the high 64 bits) is the remainder. The natural reading is that the
+  pair's lower-numbered register holds the low bits (quotient) and the
+  upper register holds the high bits (remainder) -- **not independently
+  confirmed by name** anywhere in the extracted YAML text read so far;
+  treat this as a working assumption to verify (e.g. by hand-assembling a
+  `divmodd` instruction and cross-checking against `lvx-gem5`'s
+  execution, the same methodology already used throughout this doc)
+  before actually implementing this, not before sketching it.
+
+**The key simplification: a valid pair already sits inside the existing
+scratch reservation.** Step 3's `kSpillScratchRegs` (`docs/lvx/
+RegisterAllocation.md`, "Reserved scratch registers") is `{r29, r30,
+r31}` -- and `r30:r31` (pair index 15: `2×15=30`, `31=30+1`) is already a
+*valid, aligned* pair, entirely within that existing reservation. That
+reservation's own comment already anticipated this exact need ("covers
+the worst case among currently-defined ops needing simultaneous scratch
+registers: ... `lvx.divmodd`/.../'s two results") without yet spelling out
+that they'd need to be an aligned pair specifically -- they already are,
+by what looks like foresight rather than coincidence. No new register
+needs to be carved out of the general pool; `r29` is left over for
+whatever else already uses single-register scratch (e.g. the
+hardware-loop trip count, `docs/lvx/HardwareLoops.md`, uses `r29`
+itself -- `r30`/`r31` stay free for this).
+
+**The mechanism: a post-allocation rewrite, exactly like
+`-lvx-scf-to-cf`'s own pattern.** `SCFToCF.cpp` already establishes the
+precedent this would follow: run *after* `-lvx-allocate-registers` has
+picked ordinary registers for every value, synthesize a new op with a
+result *pinned* to a reserved scratch register (`SbfdOp`'s trip count,
+pinned to `r29`), and -- where the pinned value needs to end up somewhere
+else -- bridge the gap with an ordinary `lvx.mv` copy (the induction-
+variable copy-in, the ABI copy-in/copy-out at function boundaries). The
+same shape applies here:
+
+1. Let Steps 1-3 allocate `%q, %r = lvx.divmodd %a, %b` completely
+   normally -- `$quotient`/`$remainder` land on whatever ordinary,
+   unpinned registers the scan picks, exactly as today (the register-
+   allocation tests already exercise this "structurally," per the note
+   above).
+2. A new small pass, run after `-lvx-allocate-registers` (a natural
+   sibling to `-lvx-scf-to-cf`, or folded into it), finds every
+   `lvx.divmodd`/`divmodud`/`divmodw`/`divmoduw` op and rewrites it in
+   place: retype its own two results to the fixed pair
+   (`!lvx.reg<r30>`/`!lvx.reg<r31>`), then immediately insert two
+   `lvx.mv` copies from `r30`/`r31` into `%q`/`%r`'s *original* allocated
+   registers (a no-op, harmless copy in the rare case Steps 1-3 happened
+   to pick `r30`/`r31` already -- same "cheap even when same-register"
+   reasoning already used for the induction-variable copy-in).
+3. `-lvx-emit-asm` gets one new case: print the `divmod` family using the
+   `pairedReg` destination syntax rather than the generic two-result
+   printer used for everything else -- the exact real-assembly spelling
+   (does `lvx-mbr-as` want `divmodd $r30 = $ra, $rb` with `$r31` implicit,
+   or something else?) needs the same hand-assemble-and-check step every
+   other opcode in this doc already went through, not a guess.
+
+Steps 1-3's actual allocation logic needs **no changes** -- `%q`/`%r`
+never become fixed/pinned intervals in the allocator's own view, they're
+ordinary values like any other. Only a new, narrow post-allocation
+rewrite pass and one new `-lvx-emit-asm` printing case are needed, both
+following patterns this project has already built and tested for other
+reasons. This is a real path to unblocking `divmod` well before the
+general `!lvx.pair`/`RegClass` machinery (`docs/lvx/
+MultiRegisterClasses.md`) exists -- **not implemented here**, this is a
+design sketch to work from when `divmod` support is actually picked up.
+
+**Why a `swap` instruction (`docs/lvx/LinearScanComparison.md`'s Hack
+2006 discussion) doesn't help here, for the record.** It was considered
+and doesn't apply: swap/permutation machinery resolves values that need
+to trade places with each other, which isn't `divmod`'s problem at all.
+Nothing needs to be exchanged in place -- the quotient/remainder just
+need to move *out* of a hardware-fixed pair after the instruction runs,
+into wherever they were already going to live. That's two ordinary
+one-way copies (step 2 above), not a permutation, and this project
+already has a mechanism for exactly that shape without needing any
+bundling trick.
+
 ### `lvx.sp` is never emitted
 
 `lvx.sp`'s only purpose was to give the (pre-emission) SSA IR an anchor
