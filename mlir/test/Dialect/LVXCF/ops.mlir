@@ -12,3 +12,13 @@ lvx_func.func @branches(%a: !lvx.reg) -> !lvx.reg {
 ^bb3(%z: !lvx.reg):
   lvx_func.return %z : !lvx.reg
 }
+
+// CHECK-LABEL: func @hwloop
+lvx_func.func @hwloop(%trip: !lvx.reg, %init: !lvx.reg) -> !lvx.reg {
+  // CHECK: lvx_cf.loopdo %{{.*}} : !lvx.reg, ^{{.*}}(%{{.*}} : !lvx.reg), ^{{.*}}(%{{.*}} : !lvx.reg)
+  lvx_cf.loopdo %trip : !lvx.reg, ^bb1(%init : !lvx.reg), ^bb2(%init : !lvx.reg)
+^bb1(%acc: !lvx.reg):
+  lvx_cf.br ^bb2(%acc : !lvx.reg)
+^bb2(%result: !lvx.reg):
+  lvx_func.return %result : !lvx.reg
+}

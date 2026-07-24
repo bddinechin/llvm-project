@@ -54,18 +54,20 @@ def LVXAllocateRegistersPass
 
 def LVXSCFToCFPass
     : Pass<"lvx-scf-to-cf", "::mlir::lvx_func::FuncOp"> {
-  let summary = "Lower lvx_scf.for to lvx_cf branches, after allocation";
+  let summary = "Lower lvx_scf.for to lvx_cf branches or a hardware loop, after allocation";
   let dependentDialects = ["lvx_cf::LVXCFDialect"];
   let description = [{
     See docs/lvx/AssemblyEmission.md ("lvx-scf-to-cf: lowering after
-    allocation"). Must run strictly after `-lvx-allocate-registers`: real
-    assembly has no structured loops, but the allocator's loop-carried
-    coalescing needs `lvx_scf.for` intact, so this pass exists to lower it
-    only once allocation is done. The two brand-new values it introduces
-    (the loop-test comparison, the induction-variable increment) reuse
-    Step 3's reserved spill-scratch registers rather than going through a
-    fresh allocation decision -- this pass is not meant to run at any
-    other pipeline point.
+    allocation") and docs/lvx/HardwareLoops.md. Must run strictly after
+    `-lvx-allocate-registers`: real assembly has no structured loops, but
+    the allocator's loop-carried coalescing needs `lvx_scf.for` intact, so
+    this pass exists to lower it only once allocation is done. Eligible
+    loops (constant step 1, no nested `lvx_scf.for`) lower to a hardware
+    zero-overhead loop (`lvx_cf.loopdo`, real `LOOPDO` opcode); everything
+    else falls back to ordinary `lvx_cf` branches. Either way, the
+    brand-new values this pass introduces reuse Step 3's reserved
+    spill-scratch registers rather than going through a fresh allocation
+    decision -- this pass is not meant to run at any other pipeline point.
   }];
 }
 

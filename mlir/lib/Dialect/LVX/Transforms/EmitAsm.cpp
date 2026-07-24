@@ -100,6 +100,19 @@ private:
     return success();
   }
 
+  /// Prints `goto <label(dest)>` as its own bundle, *unless* `dest` is the
+  /// block immediately following the current one in emission order, in
+  /// which case nothing is printed at all (real assembly just falls
+  /// through). Ordinarily a harmless cleanup; **required for correctness**
+  /// on a hardware loop's body-to-exit edge specifically (see
+  /// docs/lvx/HardwareLoops.md) -- printing an explicit branch there would
+  /// override LOOPDO's implicit back-edge and silently truncate the loop
+  /// to one iteration.
+  void printGoto(Block *dest, Block *nextBlock) {
+    if (dest != nextBlock)
+      os << "\tgoto " << label(dest) << "\n\t;;\n";
+  }
+
   //===--------------------------------------------------------------------===//
   // Per-op emission
   //===--------------------------------------------------------------------===//
@@ -251,11 +264,11 @@ private:
   // Control flow and structure
   //===--------------------------------------------------------------------===//
 
-  LogicalResult emitTerminator(Operation *op) {
+  LogicalResult emitTerminator(Operation *op, Block *nextBlock) {
     if (auto br = dyn_cast<lvx_cf::BranchOp>(op)) {
       if (failed(checkBranchOperands(op, br.getDest(), br.getDestOperands())))
         return failure();
-      os << "\tgoto " << label(br.getDest()) << "\n\t;;\n";
+      printGoto(br.getDest(), nextBlock);
       return success();
     }
     if (auto cbr = dyn_cast<lvx_cf::CondBranchOp>(op)) {
@@ -266,11 +279,29 @@ private:
       if (failed(rt))
         return failure();
       // Real hardware branches on the condition being true; the false
-      // edge just falls through to whatever comes textually next, so it
-      // must be printed as an explicit `goto` unless it's already there.
+      // edge just falls through to whatever comes textually next.
       os << "\tcb" << dotted(stringifyBcuCond(cbr.getCondition())) << " "
          << *rt << "? " << label(cbr.getTrueDest()) << "\n\t;;\n";
-      os << "\tgoto " << label(cbr.getFalseDest()) << "\n\t;;\n";
+      printGoto(cbr.getFalseDest(), nextBlock);
+      return success();
+    }
+    if (auto loopdo = dyn_cast<lvx_cf::LoopdoOp>(op)) {
+      if (failed(checkBranchOperands(op, loopdo.getBody(), loopdo.getBodyOperands())) ||
+          failed(checkBranchOperands(op, loopdo.getExit(), loopdo.getExitOperands())))
+        return failure();
+      FailureOr<std::string> rt = reg(loopdo.getTripCount());
+      if (failed(rt))
+        return failure();
+      // `body` is never printed as a jump target: real LOOPDO falls
+      // through to it unconditionally (the lowering guarantees `body`
+      // immediately follows in block order -- see
+      // docs/lvx/HardwareLoops.md). Only `exit` is a real operand, the
+      // branch target encoded in the instruction itself.
+      os << "\tloopdo " << *rt << ", " << label(loopdo.getExit()) << "\n\t;;\n";
+      if (loopdo.getBody() != nextBlock)
+        return loopdo.emitError(
+            "lvx-emit-asm: lvx_cf.loopdo's body successor must be the "
+            "block immediately following it in emission order");
       return success();
     }
     if (auto call = dyn_cast<lvx_func::CallOp>(op)) {
@@ -284,12 +315,12 @@ private:
     return op->emitError("lvx-emit-asm: unsupported terminator");
   }
 
-  LogicalResult emitBlock(Block *block) {
+  LogicalResult emitBlock(Block *block, Block *nextBlock) {
     if (block != entryBlock)
       os << label(block) << ":\n";
     for (Operation &op : *block) {
       if (op.hasTrait<OpTrait::IsTerminator>()) {
-        if (failed(emitTerminator(&op)))
+        if (failed(emitTerminator(&op, nextBlock)))
           return failure();
       } else if (failed(emitOp(&op))) {
         return failure();
@@ -315,9 +346,11 @@ private:
     os << func.getSymName() << ":\n";
     // lvx_func.call requires -lvx-scf-to-cf to have already run: real
     // assembly (and this emitter) has no structured-loop representation.
-    for (Block &block : func.getBody())
-      if (failed(emitBlock(&block)))
+    for (Block &block : func.getBody()) {
+      Block *nextBlock = block.getNextNode();
+      if (failed(emitBlock(&block, nextBlock)))
         return failure();
+    }
     return success();
   }
 };

@@ -14,6 +14,9 @@
 // increment) reuse Step 3's reserved spill-scratch registers rather than
 // going through any allocation decision of their own.
 //
+// Eligible loops (constant step 1, no nested lvx_scf.for) instead lower to
+// a hardware zero-overhead loop (LOOPDO) -- see docs/lvx/HardwareLoops.md.
+//
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
@@ -41,7 +44,79 @@ namespace {
 // allocation pool, so nothing else in the function is ever resident in it.
 static constexpr Register kLoopTestScratchReg = Register::r29;
 
-static void lowerFor(lvx_scf::ForOp forOp) {
+// See docs/lvx/HardwareLoops.md, "Lowering". Only constant-step-1, leaf
+// (no nested lvx_scf.for) loops are eligible -- everything else keeps
+// using the branch-based lowering below.
+static bool isHardwareLoopEligible(lvx_scf::ForOp forOp, Block *body) {
+  auto stepLi = forOp.getStep().getDefiningOp<LiOp>();
+  if (!stepLi)
+    return false;
+  auto stepAttr = dyn_cast<IntegerAttr>(stepLi.getValue());
+  if (!stepAttr || stepAttr.getValue() != 1)
+    return false;
+  bool hasNestedFor = false;
+  body->walk([&](lvx_scf::ForOp) { hasNestedFor = true; });
+  return !hasNestedFor;
+}
+
+// See docs/lvx/HardwareLoops.md. `%next_iv`'s result is never read by
+// anything else in the IR -- its correctness comes entirely from being
+// pinned to the exact same register as `%iv` itself (a real hardware loop
+// has no mechanism to pass values into its own next iteration; the
+// physical register simply persists, so the increment must overwrite it
+// in place). Same "register-pinned op has a load-bearing effect invisible
+// to SSA use-count" caveat as the prologue/epilogue's SP restore
+// (docs/lvx/RegisterAllocation.md) -- fine today since nothing runs DCE.
+static void lowerForHardware(lvx_scf::ForOp forOp) {
+  Location loc = forOp.getLoc();
+  MLIRContext *ctx = forOp.getContext();
+  Block *currentBlock = forOp->getBlock();
+  Block *body = forOp.getBody();
+  auto yieldOp = cast<lvx_scf::YieldOp>(body->getTerminator());
+
+  Block *remainder = currentBlock->splitBlock(Block::iterator(forOp));
+  unsigned numResults = forOp.getNumResults();
+  SmallVector<Value> exitArgs;
+  for (unsigned i = 0; i < numResults; ++i)
+    exitArgs.push_back(remainder->addArgument(forOp.getResultTypes()[i], loc));
+  for (unsigned i = 0; i < numResults; ++i)
+    forOp.getResult(i).replaceAllUsesWith(exitArgs[i]);
+
+  Region *parentRegion = currentBlock->getParent();
+  parentRegion->getBlocks().splice(remainder->getIterator(),
+                                   forOp.getRegion().getBlocks());
+
+  Type indVarTy = body->getArgument(0).getType();
+  Type tripTy = RegisterType::get(ctx, kLoopTestScratchReg);
+
+  OpBuilder builder(ctx);
+  builder.setInsertionPointToEnd(currentBlock);
+  // trip = ub - lb (step == 1, checked by isHardwareLoopEligible).
+  Value trip = builder.create<SbfdOp>(loc, tripTy, forOp.getUpperBound(),
+                                      forOp.getLowerBound());
+  Value ivInit = builder.create<MvOp>(loc, indVarTy, forOp.getLowerBound());
+  SmallVector<Value> bodyOperands{ivInit};
+  llvm::append_range(bodyOperands, forOp.getInitArgs());
+  SmallVector<Value> exitOperands(forOp.getInitArgs());
+  builder.create<lvx_cf::LoopdoOp>(loc, trip, body, bodyOperands, remainder,
+                                   exitOperands);
+
+  // Body end: increment iv in place (same register, see comment above),
+  // then branch to exit -- never actually printed (-lvx-emit-asm elides a
+  // branch to the immediately-following block; required for correctness
+  // here, not just cosmetic, since a real printed `goto` would override
+  // the hardware back-edge).
+  builder.setInsertionPoint(yieldOp);
+  Value iv = body->getArgument(0);
+  builder.create<AdddOp>(loc, iv.getType(), iv, forOp.getStep());
+  builder.create<lvx_cf::BranchOp>(loc, remainder,
+                                   SmallVector<Value>(yieldOp.getResults()));
+  yieldOp.erase();
+
+  forOp.erase();
+}
+
+static void lowerForBranch(lvx_scf::ForOp forOp) {
   Location loc = forOp.getLoc();
   MLIRContext *ctx = forOp.getContext();
   Block *currentBlock = forOp->getBlock();
@@ -115,6 +190,13 @@ static void lowerFor(lvx_scf::ForOp forOp) {
   yieldOp.erase();
 
   forOp.erase();
+}
+
+static void lowerFor(lvx_scf::ForOp forOp) {
+  if (isHardwareLoopEligible(forOp, forOp.getBody()))
+    lowerForHardware(forOp);
+  else
+    lowerForBranch(forOp);
 }
 
 struct LVXSCFToCFPass
