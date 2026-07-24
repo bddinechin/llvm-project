@@ -10,11 +10,15 @@ register class (`!lvx.reg`, `kFullOrder`). This doc exists so the right
 reference is on hand *when* that phase starts, not as a design in
 progress now.
 
-## Source
+## Sources
 
 > Michael D. Smith, Norman Ramsey, and Glenn Holloway, "A Generalized
 > Algorithm for Graph-Coloring Register Allocation," PLDI 2004
 > (`/home/guembu/Downloads/Smith_2004_PLDI.pdf`).
+
+> Jonathan K. Lee, Jens Palsberg, and Fernando Magno Quintão Pereira,
+> "Aliased Register Allocation for Straight-line Programs is NP-complete,"
+> ICALP 2007 (`/home/guembu/Downloads/Lee_2007_ICALP.pdf`).
 
 Not part of the linear-scan lineage discussed in
 `docs/lvx/LinearScanComparison.md` -- this is Chaitin-style graph-coloring
@@ -26,6 +30,15 @@ separate from the linear-scan comparison doc, because it targets a
 different problem (register *classes*) than that doc's scalar-allocator
 comparison, using a different family of algorithm (graph coloring, not
 linear scan).
+
+The second paper is a direct follow-on to the first, by two of the same
+authors' collaborators (Palsberg and Pereira, who also wrote the CSSA
+paper discussed in `docs/lvx/LinearScanComparison.md`): it opens by
+naming Smith/Ramsey/Holloway 2004 as "the best algorithm for aliased
+register allocation so far" and asks the question that paper leaves open
+-- does restricting to a simpler class of programs make aliased,
+alignment-restricted register allocation any easier? The answer, proven
+here, is no.
 
 ## The problem it solves
 
@@ -70,6 +83,69 @@ LVX's actual register classes, the colorability criterion it produces
 would be provably as good as an ideal, brute-force one -- not just a
 conservative approximation that might over-spill.
 
+**Read that last claim narrowly** -- it's about one local test (is a
+single node's `squeeze` measure exact, not overcounting), not a claim
+that the overall allocation problem becomes easy to solve. The next
+section explains why that distinction matters a great deal for LVX.
+
+## NP-completeness even in the easy case (Lee, Palsberg & Pereira 2007)
+
+Smith 2004's `squeeze`/class-tree machinery runs *inside* a Chaitin-style
+simplify-and-spill loop -- which is itself already a heuristic, because
+graph coloring is NP-complete even for one flat, non-aliased register
+class (Chaitin et al. 1981's original reduction). It would be easy to
+read the previous section's "exact" result as meaning LVX's aligned
+pair/quad case avoids that NP-hardness, given how much of this project's
+own design leans on the fact that SSA-form, straight-line-like code makes
+things easy elsewhere (`docs/lvx/LinearScanComparison.md`'s Wimmer
+discussion: SSA gives short intervals and polynomial interval-graph
+coloring for free). This paper shows that assumption doesn't survive
+contact with aliasing.
+
+Lee, Palsberg, and Pereira study almost exactly LVX's own pair model:
+registers `r0..r(2K-1)`, where any *aligned* pair `r(2i), r(2i+1)` can
+jointly hold a "long" value -- and restrict attention to straight-line
+programs where each variable has at most one definition point (i.e.,
+essentially SSA with no control flow at all, an even friendlier setting
+than `lvx_scf.for`'s structured-but-general-purpose IR). For a
+homogeneous register bank, this exact setting is the *easy* case:
+interference graphs of straight-line single-def programs are interval
+graphs, optimally colorable in linear time by greedy coloring on a
+perfect elimination ordering -- precisely the property this project's own
+Poletto & Sarkar-based Steps 1-3 already lean on for the current,
+non-aliased `!lvx.reg` class. Their result (Theorem 1, via a 3-SAT → flow
+→ "aligned 1-2-coloring" → register-allocation reduction chain): the
+moment aligned-pair aliasing is added to that same easy setting, the
+allocation decision problem becomes **NP-complete**. They also show the
+*unaligned* version (any two registers may pair, not just aligned ones)
+is separately NP-complete via a reduction to Stockmeyer's shipbuilding
+problem, and note they could not reduce one direction to the other --
+restricting to aligned pairs is not simply an easier special case of
+general aliasing, it needed its own hardness proof.
+
+**This applies to LVX's three-level model directly, by a trivial
+reduction.** The paper only studies a two-level (single/pair) hierarchy,
+but hardness of that restricted problem immediately implies hardness of
+LVX's single/pair/quad model too: any straight-line program using only
+singles and pairs is already a valid instance of the fuller model (simply
+never construct a quad-typed value), so a polynomial algorithm for LVX's
+model would solve their NP-complete problem as a special case. No new
+reduction is needed to extend their result to quads.
+
+**What this means concretely**: once `!lvx.pair`/`!lvx.quad` exist, no
+allocator for them -- Smith's `squeeze`/class-tree machinery, the
+bitset/buddy adaptation below, or anything else -- can be both polynomial
+and *complete* (guaranteed to find a valid allocation whenever one
+exists), unless P=NP. Smith's exactness result doesn't contradict this:
+it says the *local* colorability test at each simplification step is as
+precise as possible, not that the *global* search for a full coloring is
+easy. Every real allocator in this space (Chaitin's original one
+included) is a heuristic for an NP-complete problem; aliasing doesn't
+introduce that heuristic-ness, it just proves it's unavoidable even in
+the single friendliest input shape (straight-line, single-def) this
+project's own design already relies on being easy in the non-aliased
+case.
+
 ## Why the paper's own algorithm doesn't transplant directly
 
 `squeeze`/the class tree/incremental recomputation on graph mutation exist
@@ -99,6 +175,17 @@ sizing remove any ambiguity about which singles a pair or quad occupies,
 so there's no need for `squeeze`'s adversarial-coloring reasoning at all
 in a scan-based allocator that already knows, at every program point,
 precisely which registers are currently live.
+
+That exactness is still only about *reading off which registers a
+candidate would occupy* -- it says nothing about whether greedily
+allocating in scan order will find a valid placement whenever one exists.
+Per the NP-completeness result above, it provably cannot always do so: a
+single-pass bitset/buddy tracker is a heuristic, exactly like Poletto's
+own `SpillAtInterval` already is for the non-aliased case (it can spill a
+value that a smarter, backtracking allocator wouldn't have needed to).
+The difference introduced by aliasing is that no polynomial algorithm --
+not this one, not Smith's, not any other -- can remove that heuristic
+gap entirely.
 
 ## One confirmed parallel with what's already built
 
@@ -137,3 +224,13 @@ types, lane/blend/guard ops), the concrete next step is:
    cautionary example), that's when the paper's own `squeeze`/class-tree
    apparatus becomes the right reference to implement for real, since the
    simpler bitset approach stops being exact in that case.
+4. Accept, explicitly and in writing wherever this gets implemented, that
+   the bitset/buddy tracker (or any polynomial alternative) is a
+   heuristic that can fail to find a valid allocation some backtracking
+   or ILP-based allocator would have found (Lee/Palsberg/Pereira 2007) --
+   not a bug to chase, a property of the problem. Consistent with this
+   project's existing posture (`docs/lvx/RegisterAllocation.md`'s Step 3
+   hard-errors rather than attempting a cleverer spill search): treat an
+   allocation failure on a pair/quad-heavy kernel as a signal to
+   restructure the kernel or revisit the heuristic, not as a correctness
+   bug in the allocator itself.
