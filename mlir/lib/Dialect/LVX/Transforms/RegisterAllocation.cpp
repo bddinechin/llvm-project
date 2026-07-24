@@ -27,6 +27,8 @@
 #include "mlir/Dialect/LVXSCF/IR/LVXSCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir {
@@ -147,6 +149,59 @@ static void mergeValue(AllocItem &item, Value value,
                                      // dedicated conflict check below.
     } else {
       item.fixedReg = iv.fixedReg;
+    }
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// Preserving copies for loop-carried init args also used independently
+// elsewhere -- docs/lvx/RegisterAllocation.md, "Narrower gap discovered
+// while verifying the fix": `buildAllocItems` below force-coalesces an
+// `lvx_scf.for`'s whole {initArg, iterArg, yieldOperand, result} channel
+// into one register (mechanically required -- `ForOp`'s verifier demands
+// initArg/yield/result share a type, i.e. after allocation, a register).
+// If the init-arg value is *also* used somewhere other than as this one
+// operand (the confirmed failing shape: an outer loop's iterArg fed into
+// a nested loop's initArg, then read again after that inner loop, e.g.
+// `%sum = lvx.addd %acc, %innerResult`), that other use silently observes
+// whatever the loop's own iterations last left in the shared register,
+// not the value %acc actually held going in -- concretely, a self-add
+// (`addd $r3 = $r3, $r3`) instead of the intended sum.
+//
+// This is real code motion, not a coalescing decision, and it has to run
+// *before* Step 1 builds live intervals (`LVXLiveIntervals`, constructed
+// from the unmodified IR in `runOnOperation` below) -- a fixup added
+// inside `buildAllocItems` itself would be too late to give the new copy
+// its own, correctly-computed interval. For every `lvx_scf.for` init
+// operand with a use outside that one operand, insert an `lvx.mv` copy
+// immediately before the loop and redirect every *other* use to the
+// copy: the loop's own channel still coalesces around the original value
+// exactly as before (unaffected -- its only use inside the loop's own
+// tuple is untouched), while the copy is an ordinary, independently
+// allocated value whose interval naturally spans the loop, verified by
+// Step 2's normal conflict-avoidance like any other value with a long
+// live range. Conservative by design (checks "any other use," not
+// specifically "a use positioned after the loop") -- matches this
+// project's general preference for simple-and-safe over precise
+// elsewhere in this file (e.g. the fixed-register conflict check above);
+// the only cost of over-triggering is an occasional redundant copy, not
+// a correctness risk. Confirmed to be a no-op on every existing loop
+// test (`register-allocation.mlir`, `scf-to-cf.mlir`): none of their
+// init args have a use beyond the loop that defines them.
+static void insertLoopCarriedPreservingCopies(lvx_func::FuncOp func) {
+  SmallVector<lvx_scf::ForOp> forOps;
+  func.walk([&](lvx_scf::ForOp op) { forOps.push_back(op); });
+  for (lvx_scf::ForOp forOp : forOps) {
+    for (Value v : forOp.getInitArgs()) {
+      bool hasOtherUse = llvm::any_of(v.getUses(), [&](OpOperand &use) {
+        return use.getOwner() != forOp;
+      });
+      if (!hasOtherUse)
+        continue;
+      OpBuilder builder(forOp);
+      auto copy = builder.create<MvOp>(forOp.getLoc(), v.getType(), v);
+      llvm::SmallPtrSet<Operation *, 2> keep{forOp, copy};
+      v.replaceAllUsesExcept(copy, keep);
     }
   }
 }
@@ -416,6 +471,8 @@ struct LVXAllocateRegistersPass
     lvx_func::FuncOp func = getOperation();
     if (func.isExternal())
       return;
+
+    insertLoopCarriedPreservingCopies(func);
 
     LVXLiveIntervals live(func);
     bool conflictingFixedGroup = false;

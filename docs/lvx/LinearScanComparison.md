@@ -417,27 +417,25 @@ correctness bugs in reachable code paths:
   to fix, only something to remember when the `Resolve`-phase item below
   is eventually picked up.
 
-**The interference-check gap Pereira 2009 diagnoses is the one exception.**
-Unlike the rest of this list, it isn't speculative: it's the precise cause
-of a bug already on record (`docs/lvx/RegisterAllocation.md`'s "combined
-accumulator" case) in code that *is* reachable -- nested `lvx_scf.for` is
-exercised end-to-end (`scf-to-cf.mlir`'s `@nested` case), just not this
-specific sub-pattern. It's also no longer true that no real kernel has run
-end-to-end: `docs/lvx/EndToEndValidation.md` records one that did, and
-found three *other* real bugs this same aggressive-coalescing/live-interval
-family of issues wasn't the cause of. That exercise didn't happen to hit
-the combined-accumulator pattern specifically (its one loop-carried value
-was simply replaced by, not combined with, anything), so this gap is still
-unconfirmed by execution -- but it's a known bug with a named cause and a
-small, scoped fix, not a hypothetical one. Worth doing sooner than the
-items below, once picked up.
+**The interference-check gap Pereira 2009 diagnosed was the one exception
+to this list, and is now fixed** (`docs/lvx/RegisterAllocation.md`,
+"Nested `lvx_scf.for`", the "Narrower gap" paragraph). Unlike the rest of
+this list, it wasn't speculative: it was the precise cause of a bug
+already on record (the "combined accumulator" case) in reachable code.
+One correction to how the fix was originally scoped here: it turned out
+*not* to be a simple guard inside `buildAllocItems`'s `unite` calls --
+`ForOp`'s verifier still requires the loop's whole channel to share one
+register (initArg/yield/result types must match), so the union itself
+can't be skipped. The actual fix (`insertLoopCarriedPreservingCopies`)
+is real code motion, run *before* Step 1 builds live intervals: insert an
+`lvx.mv` snapshot of any loop init-arg that has a use besides being that
+operand, and redirect the other use(s) to the snapshot, leaving the
+loop's own channel coalescing untouched. Verified end-to-end including
+real execution on `lvx-gem5`, not just structurally
+(`scf-to-cf.mlir`'s `@nested_combined_accumulator`).
 
 **If/when revisited, roughly in priority order**:
-1. The Pereira-diagnosed interference check in `buildAllocItems` -- guard
-   each `unite` call with a live-interval overlap check (data already
-   computed in Step 1), falling back to an explicit `lvx.mv` copy when
-   unsafe. Fixes a real, already-documented bug rather than a speculative
-   gap; small and local, no architectural change.
+1. ~~The Pereira-diagnosed interference check~~ -- done, see above.
 2. Mössenböck's weighted `AssignMemLoc` -- a heuristic swap within the
    existing no-splitting design, once a real spill-heavy kernel shows the
    current furthest-endpoint heuristic making a bad call.

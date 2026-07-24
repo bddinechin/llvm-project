@@ -361,7 +361,7 @@ disassembly through `-lvx-emit-asm` and the real `lvx-mbr-as`) for the
 "inner loop's result directly becomes the outer loop's yielded value"
 shape — a natural, common nested-accumulator pattern.
 
-**Narrower gap discovered while verifying the fix, not addressed**: the
+**Narrower gap discovered while verifying the fix (fixed)**: the
 union-find's merges are *forced* by type-consistency, but "one shared
 register" is not always semantically sound even when it's the only
 type-consistent choice. If a value plays a loop-channel role in one loop
@@ -372,15 +372,29 @@ loop's own iterations physically overwrite that shared register on the
 way, so the later, independent read silently observes the wrong value.
 Confirmed concretely: `%acc` fed into an inner loop as `iter_args(%acc)`,
 then read again in `%sum = lvx.addd %acc, %innerResult` after the inner
-loop -- both operands end up pinned to the same register, so this
-compiles to a self-add (`addd $r3 = $r3, $r3`) instead of the intended
-sum. A correct fix would need to detect this shape and insert an explicit
-preserving copy of `%acc` before the inner loop runs (i.e. real
-code motion, not just a coalescing decision) — not implemented. This is a
-real silent-wrong-code risk for that specific pattern (an outer
-accumulator combined with, rather than simply threaded through, a nested
-loop's result), not merely a missed optimization; avoid it until this is
-addressed.
+loop -- both operands ended up pinned to the same register, compiling to
+a self-add (`addd $r3 = $r3, $r3`) instead of the intended sum.
+
+This is the same class of gap the literature comparison names precisely
+(`docs/lvx/LinearScanComparison.md`, Pereira & Palsberg 2009): CSSA's
+Definition 1 requires that values sharing a register via a φ-merge (here,
+the loop-carried channel) not *interfere* — `%acc` and the loop's own
+channel members do interfere (`%acc`'s live range extends past the loop,
+into the later read), so coalescing them was never safe. Fixed by
+`insertLoopCarriedPreservingCopies` (`RegisterAllocation.cpp`), run
+*before* Step 1 builds live intervals (a fixup inside `buildAllocItems`
+itself would be too late to give a newly-inserted copy its own interval):
+for every `lvx_scf.for` init operand with a use besides that one operand,
+insert an explicit `lvx.mv` copy immediately before the loop and redirect
+every other use to the copy. The loop's own channel still coalesces
+around the original value exactly as before, unaffected; the copy is an
+ordinary, independently allocated value whose interval naturally spans
+the loop, handled by Step 2's normal conflict-avoidance like any other
+long-lived value. Conservative by design (triggers on *any* other use,
+not specifically one positioned after the loop) — confirmed to be a
+no-op on every pre-existing loop test. Verified end to end, including
+real execution on `lvx-gem5` (not just structural FileCheck): see
+`scf-to-cf.mlir`'s `@nested_combined_accumulator` case.
 
 ### Multi-result ops
 

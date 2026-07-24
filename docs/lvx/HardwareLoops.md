@@ -192,10 +192,12 @@ Two additions:
   (containing a nested `lvx_scf.for`) correctly falls back to the
   branch-based lowering, while the inner (a leaf, step 1) independently
   takes the hardware-loop path on its own turn. A narrower, separate gap
-  remains for a specific pattern (an outer accumulator combined with,
-  rather than simply threaded through, a nested loop's result) -- see the
-  register-allocation doc for the concrete failing case. Not specific to
-  hardware loops; applies equally to the branch-based path.
+  for a specific pattern (an outer accumulator combined with, rather than
+  simply threaded through, a nested loop's result) is now also fixed --
+  see the register-allocation doc's "Narrower gap discovered while
+  verifying the fix" and `scf-to-cf.mlir`'s `@nested_combined_accumulator`
+  test. Not specific to hardware loops; applied equally to the
+  branch-based path.
 - **Executed on real hardware, not just verified by disassembly**
   (`docs/lvx/EndToEndValidation.md`): every prior check of this lowering
   stopped at "does `lvx-mbr-objdump` show the expected LC/LE/trip-count and
@@ -211,3 +213,23 @@ Two additions:
   wrong) and a Step 1 live-interval gap for the induction variable/`step`
   (see `docs/lvx/RegisterAllocation.md`). Both are now fixed and covered by
   a regression test (`scf-to-cf.mlir`'s `@loop_reads_iv`).
+- **Found while verifying the "combined accumulator" fix above, not
+  addressed**: a repeatedly re-entered hardware loop (a nested
+  `lvx_scf.for` inside an outer loop, so it lowers to `loopdo` fresh each
+  outer iteration) can have its own induction variable land, by ordinary
+  uncoalesced allocation coincidence rather than any deliberate
+  coalescing decision, in the exact register an *outer-scope* value it
+  shares (e.g. a lower bound reused verbatim as the inner loop's own
+  bound) still occupies. The first outer iteration's `loopdo` increments
+  that register in place as designed (`docs/lvx/HardwareLoops.md` above,
+  "New subtlety specific to hardware loops") -- but if that register was
+  also the *outer-scope* value's home, and the inner loop is re-entered
+  on the next outer iteration still expecting that original value, it
+  reads the leftover post-loop induction-variable state instead. Not
+  fixed here (out of scope, not yet reduced to a minimal case) --
+  `scf-to-cf.mlir`'s `@nested_combined_accumulator` sidesteps it
+  deliberately (fresh `lvx.li` bounds inside the outer loop body, not
+  shared with the outer loop's own) specifically to isolate the fix it
+  *is* testing; avoid reusing an outer loop's bounds/step as a repeatedly
+  re-entered inner hardware loop's own bounds/step until this is
+  addressed.
