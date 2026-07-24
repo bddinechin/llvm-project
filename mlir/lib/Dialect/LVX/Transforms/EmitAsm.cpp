@@ -1,0 +1,336 @@
+//===- EmitAsm.cpp - Emit real LVX assembly text -------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// See docs/lvx/AssemblyEmission.md for the syntax reference (confirmed by
+// hand-assembling representative snippets with the real `lvx-mbr-as`, not
+// just inferred from reading tables) and the scope decisions below.
+//
+//===----------------------------------------------------------------------===//
+
+#include "mlir/Dialect/LVX/Transforms/Passes.h"
+
+#include "mlir/Dialect/LVXCF/IR/LVXCF.h"
+#include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
+#include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/raw_ostream.h"
+
+namespace mlir {
+namespace lvx {
+#define GEN_PASS_DEF_LVXEMITASMPASS
+#include "mlir/Dialect/LVX/Transforms/Passes.h.inc"
+} // namespace lvx
+} // namespace mlir
+
+using namespace mlir;
+using namespace mlir::lvx;
+
+namespace {
+
+/// Real modifier text for `LVX_IntCompAttr`/`LVX_BcuCondAttr` cases omits
+/// the leading dot (MLIR keyword syntax); real assembly concatenates it
+/// directly onto the mnemonic (docs/lvx/AssemblyEmission.md, "modifier
+/// suffixes").
+static std::string dotted(StringRef modifier) { return ("." + modifier).str(); }
+
+class AsmEmitter {
+public:
+  AsmEmitter(llvm::raw_ostream &os) : os(os) {}
+
+  LogicalResult emitModule(ModuleOp module) {
+    for (auto func : module.getOps<lvx_func::FuncOp>())
+      if (failed(emitFunc(func)))
+        return failure();
+    return success();
+  }
+
+private:
+  llvm::raw_ostream &os;
+  DenseMap<Block *, unsigned> blockIds;
+  Block *entryBlock = nullptr;
+  unsigned nextBlockId = 0;
+
+  //===--------------------------------------------------------------------===//
+  // Operand printing
+  //===--------------------------------------------------------------------===//
+
+  /// `v` must already be allocated (`!lvx.reg<rN>`) -- true of every value
+  /// reaching this pass, since it runs after `-lvx-allocate-registers`.
+  FailureOr<std::string> reg(Value v) {
+    auto ty = dyn_cast<RegisterType>(v.getType());
+    if (!ty || !ty.isAllocated())
+      return emitError(v.getLoc())
+             << "value reaching lvx-emit-asm has no assigned physical "
+                "register -- run -lvx-allocate-registers first";
+    return ("$" + stringifyRegister(*ty.getReg())).str();
+  }
+
+  std::string label(Block *block) {
+    if (block == entryBlock)
+      return std::string(cast<lvx_func::FuncOp>(entryBlock->getParentOp())
+                             .getSymName());
+    auto it = blockIds.find(block);
+    if (it == blockIds.end())
+      it = blockIds.insert({block, nextBlockId++}).first;
+    return (".LBB" + Twine(it->second)).str();
+  }
+
+  /// Real `goto`/`cb` have no mechanism to pass values into a target
+  /// block's arguments -- physical registers stand in for that. This is
+  /// only satisfiable if every branch operand is already, by construction,
+  /// pinned to the exact same register as the block argument it feeds
+  /// (true of everything `-lvx-scf-to-cf` generates -- see
+  /// docs/lvx/AssemblyEmission.md). Verify it rather than silently
+  /// dropping the (unrepresentable) move a real phi-merge would need --
+  /// see docs/lvx/RegisterAllocation.md's "general lvx_cf block-argument
+  /// merges" known limitation.
+  LogicalResult checkBranchOperands(Operation *branch, Block *dest,
+                                    ValueRange operands) {
+    for (auto [arg, operand] : llvm::zip_equal(dest->getArguments(), operands))
+      if (arg.getType() != operand.getType())
+        return branch->emitError()
+               << "branch operand register does not match destination "
+                  "block argument's register -- would need a register "
+                  "move this dialect has no representation for at this "
+                  "pipeline stage";
+    return success();
+  }
+
+  //===--------------------------------------------------------------------===//
+  // Per-op emission
+  //===--------------------------------------------------------------------===//
+
+  LogicalResult emitBinary(Operation *op, StringRef mnemonic) {
+    FailureOr<std::string> rd = reg(op->getResult(0));
+    FailureOr<std::string> rs1 = reg(op->getOperand(0));
+    FailureOr<std::string> rs2 = reg(op->getOperand(1));
+    if (failed(rd) || failed(rs1) || failed(rs2))
+      return failure();
+    os << "\t" << mnemonic << " " << *rd << " = " << *rs1 << ", " << *rs2
+       << "\n\t;;\n";
+    return success();
+  }
+
+  LogicalResult emitTernary(Operation *op, StringRef mnemonic) {
+    FailureOr<std::string> rd = reg(op->getResult(0));
+    FailureOr<std::string> rs1 = reg(op->getOperand(0));
+    FailureOr<std::string> rs2 = reg(op->getOperand(1));
+    FailureOr<std::string> rs3 = reg(op->getOperand(2));
+    if (failed(rd) || failed(rs1) || failed(rs2) || failed(rs3))
+      return failure();
+    os << "\t" << mnemonic << " " << *rd << " = " << *rs1 << ", " << *rs2
+       << ", " << *rs3 << "\n\t;;\n";
+    return success();
+  }
+
+  LogicalResult emitUnary(Operation *op, StringRef mnemonic) {
+    FailureOr<std::string> rd = reg(op->getResult(0));
+    FailureOr<std::string> rs = reg(op->getOperand(0));
+    if (failed(rd) || failed(rs))
+      return failure();
+    os << "\t" << mnemonic << " " << *rd << " = " << *rs << "\n\t;;\n";
+    return success();
+  }
+
+  LogicalResult emitCompare(Operation *op, StringRef mnemonic,
+                            StringRef predicate) {
+    FailureOr<std::string> rd = reg(op->getResult(0));
+    FailureOr<std::string> rs1 = reg(op->getOperand(0));
+    FailureOr<std::string> rs2 = reg(op->getOperand(1));
+    if (failed(rd) || failed(rs1) || failed(rs2))
+      return failure();
+    os << "\t" << mnemonic << dotted(predicate) << " " << *rd << " = "
+       << *rs1 << ", " << *rs2 << "\n\t;;\n";
+    return success();
+  }
+
+  LogicalResult emitLoad(Operation *op, StringRef mnemonic, Value base,
+                        int32_t offset) {
+    FailureOr<std::string> rd = reg(op->getResult(0));
+    FailureOr<std::string> rb = reg(base);
+    if (failed(rd) || failed(rb))
+      return failure();
+    os << "\t" << mnemonic << " " << *rd << " = " << offset << "[" << *rb
+       << "]\n\t;;\n";
+    return success();
+  }
+
+  LogicalResult emitStore(Operation *op, StringRef mnemonic, Value value,
+                         Value base, int32_t offset) {
+    FailureOr<std::string> rv = reg(value);
+    FailureOr<std::string> rb = reg(base);
+    if (failed(rv) || failed(rb))
+      return failure();
+    os << "\t" << mnemonic << " " << offset << "[" << *rb << "] = " << *rv
+       << "\n\t;;\n";
+    return success();
+  }
+
+  static LogicalResult unsupportedCmove(Operation *op) {
+    return op->emitError(
+        "lvx-emit-asm: cmoved is not supported -- the "
+        "dialect models a 3-operand select, the real opcode is a "
+        "2-operand in-place conditional move (see "
+        "docs/lvx/AssemblyEmission.md)");
+  }
+
+  static LogicalResult unsupportedDivmod(Operation *op) {
+    return op->emitError(
+        "lvx-emit-asm: the divmod family is not supported -- the "
+        "real opcode's destination is an adjacent register pair, "
+        "which this allocator does not yet model (see "
+        "docs/lvx/AssemblyEmission.md)");
+  }
+
+  LogicalResult emitOp(Operation *op) {
+    return llvm::TypeSwitch<Operation *, LogicalResult>(op)
+        // Pseudo-ops.
+        .Case([&](SpOp) { return success(); }) // never emitted; see doc.
+        .Case([&](LiOp li) {
+          FailureOr<std::string> rd = reg(li.getResult());
+          if (failed(rd))
+            return failure();
+          Attribute value = li.getValue();
+          if (auto intAttr = dyn_cast<IntegerAttr>(value))
+            os << "\tmake " << *rd << " = " << intAttr.getValue() << "\n\t;;\n";
+          else
+            os << "\tmake " << *rd << " = "
+               << cast<FloatAttr>(value).getValue().bitcastToAPInt()
+               << "\n\t;;\n";
+          return success();
+        })
+        .Case([&](MvOp mv) { return emitUnary(mv, "copyd"); })
+        // Memory.
+        .Case([&](LbzOp op) { return emitLoad(op, "lbz", op.getBase(), op.getOffset()); })
+        .Case([&](LbsOp op) { return emitLoad(op, "lbs", op.getBase(), op.getOffset()); })
+        .Case([&](LhzOp op) { return emitLoad(op, "lhz", op.getBase(), op.getOffset()); })
+        .Case([&](LhsOp op) { return emitLoad(op, "lhs", op.getBase(), op.getOffset()); })
+        .Case([&](LwzOp op) { return emitLoad(op, "lwz", op.getBase(), op.getOffset()); })
+        .Case([&](LwsOp op) { return emitLoad(op, "lws", op.getBase(), op.getOffset()); })
+        .Case([&](LdOp op) { return emitLoad(op, "ld", op.getBase(), op.getOffset()); })
+        .Case([&](SbOp op) { return emitStore(op, "sb", op.getValue(), op.getBase(), op.getOffset()); })
+        .Case([&](ShOp op) { return emitStore(op, "sh", op.getValue(), op.getBase(), op.getOffset()); })
+        .Case([&](SwOp op) { return emitStore(op, "sw", op.getValue(), op.getBase(), op.getOffset()); })
+        .Case([&](SdOp op) { return emitStore(op, "sd", op.getValue(), op.getBase(), op.getOffset()); })
+        // Comparisons (dotted predicate).
+        .Case([&](CompdOp op) { return emitCompare(op, "compd", stringifyIntComp(op.getPredicate())); })
+        .Case([&](CompwOp op) { return emitCompare(op, "compw", stringifyIntComp(op.getPredicate())); })
+        .Case([&](FcompdOp op) { return emitCompare(op, "fcompd", stringifyFloatComp(op.getPredicate())); })
+        .Case([&](FcompwOp op) { return emitCompare(op, "fcompw", stringifyFloatComp(op.getPredicate())); })
+        // Explicitly unsupported: real-hardware modeling mismatches, not
+        // just missing syntax -- see docs/lvx/AssemblyEmission.md, "Scope:
+        // supported ops".
+        .Case([&](CmovedOp op) { return unsupportedCmove(op); })
+        .Case([&](DivmoddOp op) { return unsupportedDivmod(op); })
+        .Case([&](DivmodudOp op) { return unsupportedDivmod(op); })
+        .Case([&](DivmodwOp op) { return unsupportedDivmod(op); })
+        .Case([&](DivmoduwOp op) { return unsupportedDivmod(op); })
+        // Everything else with plain (unattributed) register
+        // operands/results is dispatched purely by arity: this dialect's
+        // mnemonics match real LVX mnemonics verbatim (top-level
+        // CLAUDE.md), and the "$rd = $rs..." shape is uniform across the
+        // arithmetic/cast op families (docs/lvx/AssemblyEmission.md).
+        .Default([&](Operation *op) -> LogicalResult {
+          StringRef mnemonic = op->getName().stripDialect();
+          if (op->getNumResults() == 1 && op->getNumOperands() == 1)
+            return emitUnary(op, mnemonic);
+          if (op->getNumResults() == 1 && op->getNumOperands() == 2)
+            return emitBinary(op, mnemonic);
+          if (op->getNumResults() == 1 && op->getNumOperands() == 3)
+            return emitTernary(op, mnemonic);
+          return op->emitError(
+              "lvx-emit-asm: no emission rule for this op's shape");
+        });
+  }
+
+  //===--------------------------------------------------------------------===//
+  // Control flow and structure
+  //===--------------------------------------------------------------------===//
+
+  LogicalResult emitTerminator(Operation *op) {
+    if (auto br = dyn_cast<lvx_cf::BranchOp>(op)) {
+      if (failed(checkBranchOperands(op, br.getDest(), br.getDestOperands())))
+        return failure();
+      os << "\tgoto " << label(br.getDest()) << "\n\t;;\n";
+      return success();
+    }
+    if (auto cbr = dyn_cast<lvx_cf::CondBranchOp>(op)) {
+      if (failed(checkBranchOperands(op, cbr.getTrueDest(), cbr.getTrueDestOperands())) ||
+          failed(checkBranchOperands(op, cbr.getFalseDest(), cbr.getFalseDestOperands())))
+        return failure();
+      FailureOr<std::string> rt = reg(cbr.getTest());
+      if (failed(rt))
+        return failure();
+      // Real hardware branches on the condition being true; the false
+      // edge just falls through to whatever comes textually next, so it
+      // must be printed as an explicit `goto` unless it's already there.
+      os << "\tcb" << dotted(stringifyBcuCond(cbr.getCondition())) << " "
+         << *rt << "? " << label(cbr.getTrueDest()) << "\n\t;;\n";
+      os << "\tgoto " << label(cbr.getFalseDest()) << "\n\t;;\n";
+      return success();
+    }
+    if (auto call = dyn_cast<lvx_func::CallOp>(op)) {
+      os << "\tcall " << call.getCallee() << "\n\t;;\n";
+      return success();
+    }
+    if (isa<lvx_func::ReturnOp>(op)) {
+      os << "\tret\n\t;;\n";
+      return success();
+    }
+    return op->emitError("lvx-emit-asm: unsupported terminator");
+  }
+
+  LogicalResult emitBlock(Block *block) {
+    if (block != entryBlock)
+      os << label(block) << ":\n";
+    for (Operation &op : *block) {
+      if (op.hasTrait<OpTrait::IsTerminator>()) {
+        if (failed(emitTerminator(&op)))
+          return failure();
+      } else if (failed(emitOp(&op))) {
+        return failure();
+      }
+    }
+    return success();
+  }
+
+  LogicalResult emitFunc(lvx_func::FuncOp func) {
+    if (func.isExternal())
+      return success();
+    if (!func.getSymVisibility() || *func.getSymVisibility() != "private")
+      os << "\t.global " << func.getSymName() << "\n";
+    // Note: `blockIds`/`nextBlockId` are *not* reset here -- `.L`-prefixed
+    // labels are excluded from the output symbol table but, unlike
+    // GNU-as's numeric local-label scheme (`1:`/`1b`/`1f`), are not
+    // auto-scoped: two functions independently emitting `.LBB0` collide
+    // as duplicate-symbol errors in the same assembled file (found by
+    // actually assembling this pass's output with the real `lvx-mbr-as`
+    // -- see docs/lvx/AssemblyEmission.md). One counter for the whole
+    // module keeps every label unique.
+    entryBlock = &func.getBody().front();
+    os << func.getSymName() << ":\n";
+    // lvx_func.call requires -lvx-scf-to-cf to have already run: real
+    // assembly (and this emitter) has no structured-loop representation.
+    for (Block &block : func.getBody())
+      if (failed(emitBlock(&block)))
+        return failure();
+    return success();
+  }
+};
+
+struct LVXEmitAsmPass : public lvx::impl::LVXEmitAsmPassBase<LVXEmitAsmPass> {
+  using LVXEmitAsmPassBase::LVXEmitAsmPassBase;
+
+  void runOnOperation() override {
+    AsmEmitter emitter(llvm::outs());
+    llvm::outs() << "\t.section .text, \"ax\", @progbits\n";
+    if (failed(emitter.emitModule(getOperation())))
+      signalPassFailure();
+  }
+};
+
+} // namespace

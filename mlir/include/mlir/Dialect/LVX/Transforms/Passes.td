@@ -52,4 +52,34 @@ def LVXAllocateRegistersPass
   ];
 }
 
+def LVXSCFToCFPass
+    : Pass<"lvx-scf-to-cf", "::mlir::lvx_func::FuncOp"> {
+  let summary = "Lower lvx_scf.for to lvx_cf branches, after allocation";
+  let dependentDialects = ["lvx_cf::LVXCFDialect"];
+  let description = [{
+    See docs/lvx/AssemblyEmission.md ("lvx-scf-to-cf: lowering after
+    allocation"). Must run strictly after `-lvx-allocate-registers`: real
+    assembly has no structured loops, but the allocator's loop-carried
+    coalescing needs `lvx_scf.for` intact, so this pass exists to lower it
+    only once allocation is done. The two brand-new values it introduces
+    (the loop-test comparison, the induction-variable increment) reuse
+    Step 3's reserved spill-scratch registers rather than going through a
+    fresh allocation decision -- this pass is not meant to run at any
+    other pipeline point.
+  }];
+}
+
+def LVXEmitAsmPass : Pass<"lvx-emit-asm", "::mlir::ModuleOp"> {
+  let summary = "Print real LVX assembly text for every lvx_func.func";
+  let description = [{
+    See docs/lvx/AssemblyEmission.md. Must run after
+    `-lvx-allocate-registers` and `-lvx-scf-to-cf` (every value needs a
+    pinned `!lvx.reg<rN>` type, and there must be no structured
+    `lvx_scf.for` left). Prints to stdout; combine with `-o /dev/null` to
+    discard the normal (unchanged) IR dump this pass leaves behind. Two op
+    families are an explicit, documented hard error rather than silently
+    wrong output -- see "Scope: supported ops" in the design doc.
+  }];
+}
+
 #endif // MLIR_DIALECT_LVX_TRANSFORMS_PASSES

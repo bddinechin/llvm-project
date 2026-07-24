@@ -1,5 +1,7 @@
 add_mlir_dialect_library(MLIRLVXTransforms
   RegisterAllocation.cpp
+  SCFToCF.cpp
+  EmitAsm.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/LVX/Transforms
@@ -12,6 +14,7 @@ add_mlir_dialect_library(MLIRLVXTransforms
   MLIRPass
   MLIRLVXAnalysis
   MLIRLVXDialect
+  MLIRLVXCFDialect
   MLIRLVXFuncDialect
   MLIRLVXSCFDialect
   )
