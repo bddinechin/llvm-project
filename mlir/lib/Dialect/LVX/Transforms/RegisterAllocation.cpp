@@ -26,6 +26,7 @@
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
 #include "mlir/Dialect/LVXSCF/IR/LVXSCF.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir {
@@ -201,6 +202,38 @@ static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
       unite(vIter, vYield);
       unite(vYield, vResult);
       orderedValues.append({vInit, vIter, vYield, vResult});
+    }
+  });
+
+  // Union-find over ordinary `lvx_cf` branch edges too: a `BranchOpInterface`
+  // op's forwarded operand at position `i` and the destination block's
+  // argument at position `i` are the same value flowing across the edge --
+  // there is no real branch-argument-passing mechanism at the assembly
+  // level (`lvx_cf.br`/`cond_br` are GOTO/CB, no register moves), so they
+  // must land in the same physical register or the branch is simply wrong.
+  // This is the exact same JOIN/phi-coalescing idea as the loop-tuple
+  // unioning above, just over `cf`-style edges instead of `lvx_scf.for`'s
+  // implicit ones; every existing hand-written test happened to only use
+  // bare (argument-less) blocks for `lvx_cf.br`/`cond_br`, so this gap went
+  // unnoticed until real `-convert-to-lvx` output (which always splits the
+  // entry block off into its own argument-passing edge) was run through
+  // this pass end-to-end. A genuine multi-predecessor merge point unions
+  // fine here too: every incoming edge's operand and the shared block
+  // argument all end up in one connected component, exactly like a real
+  // phi.
+  func.walk([&](Operation *op) {
+    auto branch = dyn_cast<BranchOpInterface>(op);
+    if (!branch)
+      return;
+    for (unsigned i = 0, e = op->getNumSuccessors(); i != e; ++i) {
+      Block *succ = op->getSuccessor(i);
+      OperandRange forwarded =
+          branch.getSuccessorOperands(i).getForwardedOperands();
+      for (auto [operand, blockArg] :
+          llvm::zip_equal(forwarded, succ->getArguments())) {
+        unite(operand, blockArg);
+        orderedValues.append({operand, blockArg});
+      }
     }
   });
 

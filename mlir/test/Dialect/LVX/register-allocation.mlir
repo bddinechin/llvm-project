@@ -43,6 +43,33 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
   lvx_func.return %p : !lvx.reg<r0>
 }
 
+// A `lvx_cf.br` carrying a block argument -- mirrors the shape
+// `-convert-to-lvx`'s `FuncFuncToLVX` pattern always produces for a
+// function's entry block (copy ABI args in, then branch into the real
+// body block). The branch operand (`%0`) and the destination block
+// argument (`^bb1`'s own `%1`) are two distinct SSA values with no
+// explicit use connecting them beyond the branch edge itself -- they must
+// still be coalesced into the same register, or the branch becomes
+// unrepresentable in real assembly (no move mechanism exists for a plain
+// `goto`). This is not hypothetical: this exact shape produced a
+// type-mismatch verifier error the first time a real
+// `-convert-to-lvx`-produced kernel was ever run through this pass end to
+// end (docs/lvx/EndToEndValidation.md) -- every prior hand-written test
+// happened to only use argument-less blocks for `lvx_cf.br`.
+// CHECK-LABEL: lvx_func.func @branch_args
+// CHECK-NEXT: %0 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r1>
+// CHECK-NEXT: lvx_cf.br ^bb1(%0 : !lvx.reg<r1>)
+// CHECK-NEXT: ^bb1(%1: !lvx.reg<r1>):
+// CHECK-NEXT: %2 = lvx.mv %1 : (!lvx.reg<r1>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %2 : !lvx.reg<r0>
+lvx_func.func @branch_args(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
+  %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
+  lvx_cf.br ^bb1(%0 : !lvx.reg)
+^bb1(%1: !lvx.reg):
+  %2 = lvx.mv %1 : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %2 : !lvx.reg<r0>
+}
+
 // `lvx_scf.for`: the loop-carried channel (`%init` -> `%acc` -> `%use` ->
 // the op's own result `%r`) must all end up pinned to the *same* physical
 // register, per `ForOp`'s own verifier -- this is the coalescing rule from

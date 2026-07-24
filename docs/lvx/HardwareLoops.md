@@ -1,6 +1,7 @@
 # Hardware loops (LOOPDO)
 
-Status: implemented and tested; not yet committed.
+Status: implemented, tested, and executed end-to-end on real hardware
+(`docs/lvx/EndToEndValidation.md`).
 
 ## What LOOPDO does
 
@@ -195,3 +196,18 @@ Two additions:
   rather than simply threaded through, a nested loop's result) -- see the
   register-allocation doc for the concrete failing case. Not specific to
   hardware loops; applies equally to the branch-based path.
+- **Executed on real hardware, not just verified by disassembly**
+  (`docs/lvx/EndToEndValidation.md`): every prior check of this lowering
+  stopped at "does `lvx-mbr-objdump` show the expected LC/LE/trip-count and
+  no back-edge instruction" -- correct shape, never actually run. A real
+  `sum(i*i)` kernel taking the hardware-loop path was carried all the way
+  through the real `lvx-mbr-as`/`lvx-mbr-ld`/`lvx-gem5` toolchain and
+  produced the correct numeric result, but only after fixing two bugs this
+  lowering's own trip-count computation depended on and that pure
+  disassembly-shape checking could never have caught: `sbfd`'s reversed
+  "subtract FROM" operand order (the trip count was silently computed
+  backwards, manifesting as an apparent hang, not a crash, since the
+  resulting unsigned value was merely enormous rather than obviously
+  wrong) and a Step 1 live-interval gap for the induction variable/`step`
+  (see `docs/lvx/RegisterAllocation.md`). Both are now fixed and covered by
+  a regression test (`scf-to-cf.mlir`'s `@loop_reads_iv`).

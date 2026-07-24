@@ -47,7 +47,16 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // inside the loop body -- its interval extends to cover that use with no
 // special-cased "loop extension" logic, purely because the loop body is
 // numbered inline right after the `lvx_scf.for` op. `%arg1` (the
-// induction variable) is unused and gets a trivial single-point interval;
+// induction variable) has no explicit use in this body, and `%3` (the
+// `step` operand) has no use anywhere in the original IR but as the `for`
+// op's own operand -- both intervals are still force-extended to the
+// body's last op (`%7`, the terminator), not just their own definition/
+// last-explicit-use point, because `-lvx-scf-to-cf` always synthesizes an
+// implicit "iv = iv + step" increment there for *both* lowering paths,
+// reading both values, invisible to this pass's own SSA-use walk. A
+// kernel whose body actually reads iv (unlike this hand-written test)
+// would otherwise let some other value's live range overlap and clobber
+// iv's (or step's) register before that synthesized increment ever runs.
 // `%arg2` (the loop-carried accumulator) and the yielded value each get
 // their own honest, separate interval, since they are distinct SSA
 // values.
@@ -56,10 +65,10 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // CHECK-NEXT: %0 : [1, 8]
 // CHECK-NEXT: %1 : [2, 6]
 // CHECK-NEXT: %2 : [3, 6]
-// CHECK-NEXT: %3 : [4, 6]
+// CHECK-NEXT: %3 : [4, 9]
 // CHECK-NEXT: %4 : [5, 6]
 // CHECK-NEXT: %5 : [6, 10]
-// CHECK-NEXT: %arg1 : [7, 7]
+// CHECK-NEXT: %arg1 : [7, 9]
 // CHECK-NEXT: %arg2 : [7, 8]
 // CHECK-NEXT: %7 : [8, 9]
 // CHECK-NEXT: %6 : [10, 11] fixed=r0

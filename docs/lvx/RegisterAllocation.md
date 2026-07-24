@@ -134,6 +134,26 @@ live (via block livein, seeded from `Liveness`, or via its own def) sets
 extension rule as a post-pass (or inline when descending into a `for`
 body).
 
+### `lvx_scf.for`'s induction variable and `step` need an explicit interval extension (fixed)
+
+Both `-lvx-scf-to-cf` lowering paths synthesize an in-place
+`iv = iv + step` increment immediately before the loop body's terminator
+— but that pass runs *after* this one, so the increment doesn't exist as
+an SSA op yet when intervals are built here. If the body's *original* IR
+has no other use of `iv` past some point (or, for `step`, no use inside
+the body at all — it's only ever the `for` op's own operand), the
+computed interval ends there, long before the body's actual end where the
+synthesized increment will read it back. Every hand-written test in this
+project's history happened to never read `iv` inside a loop body, so this
+went unnoticed until a real kernel that does (one that uses its induction
+variable for more than just the implicit per-iteration bump) was run
+end to end — see `docs/lvx/EndToEndValidation.md` for the concrete
+failure (a squared-iv accumulation silently computed the wrong answer).
+Fixed by explicitly extending both the induction variable's (body block
+argument 0) and `step`'s intervals to the body's last instruction, for
+every `lvx_scf.for`, alongside the ordinary def/use walk — the same class
+of "implicit use invisible to generic dataflow" as call-crossing (Step 2).
+
 ### Pre-colored / fixed intervals
 
 ABI-pinned values already exist as `!lvx.reg<rN>` in the IR (function entry
@@ -285,22 +305,31 @@ that same `!lvx.reg<rN>` type in the rewrite step. All other values
 (including the loop's own induction variable, which has no life outside
 the body) keep their individual Step-1 intervals unchanged.
 
-### Known limitation: general `lvx_cf` block-argument merges
+### `lvx_cf` block-argument merges (fixed)
 
 `lvx_cf.br`/`lvx_cf.cond_br` support passing operands into a destination
 block's arguments, which is this dialect's only other value-merging
-mechanism besides `lvx_scf.for`. A block argument fed by more than one
-predecessor with different values is a real phi-like merge point, and
-correctness would need the same kind of coalescing (or, lacking that, an
-explicit inserted `lvx.mv` copy) as the loop case above. **This is not
-implemented in Step 2.** Reasons this is an acceptable gap for now, not an
-oversight: `ConvertToLVX` never currently lowers anything into a
-value-carrying `lvx_cf` branch (no `scf.if`/`scf.while` lowering exists
-yet), so no test or real lowering path exercises it; and the paper's own
-base algorithm has no merge-point concept at all (its non-SSA model
-side-steps this by reusing one variable name). Revisit if/when a lowering
-starts producing merge blocks — flagged here so it isn't silently
-mishandled later.
+mechanism besides `lvx_scf.for`. This was originally left unimplemented on
+the assumption that `ConvertToLVX` never lowers anything into a
+value-carrying `lvx_cf` branch — **that assumption was wrong**: its
+`FuncFuncToLVX` pattern always splits a function's entry block into an
+ABI-argument-copy-in block that branches (with operands) into the real
+body, for *every* function, not just ones with `scf.if`/`scf.while`. This
+went unnoticed because every hand-written test in this project's history
+used argument-less blocks for `lvx_cf.br`; it surfaced immediately (a
+type-mismatch verifier error) the first time a real `-convert-to-lvx`
+kernel was run through this pass end to end
+(`docs/lvx/EndToEndValidation.md`).
+
+Fixed by extending `buildAllocItems`'s union-find pass — previously scoped
+to `lvx_scf.for`'s loop-carried tuples only — to also walk every
+`BranchOpInterface` op and unite each forwarded operand with the matching
+destination block argument. This is the same JOIN/phi-coalescing idea as
+the loop case, generalized: a block argument fed by more than one
+predecessor unions every incoming operand and the argument itself into one
+connected component, exactly like a real phi, with no special-casing
+needed for the multi-predecessor case versus the single-predecessor one
+that `FuncFuncToLVX` actually produces today.
 
 ### Nested `lvx_scf.for`: coalescing across nesting levels (fixed)
 

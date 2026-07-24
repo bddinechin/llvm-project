@@ -131,3 +131,48 @@ lvx_func.func @nested(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // until this is fixed; simply *replacing* the accumulator with the
 // nested loop's result (yielding it directly, the case tested above) is
 // unaffected.
+
+// A loop whose body reads the induction variable for its own purposes
+// (here: squaring it into the accumulator), not just to feed the implicit
+// per-iteration increment `-lvx-scf-to-cf` synthesizes. This is the exact
+// shape that exposed a real Step 1 live-interval gap
+// (docs/lvx/EndToEndValidation.md, "Induction variable's live range didn't
+// account for the lowering-synthesized increment"): `-lvx-allocate-
+// registers` runs *before* this pass ever creates the synthesized
+// increment, so without explicitly extending `%iv`'s (and `%step`'s) live
+// interval to the body's last op, the intermediate `%sq` value below could
+// legally get allocated the very register `%iv` or `%step` still needs at
+// the body's end, silently corrupting every iteration after the first.
+// `%0`/r0 (iv) and `%2`/r2 (step) both stay live across `%9`'s
+// computation, confirming the fix: `%9` (the square) lands in a fresh
+// register (r4), never reusing r0 or r2, and the synthesized increment at
+// the end (`addd $r0 = $r0, $r2`, via `lowerForHardware`'s in-place
+// `%next_iv`) reads back exactly the values that were live going in.
+// CHECK-LABEL: lvx_func.func @loop_reads_iv
+// CHECK: %4 = lvx.sbfd %1, %0 : (<r1>, <r0>) -> <r29>
+// CHECK-NEXT: %5 = lvx.mv %0 : (!lvx.reg<r0>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_cf.loopdo %4 : <r29>, ^bb1(%5, %3 : !lvx.reg<r0>, !lvx.reg<r3>), ^bb2(%3 : !lvx.reg<r3>)
+// CHECK-NEXT: ^bb1(%6: !lvx.reg<r0>, %7: !lvx.reg<r3>):
+// CHECK-NEXT: %8 = lvx.mv %6 : (!lvx.reg<r0>) -> !lvx.reg<r1>
+// CHECK-NEXT: %9 = lvx.muld %8, %8 : (<r1>, <r1>) -> <r4>
+// CHECK-NEXT: %10 = lvx.addd %7, %9 : (<r3>, <r4>) -> <r3>
+// CHECK-NEXT: %11 = lvx.addd %6, %2 : (<r0>, <r2>) -> <r0>
+// CHECK-NEXT: lvx_cf.br ^bb2(%10 : !lvx.reg<r3>)
+// CHECK-NEXT: ^bb2(%12: !lvx.reg<r3>):
+// CHECK-NEXT: %13 = lvx.mv %12 : (!lvx.reg<r3>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %13 : !lvx.reg<r0>
+lvx_func.func @loop_reads_iv(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
+  %lb = lvx.li 0 : i64 : !lvx.reg
+  %ub = lvx.li 10 : i64 : !lvx.reg
+  %step = lvx.li 1 : i64 : !lvx.reg
+  %init = lvx.li 0 : i64 : !lvx.reg
+  %r = lvx_scf.for %lb : !lvx.reg to %ub : !lvx.reg step %step : !lvx.reg iter_args(%init) : (!lvx.reg) -> (!lvx.reg) {
+  ^bb0(%iv: !lvx.reg, %acc: !lvx.reg):
+    %ivcopy = lvx.mv %iv : (!lvx.reg) -> !lvx.reg
+    %sq = lvx.muld %ivcopy, %ivcopy : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    %use = lvx.addd %acc, %sq : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    lvx_scf.yield %use : !lvx.reg
+  }
+  %p = lvx.mv %r : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %p : !lvx.reg<r0>
+}
