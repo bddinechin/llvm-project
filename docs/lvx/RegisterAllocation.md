@@ -302,18 +302,56 @@ side-steps this by reusing one variable name). Revisit if/when a lowering
 starts producing merge blocks — flagged here so it isn't silently
 mishandled later.
 
-### Known limitation: nested `lvx_scf.for`
+### Nested `lvx_scf.for`: coalescing across nesting levels (fixed)
 
 Found while building `docs/lvx/HardwareLoops.md`'s hardware-loop lowering
-(unrelated to that feature specifically — a general gap in this step). A
-value that is simultaneously an inner loop's `result` and an outer loop's
-directly-yielded operand needs to belong to two independently-computed
-Step 2/3 coalescing groups at once, each of which may pick a different
-register for it — there's no coordination across nesting levels. Depending
-on the exact shape this either fails `-lvx-allocate-registers`'s own
-verifier (`ForOp`'s type-equality check) or corrupts state badly enough to
-crash `-lvx-scf-to-cf` outright. Not fixed; nested loops should be
-considered unsupported until this is addressed.
+(unrelated to that feature specifically — a general gap in this step, now
+fixed). A value that is simultaneously an inner loop's `result` (or
+`initArg`, etc.) and an outer loop's own channel member needs to belong to
+two independently-computed Step 2/3 coalescing groups at once, each of
+which may pick a different register for it — there was no coordination
+across nesting levels. Depending on the exact shape this either failed
+`-lvx-allocate-registers`'s own verifier (`ForOp`'s type-equality check) or
+corrupted state badly enough to crash `-lvx-scf-to-cf` outright (a second,
+independent bug found alongside this one: `-lvx-scf-to-cf` collected its
+for-ops via `Operation::walk`'s *default* order, which is post-order —
+processing a nested loop before its containing one, so the inner loop's
+own restructuring would split the outer loop's body out from under it
+before the outer loop got its turn; fixed by walking pre-order instead).
+
+**Fix**: `buildAllocItems` now runs a union-find over every loop's
+`{initArg, iterArg, yieldOperand, result}` tuple, across *all* loops in the
+function rather than one at a time, and builds one `AllocItem` per
+resulting connected component instead of one per loop. A value shared
+between an inner and outer loop's tuples transitively merges both loops'
+entire channels into a single group sharing one register — mechanically
+necessary since a single SSA value can't have two types, and this is the
+minimal set of unions that makes every loop's own type-equality
+requirement satisfiable simultaneously. Verified (including via real
+disassembly through `-lvx-emit-asm` and the real `lvx-mbr-as`) for the
+"inner loop's result directly becomes the outer loop's yielded value"
+shape — a natural, common nested-accumulator pattern.
+
+**Narrower gap discovered while verifying the fix, not addressed**: the
+union-find's merges are *forced* by type-consistency, but "one shared
+register" is not always semantically sound even when it's the only
+type-consistent choice. If a value plays a loop-channel role in one loop
+(e.g. an outer loop's `iterArg`, used as an inner loop's `initArg`) *and*
+is also read again independently after that inner loop finishes, the
+merge is still forced (the value can't have two types) — but the inner
+loop's own iterations physically overwrite that shared register on the
+way, so the later, independent read silently observes the wrong value.
+Confirmed concretely: `%acc` fed into an inner loop as `iter_args(%acc)`,
+then read again in `%sum = lvx.addd %acc, %innerResult` after the inner
+loop -- both operands end up pinned to the same register, so this
+compiles to a self-add (`addd $r3 = $r3, $r3`) instead of the intended
+sum. A correct fix would need to detect this shape and insert an explicit
+preserving copy of `%acc` before the inner loop runs (i.e. real
+code motion, not just a coalescing decision) — not implemented. This is a
+real silent-wrong-code risk for that specific pattern (an outer
+accumulator combined with, rather than simply threaded through, a nested
+loop's result), not merely a missed optimization; avoid it until this is
+addressed.
 
 ### Multi-result ops
 
