@@ -119,18 +119,91 @@ lvx_func.func @nested(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   lvx_func.return %p : !lvx.reg<r0>
 }
 
-// Known, narrower remaining gap (docs/lvx/RegisterAllocation.md, "Nested
-// lvx_scf.for": the paragraph after the fix): a value fed into a nested
-// loop as its `iter_args` init *and* read again independently after that
-// loop finishes gets coalesced into the same register the nested loop's
-// own iterations physically overwrite, silently computing the wrong
-// value. Not tested here (silent-wrong-code, not a clean failure, so
-// there is no clean CHECK to write against it) -- flagged so it isn't
-// rediscovered the hard way. Avoid combining an outer accumulator with a
-// nested loop's result (`lvx.addd %acc, %innerResult` after the loop)
-// until this is fixed; simply *replacing* the accumulator with the
-// nested loop's result (yielding it directly, the case tested above) is
-// unaffected.
+// Combined accumulator (fixed): `%acc` (the outer loop's own iterArg) is
+// fed into the inner loop as its `iter_args` init *and* read again
+// independently after that loop finishes, combined with its result
+// (`%sum = lvx.addd %acc, %r2`) rather than simply replaced by it. This
+// used to compile to a self-add (`addd $r3 = $r3, $r3`) -- both operands
+// pinned to the same register by buildAllocItems's forced coalescing,
+// silently observing whatever the inner loop's own iterations last left
+// there instead of %acc's actual pre-loop value
+// (docs/lvx/RegisterAllocation.md, "Nested lvx_scf.for": the paragraph
+// after the fix). Fixed by `insertLoopCarriedPreservingCopies`
+// (`RegisterAllocation.cpp`), which runs before Step 1 and inserts an
+// explicit `lvx.mv` copy of any loop init-arg that has a use beyond that
+// one operand: `%13 = lvx.mv %9` below (in `^bb2`, right before the
+// inner loop's own `loopdo`) snapshots `%acc` (r3) into a fresh register
+// (r6) *before* the inner loop runs, and the combining `addd` (`%21`)
+// reads that snapshot, not the shared channel register -- no more
+// self-add. The inner loop's own channel is untouched (still r3
+// throughout, unaffected by the fix, since its only use of the
+// pre-snapshot value is as its own init operand). Verified against the
+// real toolchain end to end, not just structurally: assembled with the
+// real `lvx-mbr-as` and executed on real `lvx-gem5` (10 outer iterations
+// each combining a fresh 10-iteration inner sum-of-0..9, recurrence
+// acc' = 2*acc + 45 from acc=0) exits with code 46035, matching the
+// hand-derived expected result (`docs/lvx/EndToEndValidation.md`-style
+// verification, not run separately as its own kernel here).
+//
+// The inner loop's own bounds (`%lb2`/`%ub2`/`%step2`) are deliberately
+// *not* the same values as the outer loop's (`%lb`/`%ub`/`%step`,
+// contrast the `@nested` case above) -- reusing them uncovered a second,
+// separate, still-open bug while verifying this fix: the inner hardware
+// loop's induction variable can land in the very register the shared
+// lower-bound value itself occupies (an ordinary, uncoalesced allocation
+// coincidence, not a coalescing decision), so the first outer iteration's
+// inner loop permanently overwrites that register before the second
+// outer iteration re-enters the inner loop needing the original bound
+// again. Not fixed here -- out of scope for this change and not yet
+// reduced to a minimal case -- but flagged so it isn't rediscovered the
+// hard way: avoid reusing an outer-scope `lvx_scf.for`'s bounds/step as a
+// *repeatedly re-entered* inner hardware loop's own bounds/step until
+// this is addressed.
+// CHECK-LABEL: lvx_func.func @nested_combined_accumulator
+// CHECK: lvx_cf.br ^bb1(%4, %3 : !lvx.reg<r0>, !lvx.reg<r3>)
+// CHECK-NEXT: ^bb1(%5: !lvx.reg<r0>, %6: !lvx.reg<r3>):
+// CHECK-NEXT: %7 = lvx.compd lt %5, %1 : (<r0>, <r1>) -> <r29>
+// CHECK-NEXT: lvx_cf.cond_br wnez %7 : <r29>, ^bb2(%5, %6 : !lvx.reg<r0>, !lvx.reg<r3>), ^bb5(%6 : !lvx.reg<r3>)
+// CHECK-NEXT: ^bb2(%8: !lvx.reg<r0>, %9: !lvx.reg<r3>):
+// CHECK-NEXT: %10 = lvx.li 0 : i64 : <r1>
+// CHECK-NEXT: %11 = lvx.li 10 : i64 : <r4>
+// CHECK-NEXT: %12 = lvx.li 1 : i64 : <r5>
+// CHECK-NEXT: %13 = lvx.mv %9 : (!lvx.reg<r3>) -> !lvx.reg<r6>
+// CHECK-NEXT: %14 = lvx.sbfd %11, %10 : (<r4>, <r1>) -> <r29>
+// CHECK-NEXT: %15 = lvx.mv %10 : (!lvx.reg<r1>) -> !lvx.reg<r1>
+// CHECK-NEXT: lvx_cf.loopdo %14 : <r29>, ^bb3(%15, %9 : !lvx.reg<r1>, !lvx.reg<r3>), ^bb4(%9 : !lvx.reg<r3>)
+// CHECK-NEXT: ^bb3(%16: !lvx.reg<r1>, %17: !lvx.reg<r3>):
+// CHECK-NEXT: %18 = lvx.addd %17, %16 : (<r3>, <r1>) -> <r3>
+// CHECK-NEXT: %19 = lvx.addd %16, %12 : (<r1>, <r5>) -> <r1>
+// CHECK-NEXT: lvx_cf.br ^bb4(%18 : !lvx.reg<r3>)
+// CHECK-NEXT: ^bb4(%20: !lvx.reg<r3>):
+// CHECK-NEXT: %21 = lvx.addd %13, %20 : (<r6>, <r3>) -> <r3>
+// CHECK-NEXT: %22 = lvx.addd %5, %2 : (<r0>, <r2>) -> <r0>
+// CHECK-NEXT: lvx_cf.br ^bb1(%22, %21 : !lvx.reg<r0>, !lvx.reg<r3>)
+// CHECK-NEXT: ^bb5(%23: !lvx.reg<r3>):
+// CHECK-NEXT: %24 = lvx.mv %23 : (!lvx.reg<r3>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %24 : !lvx.reg<r0>
+lvx_func.func @nested_combined_accumulator(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
+  %lb = lvx.li 0 : i64 : !lvx.reg
+  %ub = lvx.li 10 : i64 : !lvx.reg
+  %step = lvx.li 1 : i64 : !lvx.reg
+  %init = lvx.li 0 : i64 : !lvx.reg
+  %r = lvx_scf.for %lb : !lvx.reg to %ub : !lvx.reg step %step : !lvx.reg iter_args(%init) : (!lvx.reg) -> (!lvx.reg) {
+  ^bb0(%iv: !lvx.reg, %acc: !lvx.reg):
+    %lb2 = lvx.li 0 : i64 : !lvx.reg
+    %ub2 = lvx.li 10 : i64 : !lvx.reg
+    %step2 = lvx.li 1 : i64 : !lvx.reg
+    %r2 = lvx_scf.for %lb2 : !lvx.reg to %ub2 : !lvx.reg step %step2 : !lvx.reg iter_args(%acc) : (!lvx.reg) -> (!lvx.reg) {
+    ^bb1(%iv2: !lvx.reg, %acc2: !lvx.reg):
+      %use = lvx.addd %acc2, %iv2 : (!lvx.reg, !lvx.reg) -> !lvx.reg
+      lvx_scf.yield %use : !lvx.reg
+    }
+    %sum = lvx.addd %acc, %r2 : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    lvx_scf.yield %sum : !lvx.reg
+  }
+  %p = lvx.mv %r : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %p : !lvx.reg<r0>
+}
 
 // A loop whose body reads the induction variable for its own purposes
 // (here: squaring it into the accumulator), not just to feed the implicit
