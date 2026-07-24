@@ -42,3 +42,21 @@ Block *CondBranchOp::getSuccessorForOperands(ArrayRef<Attribute>) {
   // implemented yet; conservatively report "not statically determined".
   return nullptr;
 }
+
+//===----------------------------------------------------------------------===//
+// LoopdoOp
+//===----------------------------------------------------------------------===//
+
+SuccessorOperands LoopdoOp::getSuccessorOperands(unsigned index) {
+  assert(index < getNumSuccessors() && "invalid successor index");
+  return SuccessorOperands(index == 0 ? getBodyOperandsMutable()
+                                      : getExitOperandsMutable());
+}
+
+Block *LoopdoOp::getSuccessorForOperands(ArrayRef<Attribute> operands) {
+  // Statically known only when the trip count folds to the constant 0
+  // (real hardware skips straight to `exit`); not implemented -- see
+  // CondBranchOp's own note above for the same "not implemented yet"
+  // shape.
+  return nullptr;
+}

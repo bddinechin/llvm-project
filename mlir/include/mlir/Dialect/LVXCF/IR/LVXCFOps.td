@@ -60,4 +60,46 @@ def LVXCF_CondBranchOp : LVXCF_Op<"cond_br",
   }];
 }
 
+def LVXCF_LoopdoOp : LVXCF_Op<"loopdo",
+    [AttrSizedOperandSegments,
+     DeclareOpInterfaceMethods<BranchOpInterface, ["getSuccessorForOperands"]>,
+     Terminator]> {
+  let summary = "LOOPDO -- hardware zero-overhead loop setup (BCU_HLS)";
+  let description = [{
+    Sets the hardware loop registers (LS = next bundle, LE = this bundle's
+    PC plus the branch-offset encoding `$exit`'s target, LC = `$tripCount`)
+    and falls through into `$body` -- there is no branch instruction here
+    for the normal case, `$tripCount` iterations simply execute starting at
+    the very next bundle. If `$tripCount` is zero, real hardware jumps
+    straight to `$exit` instead (LVX's own "skip the body entirely"
+    semantics, explicitly different from KVX's infinite-loop-on-zero
+    behavior for the same opcode -- see docs/lvx/HardwareLoops.md).
+
+    `$body`'s own terminator must branch to `$exit` too (never anywhere
+    else), and that branch must be the last thing printed as *nothing* --
+    an explicit `goto` there would be a real branch, which per LOOPDO's own
+    semantics overrides the hardware back-edge and would make the loop run
+    exactly once regardless of `$tripCount`. See docs/lvx/HardwareLoops.md
+    and `-lvx-emit-asm`'s fallthrough-elision rule, which this depends on
+    for correctness, not just as an optimization.
+  }];
+  let arguments = (ins LVX_RegType:$tripCount,
+                       Variadic<LVX_RegType>:$bodyOperands,
+                       Variadic<LVX_RegType>:$exitOperands);
+  let successors = (successor AnySuccessor:$body, AnySuccessor:$exit);
+  let builders = [
+    OpBuilder<(ins "Value":$tripCount,
+                   "Block *":$body, "ValueRange":$bodyOperands,
+                   "Block *":$exit, "ValueRange":$exitOperands), [{
+      build($_builder, $_state, tripCount, bodyOperands, exitOperands,
+            body, exit);
+    }]>];
+  let assemblyFormat = [{
+    $tripCount `:` type($tripCount) `,`
+    $body (`(` $bodyOperands^ `:` type($bodyOperands) `)`)? `,`
+    $exit (`(` $exitOperands^ `:` type($exitOperands) `)`)?
+    attr-dict
+  }];
+}
+
 #endif // LVX_CF_OPS

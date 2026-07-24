@@ -302,6 +302,19 @@ side-steps this by reusing one variable name). Revisit if/when a lowering
 starts producing merge blocks — flagged here so it isn't silently
 mishandled later.
 
+### Known limitation: nested `lvx_scf.for`
+
+Found while building `docs/lvx/HardwareLoops.md`'s hardware-loop lowering
+(unrelated to that feature specifically — a general gap in this step). A
+value that is simultaneously an inner loop's `result` and an outer loop's
+directly-yielded operand needs to belong to two independently-computed
+Step 2/3 coalescing groups at once, each of which may pick a different
+register for it — there's no coordination across nesting levels. Depending
+on the exact shape this either fails `-lvx-allocate-registers`'s own
+verifier (`ForOp`'s type-equality check) or corrupts state badly enough to
+crash `-lvx-scf-to-cf` outright. Not fixed; nested loops should be
+considered unsupported until this is addressed.
+
 ### Multi-result ops
 
 `lvx.divmodd`'s quotient+remainder need no special handling beyond each
