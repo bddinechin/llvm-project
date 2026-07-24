@@ -1,8 +1,9 @@
 # Register allocation design: linear scan
 
-Status: Steps 1 and 2 implemented and tested (`-lvx-print-live-intervals`,
-`-lvx-allocate-registers`); not yet committed. See `docs/lvx/` for related
-design notes as they're added.
+Status: all three steps implemented and tested (`-lvx-print-live-intervals`,
+`-lvx-allocate-registers` with spill/restore); Steps 1 and 2 committed
+(`cef43a89a18b`, `9087a6a37350`), Step 3 not yet committed. See `docs/lvx/`
+for related design notes as they're added.
 
 ## Goal and source
 
@@ -383,48 +384,149 @@ types.
 
 ## Step 3 — Full linear scan with spill/restore
 
+Step 3 extends the *same* `-lvx-allocate-registers` pass in place — it does
+not add a second pass. Per the paper, Step 2 and Step 3 are the identical
+Fig. 1 scan; the only difference is what happens when no register is free
+(`SpillAtInterval` instead of a hard error). Concretely, this means Step 2's
+own bail-out path mostly disappears: register pressure alone is no longer a
+hard error, it now produces a spill. See "What remains a hard error" below
+for what's still fatal.
+
 ### Spill heuristic
 
-Exactly Fig. 1's `SpillAtInterval`: compare the current interval's end
-against the *furthest-end* interval in `active` (its last element, since
-`active` is sorted by increasing endpoint); spill whichever ends later.
-The paper's "spill the one that lives longest" heuristic, shown optimal
-for straight-line single-def/single-use code (§4.1) and reported to work
-well generally.
+Exactly Fig. 1's `SpillAtInterval`: compare the current item's end against
+the *furthest-end spillable* item in `active`; spill whichever ends later
+(free its register for the other). "Spillable" excludes two kinds of
+`active` members that can't be retroactively evicted: fixed/ABI-pinned
+items (their register is a hard constraint, not a preference — see Step 2),
+and coalesced `lvx_scf.for` loop-carried groups (spilling those isn't
+implemented yet — see "What remains a hard error"). If the furthest-end
+*spillable* item's end is still later than the current item's own end, spill
+it and hand its register to the current item; otherwise (or if no spillable
+active item exists at all) spill the current item itself.
 
-### New infrastructure needed
+### New op: `lvx.sp`
 
-Spilling means inserting `lvx.sd`/`lvx.ld` against a stack-relative base
-register at a per-spilled-interval offset. None of this exists yet: no
-prologue/epilogue concept, no frame-size tracking, no stack-pointer-relative
-addressing convention in the dialect. Treat "allocate a spill slot" as
-bump-allocating offsets from a per-function frame-size counter tracked
-alongside the allocator's state. Open question to decide when we get here:
-whether prologue/epilogue emission (adjusting `R12`) is part of this pass
-or a separate follow-up pass.
+Spilling needs an SSA value typed `!lvx.reg<r12>` to use as the base operand
+of `lvx.sd`/`lvx.ld` (R12 is `lvx_Convention.yml`'s `stack` register, already
+permanently reserved from the allocatable pool since Step 2). Nothing in the
+dialect produces such a value out of thin air, so this adds
+`lvx.sp` — a zero-operand pseudo-op, in the same "not a single real opcode,
+but a needed SSA anchor" spirit as `lvx.li`/`lvx.mv` — that materializes
+"the current stack-pointer value." The allocator inserts it once per
+function that has at least one spill, at the very top of the entry block,
+and always constructs its result with type `!lvx.reg<r12>` directly (it
+never goes through general allocation).
+
+### Reserved scratch registers
+
+A spilled value is never resident in a register for its whole interval
+(see "No interval splitting" below) — but the instruction that *defines* it
+still writes to some real register before the store, and every reload
+still needs a real register between the load and the use. These windows are
+extremely short (one or two instructions) and, critically, are decided
+*after* Step 2's main scan has already committed every other register —
+there's no clean way to fold them into the same competitive scan without
+either re-running it or reasoning about point-in-time free-register sets.
+
+**Decision**: reserve a small fixed set of registers, excluded from the
+general candidate pool from the start (so Phase 1 can never hand them to an
+ordinary long-lived value), used exclusively for these transient
+def-then-store / reload-then-use windows. Size: **3** — `r29`, `r30`, `r31`
+(previously the tail of the callee-saved order; general pool shrinks from 62
+to 59). Three covers the worst case among currently-defined ops needing
+simultaneous scratch registers: `lvx.cmoved`/`lvx.cmovew`'s three register
+operands (if all three happened to be spilled at once) and
+`lvx.divmodd`/`lvx.divmodud`/`lvx.divmodw`/`lvx.divmoduw`'s two results.
+Operand reloads (before an op) and result stores (after it) never overlap in
+time for the *same* op, so the bound is the max over either side, not their
+sum. A single dedicated store-side scratch register would in fact always
+suffice on its own (each def's hold-then-store window is a single,
+non-overlapping point in the instruction stream), so reusing the same pool
+for both roles costs nothing extra.
+
+`lvx_func.call` can have up to 12 operands, though, and if more than 3 of a
+single call's arguments are simultaneously spilled, 3 scratch registers
+isn't enough. See "What remains a hard error."
+
+### Frame layout and prologue/epilogue (resolves Step 1/2's open question)
+
+**Decision**: yes, this pass emits the prologue/epilogue itself, rather
+than deferring to a follow-up pass. Spilling isn't actually correct without
+a reserved, non-clobbered stack area — an unaddressed spill area is exactly
+the kind of bug the native-x86-differential ISS harness (see the lvx-csw
+toolchain reference memory) would catch by actually running the code, so
+it's worth getting right now rather than leaving a known-broken gap.
+
+- Spill slots: bump-allocate 8-byte-aligned offsets from 0 (every `!lvx.reg`
+  is a 64-bit LP64 value) as items are marked spilled during the scan;
+  tracked in a per-function running `frameSize`.
+- Prologue: only emitted if `frameSize > 0`. At the top of the entry block:
+  `%sp0 = lvx.sp`, `%off = lvx.li frameSize : i64 : !lvx.reg`,
+  `%spBase = lvx.sbfd %sp0, %off : (!lvx.reg<r12>, !lvx.reg) -> !lvx.reg<r12>`.
+  `%spBase` is the `base` operand for every spill `lvx.sd`/`lvx.ld` in the
+  function.
+- Epilogue: before *every* `lvx_func.return` in the function (there can be
+  more than one, reached via different `lvx_cf` blocks), mirror the
+  subtraction with `lvx.addd` to restore R12 to its caller-supplied value,
+  per the kv4-v1 ABI's callee-restores-SP requirement.
+
+**Known fragility, documented rather than silently accepted**: the restored
+SP value has no explicit "use" tying it to the return the way a real return
+*value* would (`lvx_func.return`'s own operands are ordinary SSA uses; the
+SP restore isn't one of them). Nothing currently strips supposedly-dead
+code in this tree, so this doesn't bite today, but a future DCE-style pass
+would need to know that a register-pinned result can carry a load-bearing
+side effect even with zero real uses — or `lvx_func.return` would need to
+grow an explicit (possibly implicit-in-the-syntax) epilogue-registers list.
+Not fixed now; flagged so it isn't rediscovered the hard way later.
 
 ### No interval splitting / no lifetime holes
 
 Matches the paper's stated base algorithm (explicitly contrasted against
 "second-chance binpacking" in §2 as a *more* complex extension, not the
-default): once a value is spilled, it's memory-resident for the rest of
-its interval; every subsequent use gets a fresh reload into a short-lived
-temporary register right before that use.
+default): once a value is spilled, it's memory-resident for its entire
+original interval; every use gets a fresh reload into a short-lived
+temporary register right before that use, and the defining instruction's
+result is stored immediately after being produced.
 
-This makes step 3 naturally two passes:
-1. Run the scan exactly as in step 2, but call `SpillAtInterval` instead of
-   erroring; record register-vs-memory decisions.
-2. Rewrite the IR: insert a spill-store at each spilled value's definition
-   and a reload-load before each of its uses.
+Mechanically this needs no renumbering or second scan: a spilled value's
+def site (`Value::getDefiningOp()`, or "top of its owning block" for a
+block argument — the only block-argument case in practice is a spilled
+`lvx_scf.for` induction variable, since function entry args are always
+fixed and loop iter_args are coalesced groups) and its uses
+(`Value::getUses()`, walked via `llvm::make_early_inc_range` since each use
+is rewritten to point at a fresh reload in place) are enough on their own;
+insertion is always relative to still-existing ops, never to Step 1's
+now-stale instruction numbers.
 
-### Open nuance: spilled loop-carried values
+### What remains a hard error
 
-Spilling a loop-carried `iter_arg` is worth a dedicated test case rather
-than assuming it falls out for free. The reload has to happen once per
-iteration (at the top of the loop body), not once overall — the "insert a
-load right before each use" recipe still works mechanically, since the use
-is textually inside the loop body and naturally re-executes each iteration,
-but this hasn't been exercised yet.
+Two cases, beyond Step 2's existing fixed-item-ABI-conflict check:
+
+- **Spilling a coalesced `lvx_scf.for` loop-carried group.** Correctly
+  spilling one needs a reload once per iteration (at the top of the loop
+  body) plus a store after each iteration's new value is computed, not the
+  single def/use treatment ordinary values get — genuinely more work, not
+  yet implemented. `SpillAtInterval` excludes groups from its spill
+  candidates entirely (see "Spill heuristic"); if a group itself is the
+  item that can't get a register, that's the hard error, with a message
+  naming it explicitly rather than mis-spilling it.
+- **More than 3 simultaneously-reloaded operands at one instruction**
+  (realistically only reachable via `lvx_func.call` with many spilled
+  arguments, since every other current op has at most 3 register
+  operands). Caught at rewrite time per instruction; documented scope limit
+  rather than a silent scratch-register collision.
+
+### Testing note
+
+The `max-registers` test option (added in Step 2) still exists and is now
+how lit tests force spilling deterministically without hand-writing dozens
+of live values — but its meaning shifts: under Step 3, shrinking the pool
+no longer reliably produces a hard error, it produces spill code. Step 2's
+`register-allocation-invalid.mlir` (which asserted a bail-out purely from
+register pressure) is no longer a valid test of *that* scenario and is
+updated to exercise one of the two hard-error cases above instead.
 
 ## Confirmed decisions (recap)
 
