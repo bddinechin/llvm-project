@@ -206,7 +206,17 @@ struct LVXSCFToCFPass
   void runOnOperation() override {
     lvx_func::FuncOp func = getOperation();
     SmallVector<lvx_scf::ForOp> forOps;
-    func.walk([&](lvx_scf::ForOp op) { forOps.push_back(op); });
+    // Pre-order, outer before inner: `Operation::walk`'s default is
+    // *post-order* (`mlir/include/mlir/IR/Operation.h`), which would
+    // process a nested loop before its containing one -- `lowerFor*`
+    // assumes it's the first thing to touch its own body region (a single
+    // intact block), and an inner loop's own restructuring, run first,
+    // splits that block out from under the not-yet-processed outer loop
+    // before it gets its turn (found as a real crash: `body->getTerminator()`
+    // stops being the expected `lvx_scf.yield` once the inner loop has
+    // already spliced pieces of the outer's body elsewhere).
+    func.walk<WalkOrder::PreOrder>(
+        [&](lvx_scf::ForOp op) { forOps.push_back(op); });
     for (lvx_scf::ForOp forOp : forOps)
       lowerFor(forOp);
   }

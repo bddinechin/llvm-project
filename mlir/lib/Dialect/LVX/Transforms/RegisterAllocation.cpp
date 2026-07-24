@@ -157,6 +157,35 @@ static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
   DenseSet<Value> grouped;
   SmallVector<AllocItem> items;
 
+  // Union-find over loop-carried channel members. Unioning within just one
+  // lvx_scf.for's own {initArg, iterArg, yieldOperand, result} tuple is
+  // not sufficient once loops nest: an inner loop's result can *be* an
+  // outer loop's directly-yielded operand (the same SSA value playing
+  // both roles), and every value transitively reachable through such an
+  // overlap must end up sharing exactly one register -- deciding the
+  // inner and outer channels as two independent groups can each pick a
+  // different register for that shared value, which is exactly the bug
+  // this fixes (docs/lvx/RegisterAllocation.md, "nested lvx_scf.for").
+  DenseMap<Value, Value> parent;
+  auto find = [&](Value v) {
+    Value root = v;
+    for (auto it = parent.find(root); it != parent.end() && it->second != root;
+        it = parent.find(root))
+      root = it->second;
+    for (Value cur = v; cur != root;) {
+      Value next = parent.lookup(cur);
+      parent[cur] = root;
+      cur = next;
+    }
+    return root;
+  };
+  auto unite = [&](Value a, Value b) {
+    Value ra = find(a), rb = find(b);
+    if (ra != rb)
+      parent[ra] = rb;
+  };
+
+  SmallVector<Value> orderedValues;
   func.walk([&](lvx_scf::ForOp forOp) {
     OperandRange initArgs = forOp.getInitArgs();
     Block::BlockArgListType iterArgs = forOp.getRegionIterArgs();
@@ -164,29 +193,46 @@ static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
     auto yieldOp = cast<lvx_scf::YieldOp>(forOp.getBody()->getTerminator());
     OperandRange yieldOperands = yieldOp.getResults();
     for (unsigned i = 0, e = initArgs.size(); i != e; ++i) {
-      AllocItem item;
-      // Detect a genuine conflicting-fixed-register case explicitly
-      // (mergeValue only records "some" fixed reg; check all four here).
       Value vInit = initArgs[i];
       Value vIter = iterArgs[i];
       Value vYield = yieldOperands[i];
       Value vResult = results[i];
-      SmallVector<Register, 4> fixedRegsSeen;
-      for (Value v : {vInit, vIter, vYield, vResult}) {
-        mergeValue(item, v, live);
-        if (const LiveInterval &iv = live.getInterval(v); iv.isFixed())
-          fixedRegsSeen.push_back(*iv.fixedReg);
-      }
-      if (!fixedRegsSeen.empty() &&
-          !llvm::all_equal(fixedRegsSeen))
-        conflictingFixedGroup = true;
-      grouped.insert(initArgs[i]);
-      grouped.insert(iterArgs[i]);
-      grouped.insert(yieldOperands[i]);
-      grouped.insert(results[i]);
-      items.push_back(std::move(item));
+      unite(vInit, vIter);
+      unite(vIter, vYield);
+      unite(vYield, vResult);
+      orderedValues.append({vInit, vIter, vYield, vResult});
     }
   });
+
+  // Build one AllocItem per union-find root, in first-encountered order
+  // (deterministic -- driven by `orderedValues`, not by DenseMap iteration
+  // order). A value already merged into its group (`grouped`) is skipped
+  // on later occurrences, which is exactly how a shared inner/outer value
+  // ends up contributing to its group only once despite appearing in two
+  // tuples above.
+  DenseMap<Value, unsigned> rootToItemIndex;
+  for (Value v : orderedValues) {
+    if (!grouped.insert(v).second)
+      continue;
+    Value root = find(v);
+    auto [it, inserted] = rootToItemIndex.try_emplace(root, items.size());
+    if (inserted)
+      items.emplace_back();
+    mergeValue(items[it->second], v, live);
+  }
+
+  // Detect a genuine conflicting-fixed-register case across each merged
+  // group's full membership (mergeValue's own running `fixedReg` field
+  // only reflects the *last* mismatch seen, not a durable "any conflict
+  // occurred" signal).
+  for (AllocItem &item : items) {
+    SmallVector<Register, 4> fixedRegsSeen;
+    for (Value v : item.values)
+      if (const LiveInterval &iv = live.getInterval(v); iv.isFixed())
+        fixedRegsSeen.push_back(*iv.fixedReg);
+    if (!fixedRegsSeen.empty() && !llvm::all_equal(fixedRegsSeen))
+      conflictingFixedGroup = true;
+  }
 
   for (const LiveInterval &iv : live.getIntervals()) {
     if (grouped.contains(iv.value))

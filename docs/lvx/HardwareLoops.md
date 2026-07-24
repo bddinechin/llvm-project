@@ -183,15 +183,15 @@ Two additions:
 - `PS.HLE` enablement is not emitted; relies on `lvx-gem5`'s SE-mode
   always reporting it set. Real-silicon bring-up would need this addressed
   at the runtime/crt0 level.
-- **Found while testing, not fixed here**: nested `lvx_scf.for` is broken
-  further upstream, independent of hardware loops. A value that is
-  simultaneously an inner loop's result and an outer loop's directly-
-  yielded operand needs to belong to two independent Step 2/3 coalescing
-  groups at once (docs/lvx/RegisterAllocation.md) -- one wants it in one
-  register, the other in another -- which either fails
-  `-lvx-allocate-registers`'s own verifier or crashes `-lvx-scf-to-cf`
-  outright depending on the exact shape. `isHardwareLoopEligible`'s
-  nested-for exclusion is still correct as written, but there is no
-  end-to-end test of it, since a well-formed nested loop can't currently
-  reach this pass at all. Worth fixing before nested loops are used for
-  anything, hardware loops or not.
+- **Found while testing, since fixed**: nested `lvx_scf.for` was broken
+  further upstream, independent of hardware loops -- see
+  docs/lvx/RegisterAllocation.md, "Nested `lvx_scf.for`: coalescing across
+  nesting levels". `isHardwareLoopEligible`'s nested-for exclusion is now
+  exercised end-to-end (`scf-to-cf.mlir`'s `@nested` case): the outer loop
+  (containing a nested `lvx_scf.for`) correctly falls back to the
+  branch-based lowering, while the inner (a leaf, step 1) independently
+  takes the hardware-loop path on its own turn. A narrower, separate gap
+  remains for a specific pattern (an outer accumulator combined with,
+  rather than simply threaded through, a nested loop's result) -- see the
+  register-allocation doc for the concrete failing case. Not specific to
+  hardware loops; applies equally to the branch-based path.
