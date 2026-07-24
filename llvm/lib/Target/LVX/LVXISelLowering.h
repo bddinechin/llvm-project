@@ -3,11 +3,11 @@
 // This file defines the interfaces that LVX uses to lower LLVM code into a
 // selection DAG. Modeled on LanaiISelLowering.h (confirmed current in this
 // checkout), trimmed to what's needed for Phase 3: type/calling-convention
-// setup plus LowerReturn/LowerCall/LowerFormalArguments. Lanai's many
+// setup plus LowerReturn/LowerCall/LowerFormalArguments, plus (Phase 5.4)
+// LowerBR_CC for fused compare-and-branch. Lanai's other many
 // LowerXXX(SDValue, SelectionDAG&) custom-lowering hooks (LowerGlobalAddress,
-// LowerSELECT_CC, LowerSHL_PARTS, etc.) are deferred — LVX doesn't yet need
-// any of them since LowerOperation has nothing routed to it until specific
-// IR patterns are found to need custom lowering.
+// LowerSELECT_CC, LowerSHL_PARTS, etc.) are still deferred until a specific
+// IR pattern is found to need them.
 //
 //===----------------------------------------------------------------------===//
 
@@ -53,6 +53,8 @@ public:
                                  const char *Constraint) const override;
 
 private:
+  SDValue LowerBR_CC(SDValue Op, SelectionDAG &DAG) const;
+
   SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const override;
 

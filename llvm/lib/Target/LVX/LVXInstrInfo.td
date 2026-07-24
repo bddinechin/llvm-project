@@ -64,6 +64,26 @@ def LVXcall : SDNode<"LVXISD::CALL", SDT_LVXCall,
 def LVXretglue : SDNode<"LVXISD::RET_GLUE", SDTNone,
                         [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
+// CCB (Phase 5.4): fused compare-and-branch, custom-lowered from
+// ISD::BR_CC in LVXISelLowering::LowerBR_CC. Operands after the implicit
+// chain: a pre-encoded ccbcomp condition (target constant -- CCB's
+// condition set only has LT/GE forms, so LowerBR_CC canonicalizes
+// SETLE/SETGT/SETULE/SETUGT into SETGE/SETLT/SETUGE/SETULT plus an
+// operand swap before encoding), then the two i64 operands being
+// compared, then the destination basic block. Confirmed against
+// Description.yml's CCB entry ("%2 and %3 satisfy condition %1", same
+// phrasing as COMPD's confirmed "%2 is compared to %3") that the first
+// data operand is Left/primary and the second is Right -- i.e. this node
+// tests LHS <cond> RHS, matching CCB's own "$rZ, $rY" ordering (Z=Left,
+// Y=Right) once LHS binds to rZ and RHS to rY in the pattern below.
+// Unconstrained (matching ARC's SDT_ARCbrcc, the closest proven-working
+// precedent in this tree): the instruction pattern's own typed operands
+// (ccbcomp/GPR/GPR/brtarget11s2 on CCB) establish the types instead --
+// pinning them again here via SDTCisVT/SDTCisSameAs caused TableGen to
+// report "Type set is empty for each HW mode" on CCB.
+def SDT_LVXBrCC : SDTypeProfile<0, 4, []>;
+def LVXccb : SDNode<"LVXISD::CCB", SDT_LVXBrCC, [SDNPHasChain]>;
+
 //===----------------------------------------------------------------------===//
 // Call-frame pseudo instructions
 //
@@ -1778,6 +1798,13 @@ def CCB   : BCU_CCB_Inst<"ccb", []> {
   let isBranch     = 1;
   let isTerminator = 1;
 }
+// Standalone Pat (rather than embedding in CCB's own pattern list) for
+// LVXccb -> CCB: LHS binds to $rZ (Left/primary operand) and RHS to $rY
+// (Right/secondary), per BCU_CCB_Inst's ins order (cmp, target, rY, rZ)
+// and the Description.yml-confirmed Z=Left/Y=Right roles (see LVXccb's
+// own comment above).
+def : Pat<(LVXccb (i32 timm:$cmp), GPR:$rZ, GPR:$rY, bb:$target),
+          (CCB (i32 timm:$cmp), bb:$target, GPR:$rY, GPR:$rZ)>;
 def CB    : BCU_CB_Inst<"cb", []> {
   let isBranch     = 1;
   let isTerminator = 1;
@@ -1843,18 +1870,42 @@ def MAKE_X : ALU_DWI_X_Inst<0b0000, "make", []>;
 def MAKE_Y : ALU_DWI_Y_Inst<0b0000, "make", []>;
 
 // ---- ALU_DWRI: Integer immediate binary -----------------------------------
-
-def ADDD_i  : ALU_DWRI_Inst<0b0010, "addd",  []>;
-def SBFD_i  : ALU_DWRI_Inst<0b0011, "sbfd",  []>;
-def MIND_i  : ALU_DWRI_Inst<0b0100, "mind",  []>;
-def MAXD_i  : ALU_DWRI_Inst<0b0101, "maxd",  []>;
-def MINUD_i : ALU_DWRI_Inst<0b0110, "minud", []>;
-def MAXUD_i : ALU_DWRI_Inst<0b0111, "maxud", []>;
-def ANDD_i  : ALU_DWRI_Inst<0b1000, "andd",  []>;
+//
+// Patterns below (Phase 5.3): confirmed against lvx-mds/refs's
+// Description.yml Instruction entries, which describe each op's semantics
+// generically across its whole formats list (both the ALU_DWRR0
+// register-register and ALU_DWRI/.X/.Y register-immediate siblings share
+// one Instruction ID/description). ADDD/MIND/MAXD/MINUD/MAXUD/ANDD/IORD/
+// EORD are all commutative, so the immediate form's operand-role mapping
+// doesn't affect correctness. SBFD is NOT commutative and is the one
+// case that actually matters: its description
+// ("SBFD: %2 is subtracted from %3", properties %2=Right/%3=Left, i.e.
+// result = Left - Right) combined with the confirmed print-order
+// convention (second-encoded-operand printed before third, matching
+// ADDD's register-register %2=Z/%3=Y -- and ADDD_i/SBFD_i's own
+// confirmed "$rW = $rZ, $imm" print order) means immediate SBFD computes
+// $imm - $rZ (imm is Left/minuend, rZ is Right/subtrahend) -- the
+// OPPOSITE of the naive "$rZ - $imm" reading of the print order.
+def ADDD_i  : ALU_DWRI_Inst<0b0010, "addd",
+                  [(set GPR:$rW, (add  GPR:$rZ, simm10imm:$imm))]>;
+def SBFD_i  : ALU_DWRI_Inst<0b0011, "sbfd",
+                  [(set GPR:$rW, (sub  simm10imm:$imm, GPR:$rZ))]>;
+def MIND_i  : ALU_DWRI_Inst<0b0100, "mind",
+                  [(set GPR:$rW, (smin GPR:$rZ, simm10imm:$imm))]>;
+def MAXD_i  : ALU_DWRI_Inst<0b0101, "maxd",
+                  [(set GPR:$rW, (smax GPR:$rZ, simm10imm:$imm))]>;
+def MINUD_i : ALU_DWRI_Inst<0b0110, "minud",
+                  [(set GPR:$rW, (umin GPR:$rZ, simm10imm:$imm))]>;
+def MAXUD_i : ALU_DWRI_Inst<0b0111, "maxud",
+                  [(set GPR:$rW, (umax GPR:$rZ, simm10imm:$imm))]>;
+def ANDD_i  : ALU_DWRI_Inst<0b1000, "andd",
+                  [(set GPR:$rW, (and  GPR:$rZ, simm10imm:$imm))]>;
 def NANDD_i : ALU_DWRI_Inst<0b1001, "nandd", []>;
-def IORD_i  : ALU_DWRI_Inst<0b1010, "iord",  []>;
+def IORD_i  : ALU_DWRI_Inst<0b1010, "iord",
+                  [(set GPR:$rW, (or   GPR:$rZ, simm10imm:$imm))]>;
 def NIORD_i : ALU_DWRI_Inst<0b1011, "niord", []>;
-def EORD_i  : ALU_DWRI_Inst<0b1100, "eord",  []>;
+def EORD_i  : ALU_DWRI_Inst<0b1100, "eord",
+                  [(set GPR:$rW, (xor  GPR:$rZ, simm10imm:$imm))]>;
 def NEORD_i : ALU_DWRI_Inst<0b1101, "neord", []>;
 def ANDND_i : ALU_DWRI_Inst<0b1110, "andnd", []>;
 def IORND_i : ALU_DWRI_Inst<0b1111, "iornd", []>;

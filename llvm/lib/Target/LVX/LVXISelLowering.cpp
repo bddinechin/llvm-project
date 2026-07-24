@@ -131,9 +131,11 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::SREM, MVT::i64, Expand);
   setOperationAction(ISD::UREM, MVT::i64, Expand);
 
-  // No branch-on-condition-code DAG combine / SELECT_CC lowering yet;
-  // let LegalizeDAG expand select/select_cc through the generic path
-  // until LVX-specific patterns for CMOVED/CMOVEQ are wired up (Phase 5).
+  // BR_CC (Phase 5.4): fuse compare+branch into CCB directly, custom
+  // lowered below (LowerBR_CC) -- LVX has real compare-and-branch
+  // hardware for this, unlike SELECT_CC's ternary-value case, which
+  // still has no CMOVED/CMOVEQ pattern wired up and stays Expand.
+  setOperationAction(ISD::BR_CC, MVT::i64, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::i64, Expand);
 
   setMinFunctionAlignment(Align(4));
@@ -142,12 +144,66 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
 
 SDValue LVXTargetLowering::LowerOperation(SDValue Op,
                                           SelectionDAG &DAG) const {
-  // Nothing routed here yet -- every IR construct currently reaching
-  // LowerOperation should already be legal or handled by a TableGen
-  // pattern. If this is hit, a new case needs to be added once a real
-  // test program identifies what's missing.
-  llvm_unreachable(
-      "Unimplemented operation in LVXTargetLowering::LowerOperation");
+  switch (Op.getOpcode()) {
+  case ISD::BR_CC:
+    return LowerBR_CC(Op, DAG);
+  default:
+    // Every other IR construct reaching LowerOperation should already be
+    // legal or handled by a TableGen pattern. If this is hit, a new case
+    // needs to be added once a real test program identifies what's
+    // missing.
+    llvm_unreachable(
+        "Unimplemented operation in LVXTargetLowering::LowerOperation");
+  }
+}
+
+// Maps an already-canonicalized ISD::CondCode (EQ/NE/LT/GE/ULT/UGE only
+// -- see LowerBR_CC) to LVX's ccbcomp encoding. Values per
+// LVXModifiers.h's CcbcompSuffixes table (double-word forms: 0-5).
+static unsigned getCCBCompForCC(ISD::CondCode CC) {
+  switch (CC) {
+  case ISD::SETEQ:  return 4; // .deq
+  case ISD::SETNE:  return 5; // .dne
+  case ISD::SETLT:  return 0; // .dlt
+  case ISD::SETGE:  return 1; // .dge
+  case ISD::SETULT: return 2; // .dltu
+  case ISD::SETUGE: return 3; // .dgeu
+  default:
+    llvm_unreachable("getCCBCompForCC: condition code should have been "
+                     "canonicalized to EQ/NE/LT/GE/ULT/UGE in LowerBR_CC");
+  }
+}
+
+// BR_CC -> CCB (Phase 5.4). CCB's ccbcomp condition set only has LT/GE
+// (signed and unsigned) -- no LE/GT (confirmed: LVXModifiers.h's
+// CcbcompSuffixes table has no such entries) -- so SETLE/SETGT/SETULE/
+// SETUGT are canonicalized by swapping the compared operands: a<=b is
+// b>=a, and a>b is b<a. This is the standard trick for a target with a
+// condition-code set covering only half the relations.
+SDValue LVXTargetLowering::LowerBR_CC(SDValue Op, SelectionDAG &DAG) const {
+  SDValue Chain = Op.getOperand(0);
+  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(1))->get();
+  SDValue LHS = Op.getOperand(2);
+  SDValue RHS = Op.getOperand(3);
+  SDValue Dest = Op.getOperand(4);
+  SDLoc DL(Op);
+
+  switch (CC) {
+  case ISD::SETLE:  CC = ISD::SETGE;  std::swap(LHS, RHS); break;
+  case ISD::SETGT:  CC = ISD::SETLT;  std::swap(LHS, RHS); break;
+  case ISD::SETULE: CC = ISD::SETUGE; std::swap(LHS, RHS); break;
+  case ISD::SETUGT: CC = ISD::SETULT; std::swap(LHS, RHS); break;
+  default:
+    break;
+  }
+
+  // LVXccb's operand order (LVXInstrInfo.td) is [cmp, LHS, RHS, dest];
+  // LHS binds to CCB's $rZ (Left/primary operand) and RHS to $rY
+  // (Right/secondary), confirmed against Description.yml's CCB/COMPD
+  // entries ("%2 is compared to %3" == Z is Left, Y is Right).
+  SDValue CCImm = DAG.getTargetConstant(getCCBCompForCC(CC), DL, MVT::i32);
+  return DAG.getNode(LVXISD::CCB, DL, MVT::Other, Chain, CCImm, LHS, RHS,
+                     Dest);
 }
 
 bool LVXTargetLowering::CanLowerReturn(

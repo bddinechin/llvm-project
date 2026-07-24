@@ -75,6 +75,24 @@ static bool selectAddr(SelectionDAG *CurDAG, const SDLoc &DL, SDValue Addr,
 void LVXDAGToDAGISel::Select(SDNode *N) {
   SDLoc DL(N);
 
+  // ISD::Constant (Phase 5.3) → MAKE/MAKE_X/MAKE_Y, picking the narrowest
+  // that fits, same width tiers as LVXInstrInfo::loadImmediate's BuildMI
+  // version of this logic. This is the fallback for any i64 constant that
+  // isn't consumed directly by an immediate-embedding pattern (e.g.
+  // ADDD_i's simm10imm) -- a bare constant used standalone (returned,
+  // compared, multiplied, etc.) has to be materialized into a real
+  // register somehow, and this is the only place that happens.
+  if (N->getOpcode() == ISD::Constant && N->getValueType(0) == MVT::i64) {
+    int64_t Val = cast<ConstantSDNode>(N)->getSExtValue();
+    unsigned Opc = isInt<16>(Val) ? LVX::MAKE
+                 : isInt<43>(Val) ? LVX::MAKE_X
+                                   : LVX::MAKE_Y;
+    SDValue Imm = CurDAG->getTargetConstant(Val, DL, MVT::i64);
+    SDNode *Res = CurDAG->getMachineNode(Opc, DL, MVT::i64, Imm);
+    ReplaceNode(N, Res);
+    return;
+  }
+
   // ISD::BUILD_PAIR (i128 from two i64 halves) → CATDQ.
   // LowerFormalArguments produces BUILD_PAIR when reassembling an i128
   // argument from its two i64 CC slots. CATDQ is the single LVX instruction
