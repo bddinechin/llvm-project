@@ -1,5 +1,6 @@
 add_mlir_dialect_library(MLIRLVXTransforms
   RegisterAllocation.cpp
+  RewriteDivmod.cpp
   SCFToCF.cpp
   EmitAsm.cpp
 

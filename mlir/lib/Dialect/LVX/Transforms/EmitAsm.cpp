@@ -215,12 +215,38 @@ private:
         "docs/lvx/AssemblyEmission.md)");
   }
 
-  static LogicalResult unsupportedDivmod(Operation *op) {
-    return op->emitError(
-        "lvx-emit-asm: the divmod family is not supported -- the "
-        "real opcode's destination is an adjacent register pair, "
-        "which this allocator does not yet model (see "
-        "docs/lvx/AssemblyEmission.md)");
+  /// Real hardware's divmod destination is the `registerM` operand class:
+  /// one aligned register pair, spelled `$r<even>r<odd>` with no separator
+  /// or dot (confirmed by hand-assembling with the real `lvx-mbr-as` and
+  /// disassembling the result -- see docs/lvx/AssemblyEmission.md). By the
+  /// time this pass runs, `-lvx-rewrite-divmod` has already retyped both
+  /// results to that fixed pair (r30:r31 today); this only re-derives the
+  /// pair from the actual result types rather than hard-coding r30/r31, so
+  /// a future change to which pair is reserved doesn't need a matching
+  /// change here, and a mis-ordered pipeline (this pass run without
+  /// -lvx-rewrite-divmod first) is caught as an error instead of emitting
+  /// wrong syntax silently.
+  LogicalResult emitDivmod(Operation *op, StringRef mnemonic) {
+    FailureOr<std::string> rs1 = reg(op->getOperand(0));
+    FailureOr<std::string> rs2 = reg(op->getOperand(1));
+    if (failed(rs1) || failed(rs2))
+      return failure();
+    auto qTy = dyn_cast<RegisterType>(op->getResult(0).getType());
+    auto rTy = dyn_cast<RegisterType>(op->getResult(1).getType());
+    if (!qTy || !qTy.isAllocated() || !rTy || !rTy.isAllocated())
+      return op->emitError(
+          "lvx-emit-asm: divmod's quotient/remainder has no assigned "
+          "physical register -- run -lvx-allocate-registers and "
+          "-lvx-rewrite-divmod first");
+    Register q = *qTy.getReg(), r = *rTy.getReg();
+    if (static_cast<unsigned>(r) != static_cast<unsigned>(q) + 1 ||
+        static_cast<unsigned>(q) % 2 != 0)
+      return op->emitError(
+          "lvx-emit-asm: divmod's quotient/remainder are not an aligned "
+          "register pair -- run -lvx-rewrite-divmod before -lvx-emit-asm");
+    os << "\t" << mnemonic << " $" << stringifyRegister(q)
+       << stringifyRegister(r) << " = " << *rs1 << ", " << *rs2 << "\n\t;;\n";
+    return success();
   }
 
   LogicalResult emitOp(Operation *op) {
@@ -265,14 +291,15 @@ private:
         .Case([&](SbfwOp op) { return emitBinarySubtractFrom(op, "sbfw"); })
         .Case([&](FsbfdOp op) { return emitBinarySubtractFrom(op, "fsbfd"); })
         .Case([&](FsbfwOp op) { return emitBinarySubtractFrom(op, "fsbfw"); })
-        // Explicitly unsupported: real-hardware modeling mismatches, not
+        // Explicitly unsupported: a real-hardware modeling mismatch, not
         // just missing syntax -- see docs/lvx/AssemblyEmission.md, "Scope:
         // supported ops".
         .Case([&](CmovedOp op) { return unsupportedCmove(op); })
-        .Case([&](DivmoddOp op) { return unsupportedDivmod(op); })
-        .Case([&](DivmodudOp op) { return unsupportedDivmod(op); })
-        .Case([&](DivmodwOp op) { return unsupportedDivmod(op); })
-        .Case([&](DivmoduwOp op) { return unsupportedDivmod(op); })
+        // divmod: pairedReg destination, see emitDivmod's comment.
+        .Case([&](DivmoddOp op) { return emitDivmod(op, "divmodd"); })
+        .Case([&](DivmodudOp op) { return emitDivmod(op, "divmodud"); })
+        .Case([&](DivmodwOp op) { return emitDivmod(op, "divmodw"); })
+        .Case([&](DivmoduwOp op) { return emitDivmod(op, "divmoduw"); })
         // Everything else with plain (unattributed) register
         // operands/results is dispatched purely by arity: this dialect's
         // mnemonics match real LVX mnemonics verbatim (top-level

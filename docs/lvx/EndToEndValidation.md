@@ -198,3 +198,32 @@ result immediately. After any toolchain or `lvx-gem5` rebuild, rebuild
 `.o`/`.elf` artifacts from source rather than reusing old ones sitting
 around from before the rebuild, even for cases that look unrelated to
 whatever changed.
+
+## `divmod` kernel, real quotient/remainder through the full pipeline (2026-07-28)
+
+A second real kernel, once `-lvx-rewrite-divmod` existed
+(`docs/lvx/AssemblyEmission.md`, "`divmod`'s dual output: pinned register
+pair, implemented"):
+
+```mlir
+func.func @divmod_kernel(%n: i64, %d: i64) -> i64 {
+  %q = arith.divsi %n, %d : i64
+  %r = arith.remsi %n, %d : i64
+  %c100 = arith.constant 100 : i64
+  %scaled = arith.muli %q, %c100 : i64
+  %result = arith.addi %scaled, %r : i64
+  return %result : i64
+}
+```
+
+Run through `convert-to-lvx` → `lvx-allocate-registers` →
+`lvx-rewrite-divmod` → `lvx-scf-to-cf` → `lvx-emit-asm` → real
+`lvx-mbr-as`/`lvx-mbr-ld` → real `lvx-gem5`, with a driver calling it as
+`divmod_kernel(17, 5)`: exit code `302`, matching the hand-computed
+`3*100 + 2` (`17 / 5 = 3`, `17 % 5 = 2`). `arith.divsi`/`arith.remsi`
+each lower to their own independent `lvx.divmodd` (per `ConvertToLVX`'s
+"duplicates the divmod computation" note), so this also exercises two
+separate `divmodd` instructions in the same function, each pinned to and
+copied out of the same `r30:r31` pair in sequence -- no interference
+between the two, confirming the "always transient, dead before the next
+instruction" reasoning the reserved-pair design relies on.

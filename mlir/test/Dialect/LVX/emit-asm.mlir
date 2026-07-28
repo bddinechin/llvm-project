@@ -1,4 +1,4 @@
-// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-scf-to-cf),lvx-emit-asm)' -o /dev/null | FileCheck %s
+// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-rewrite-divmod),any(lvx-scf-to-cf),lvx-emit-asm)' -o /dev/null | FileCheck %s
 
 // This is also, deliberately, an integration test against the real
 // sibling-project toolchain (docs/lvx/AssemblyEmission.md, "Testing"):
@@ -8,7 +8,7 @@
 // output on every test run. If `/home/guembu/bd3/lvx-csw` ever moves,
 // update the path here rather than deleting the check.
 //
-// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-scf-to-cf),lvx-emit-asm)' -o /dev/null 2>/dev/null | /home/guembu/bd3/lvx-csw/lvx-toolchain/bin/lvx-mbr-as - -o %t.o
+// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-rewrite-divmod),any(lvx-scf-to-cf),lvx-emit-asm)' -o /dev/null 2>/dev/null | /home/guembu/bd3/lvx-csw/lvx-toolchain/bin/lvx-mbr-as - -o %t.o
 
 // Straight-line code: `lvx.mv`/`lvx.li` lower to real `copyd`/`make`
 // opcodes, and every op gets its own `;;`-terminated bundle.
@@ -161,6 +161,39 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
     lvx_scf.yield %use : !lvx.reg
   }
   %p = lvx.mv %r : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %p : !lvx.reg<r0>
+}
+
+// `divmodd`'s destination is the real `registerM` pairedReg operand class,
+// spelled `$r<even>r<odd>` with no separator (confirmed by hand-assembling
+// with the real `lvx-mbr-as` and disassembling the result, and the
+// low=quotient/high=remainder assignment confirmed by actually executing a
+// `divmodd` on real gem5 -- docs/lvx/AssemblyEmission.md). `-lvx-rewrite-
+// divmod` pins both results to r30:r31 and copies each used one back out
+// to wherever Steps 1-3 originally allocated it (`$r2`/`$r3` below).
+// CHECK-LABEL: divmod:
+// CHECK-NEXT: copyd $r2 = $r0
+// CHECK-NEXT: ;;
+// CHECK-NEXT: copyd $r0 = $r1
+// CHECK-NEXT: ;;
+// CHECK-NEXT: divmodd $r30r31 = $r2, $r0
+// CHECK-NEXT: ;;
+// CHECK-NEXT: copyd $r3 = $r31
+// CHECK-NEXT: ;;
+// CHECK-NEXT: copyd $r1 = $r30
+// CHECK-NEXT: ;;
+// CHECK-NEXT: addd $r0 = $r1, $r3
+// CHECK-NEXT: ;;
+// CHECK-NEXT: copyd $r0 = $r0
+// CHECK-NEXT: ;;
+// CHECK-NEXT: ret
+// CHECK-NEXT: ;;
+lvx_func.func @divmod(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
+  %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
+  %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg
+  %q, %r = lvx.divmodd %0, %1 : (!lvx.reg, !lvx.reg) -> (!lvx.reg, !lvx.reg)
+  %sum = lvx.addd %q, %r : (!lvx.reg, !lvx.reg) -> !lvx.reg
+  %p = lvx.mv %sum : (!lvx.reg) -> !lvx.reg<r0>
   lvx_func.return %p : !lvx.reg<r0>
 }
 
