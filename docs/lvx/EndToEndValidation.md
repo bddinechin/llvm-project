@@ -168,3 +168,33 @@ real call graph (not just a single-level driver) will need this.
   JOIN/phi coalescing via union-find); the codebase now applies it
   uniformly across both `lvx_scf.for` loop-carried channels and ordinary
   `lvx_cf` control flow.
+
+## Re-verified on the rebuilt, dual-core `lvx-gem5` (2026-07-28)
+
+`lvx-gem5` was rebuilt again after the above, now producing two
+core-specific binaries, `build/gem5-lvx1.opt` and `build/gem5-lvx2.opt`
+(the old single `build/LVX/gem5.opt` path no longer exists -- see the
+`lvx_csw_toolchain` reference memory). Re-ran every execution check from
+this doc (`exit42`/`hwloop0`/`hwloop3` smoke tests, `sum_squares` at
+`n=5` and `n=7`, and `scf-to-cf.mlir`'s `@nested_combined_accumulator`)
+against both binaries: all six give the same correct results
+(`42`/`0`/`3`/`30`/`91`/`46035`) on both `gem5-lvx1.opt` and
+`gem5-lvx2.opt`, with identical tick/cycle counts between the two on this
+test set (unsurprising under the `atomic` CPU model, which doesn't model
+timing at all). lvx-mlir only targets the `lvx_v1` core (`CLAUDE.md`'s
+ground-truth note), so `gem5-lvx1.opt` is the one that actually matters
+going forward; `gem5-lvx2.opt` agreeing is a bonus cross-check, not a
+claim that lvx-mlir targets that core too.
+
+One methodological note worth keeping: the first re-run attempt (reusing
+the `.elf` files built during the original exercise, before this rebuild)
+gave a wrong result (`0` instead of `30`/`91`) on the `sum_squares`
+kernel specifically, while the smoke tests and the combined-accumulator
+kernel -- built in the same original session -- still ran correctly. That
+turned out to be a stale-artifact problem, not a real regression: a fresh
+rebuild from the same unchanged source (re-run through `mlir-opt`,
+re-assembled, re-linked with the rebuilt toolchain) gave the correct
+result immediately. After any toolchain or `lvx-gem5` rebuild, rebuild
+`.o`/`.elf` artifacts from source rather than reusing old ones sitting
+around from before the rebuild, even for cases that look unrelated to
+whatever changed.
