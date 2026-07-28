@@ -52,6 +52,32 @@ def LVXAllocateRegistersPass
   ];
 }
 
+def LVXRewriteDivmodPass
+    : Pass<"lvx-rewrite-divmod", "::mlir::lvx_func::FuncOp"> {
+  let summary = "Pin divmod's dual result to the r30:r31 scratch pair, post-allocation";
+  let description = [{
+    See docs/lvx/AssemblyEmission.md ("A narrower fix for divmod, sketched
+    but not implemented" -- now implemented). Must run after
+    `-lvx-allocate-registers`: `lvx.divmodd`/`divmodud`/`divmodw`/
+    `divmoduw`'s quotient and remainder are ordinary, independently
+    allocated values during Steps 1-3 (no allocator changes needed). This
+    pass retypes both results in place to the fixed, aligned scratch pair
+    `!lvx.reg<r30>`/`!lvx.reg<r31>` (real hardware's `registerM`
+    destination operand -- confirmed low register = quotient, high
+    register = remainder, and the `$rEVENrODD` assembly spelling, both by
+    hand-assembling with the real `lvx-mbr-as` and executing on real
+    gem5), then inserts an `lvx.mv` copy from each pinned result back to
+    wherever Steps 1-3 originally allocated it -- only for a result that
+    actually has a use, since `arith.divsi`/`remsi` each lower to their
+    own full `lvx.divmodd` and often only one of the two results is ever
+    read. `r30:r31` is already inside Step 3's existing spill-scratch
+    reservation (`kSpillScratchRegs`), so no new register is carved out of
+    the general pool, and the pinned window is always transient (dead
+    before the next instruction), the same non-overlap argument already
+    used for that reservation's other consumers.
+  }];
+}
+
 def LVXSCFToCFPass
     : Pass<"lvx-scf-to-cf", "::mlir::lvx_func::FuncOp"> {
   let summary = "Lower lvx_scf.for to lvx_cf branches or a hardware loop, after allocation";

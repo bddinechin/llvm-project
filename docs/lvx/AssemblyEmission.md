@@ -1,8 +1,9 @@
 # Assembly emission
 
-Status: implemented and tested (`-lvx-scf-to-cf`, `-lvx-emit-asm`),
-including assembling real output with the sibling `lvx-csw` toolchain; not
-yet committed.
+Status: implemented and tested (`-lvx-scf-to-cf`, `-lvx-rewrite-divmod`,
+`-lvx-emit-asm`), including assembling real output with the sibling
+`lvx-csw` toolchain and, for the `divmod` family, a full run on real
+`lvx-gem5`; not yet committed.
 
 ## Goal
 
@@ -18,8 +19,14 @@ FileCheck-verified IR shape.
 ## Pipeline order
 
 ```
-convert-to-lvx  →  lvx-allocate-registers  →  lvx-scf-to-cf  →  lvx-emit-asm
+convert-to-lvx  →  lvx-allocate-registers  →  lvx-rewrite-divmod  →  lvx-scf-to-cf  →  lvx-emit-asm
 ```
+
+`lvx-rewrite-divmod` (see "A narrower fix for divmod" below) is another
+post-allocation pass, like `lvx-scf-to-cf`; its own position relative to
+`lvx-scf-to-cf` doesn't matter (they touch disjoint op sets), but it must
+run after `lvx-allocate-registers` for the same reason `lvx-scf-to-cf`
+does -- it consults each `divmod` result's *already-assigned* register.
 
 `lvx-scf-to-cf` (new, this phase) must run **after** allocation, not
 before. This is the opposite of the "usual" order (lower structured control
@@ -91,7 +98,7 @@ approach the validation harness itself is built on.
 Every `lvx`/`lvx_cf`/`lvx_func` op actually reachable from `ConvertToLVX`'s
 lowering plus the register allocator's own insertions (`lvx.sp`,
 spill `lvx.ld`/`lvx.sd`) has a 1:1, correctly-matching real opcode and is
-emitted directly. Two ops are **explicitly unsupported, hard error rather
+emitted directly. One op is **explicitly unsupported, hard error rather
 than silently wrong output**:
 
 - **`lvx.cmoved`**: the dialect models a full 3-operand select
@@ -101,51 +108,52 @@ than silently wrong output**:
   when the condition is false -- semantically different, not just a syntax
   gap. Reconciling this needs a dialect-level design decision, not an
   emission-time workaround.
-- **`lvx.divmodd`/`lvx.divmodud`/`lvx.divmodw`/`lvx.divmoduw`**: the real
-  opcode's destination is a `registerM` operand class -- an *adjacent
-  register pair* -- but the dialect's quotient and remainder are two
-  independently-allocated `AllocItem`s that can land on any two (possibly
-  non-adjacent) registers. Fixing this needs register-pair/`RegClass`
-  allocation, already called out as explicit future work in the top-level
-  `CLAUDE.md` ("later phases... `RegFile`/`RegClass` (`PGR`/`QGR`) data").
 
-Neither is exercised by any current lit test's *emission* path (the
-register-allocation tests use them structurally, but no straight-line
-kernel test reaches assembly emission through one yet), so this is a
-documented gap, not a silently-passing broken path.
+Not exercised by any current lit test's *emission* path (the register-
+allocation tests use it structurally, but no straight-line kernel test
+reaches assembly emission through it yet), so this is a documented gap,
+not a silently-passing broken path.
 
-### A narrower fix for `divmod`, sketched but not implemented
+### `divmod`'s dual output: pinned register pair, implemented
 
-The `divmod` bullet above says "needs register-pair/`RegClass`
-allocation" -- true for the *general* problem (an arbitrary candidate
-that needs to live in an arbitrary aligned pair, `docs/lvx/
-MultiRegisterClasses.md`'s future SIMD phase), but `divmod`'s own case is
-narrower than that: it's always the *same* op needing the *same* kind of
-pair, at a point where the allocator already has ordinary registers
-picked out for the quotient and remainder. That narrower shape has a
-narrower fix, reusing machinery this project already has, with no changes
-to Steps 1-3 themselves.
+`lvx.divmodd`/`lvx.divmodud`/`lvx.divmodw`/`lvx.divmoduw`'s real opcode
+destination is a `registerM` operand class -- an *adjacent register
+pair* -- but the dialect's quotient and remainder are two independently-
+allocated values that Steps 1-3 can land on any two (possibly
+non-adjacent) registers. The *general* version of this problem (an
+arbitrary candidate needing an arbitrary aligned pair) needs register-
+pair/`RegClass` allocation, still future work (`docs/lvx/
+MultiRegisterClasses.md`); `divmod`'s own case is narrower -- it's always
+the *same* op needing the *same* kind of pair, at a point where the
+allocator already has ordinary registers picked out for the quotient and
+remainder -- and that narrower shape has a narrower fix, `-lvx-rewrite-
+divmod` (`RewriteDivmod.cpp`), reusing machinery this project already had
+with no changes to Steps 1-3 themselves.
 
-**Ground truth, confirmed against `lvx-mds/refs/FE/YAML/lvx/lvx_v1/
-Description.yml` and `lvx_Format.yml`, not assumed:**
+**Ground truth, confirmed against real ground truth and, where the
+extracted YAML text was ambiguous, against the real toolchain directly:**
 
 - `DIVMODD`'s format (`ALU_DDMWRR`) destination operand is `{ pairedReg:
   registerM }` -- a distinct operand class from `{ singleReg: ... }`,
   encoded in a 5-bit field (`registerM: "-----"`) versus `singleReg`'s
   6 bits, i.e. `registerM` names one of 32 register *pairs* directly,
-  not an arbitrary single register. This is a real, hardware-defined
-  aligned-pair addressing mode, not something this project would need to
-  invent a convention for.
-- `DIVMODD`'s own `execution:` block packs the result into one 128-bit
-  value: `result1.64[0]` (the low 64 bits) is the quotient, `result1.64[1]`
-  (the high 64 bits) is the remainder. The natural reading is that the
-  pair's lower-numbered register holds the low bits (quotient) and the
-  upper register holds the high bits (remainder) -- **not independently
-  confirmed by name** anywhere in the extracted YAML text read so far;
-  treat this as a working assumption to verify (e.g. by hand-assembling a
-  `divmodd` instruction and cross-checking against `lvx-gem5`'s
-  execution, the same methodology already used throughout this doc)
-  before actually implementing this, not before sketching it.
+  confirmed via `lvx-mds/refs/FE/YAML/lvx/lvx_v1/Description.yml` and
+  `lvx_Format.yml`.
+- **Assembly syntax**: `$r<even>r<odd>` with no separator or dot (e.g.
+  `divmodd $r30r31 = $r1, $r2`) -- found empirically, since the register-
+  name table in `lvx-binutils/opcodes/lvx-opc.c` lists entries like
+  `{30, "$r30r31.lo"}`/`{31, "$r30r31.hi"}` that turned out to be a
+  *different* operand class (word views into a pair, not `pairedReg`
+  itself); brute-forcing candidate syntaxes against the real `lvx-mbr-as`
+  and disassembling the accepted one with `lvx-mbr-objdump` was what
+  actually nailed it down, not the register-name table alone.
+- **Low register = quotient, high register = remainder**: the YAML's
+  `execution:` block packs the result into one 128-bit value
+  (`result1.64[0]` = quotient, `result1.64[1]` = remainder) but doesn't
+  independently name which physical register holds which half. Confirmed
+  by actually running `divmodd $r0r1 = $r2, $r3` on real gem5 with
+  `$r2=17, $r3=5` and reading back `$r0`/`$r1` separately: `$r0` (low) =
+  3 (the quotient), `$r1` (high) = 2 (the remainder).
 
 **The key simplification: a valid pair already sits inside the existing
 scratch reservation.** Step 3's `kSpillScratchRegs` (`docs/lvx/
@@ -163,45 +171,43 @@ hardware-loop trip count, `docs/lvx/HardwareLoops.md`, uses `r29`
 itself -- `r30`/`r31` stay free for this).
 
 **The mechanism: a post-allocation rewrite, exactly like
-`-lvx-scf-to-cf`'s own pattern.** `SCFToCF.cpp` already establishes the
-precedent this would follow: run *after* `-lvx-allocate-registers` has
-picked ordinary registers for every value, synthesize a new op with a
-result *pinned* to a reserved scratch register (`SbfdOp`'s trip count,
-pinned to `r29`), and -- where the pinned value needs to end up somewhere
-else -- bridge the gap with an ordinary `lvx.mv` copy (the induction-
-variable copy-in, the ABI copy-in/copy-out at function boundaries). The
-same shape applies here:
+`-lvx-scf-to-cf`'s own pattern.** `SCFToCF.cpp` already established the
+precedent this follows: run *after* `-lvx-allocate-registers` has picked
+ordinary registers for every value, synthesize a new op with a result
+*pinned* to a reserved scratch register (`SbfdOp`'s trip count, pinned to
+`r29`), and -- where the pinned value needs to end up somewhere else --
+bridge the gap with an ordinary `lvx.mv` copy (the induction-variable
+copy-in, the ABI copy-in/copy-out at function boundaries). The same shape
+applies here, as its own new pass, `-lvx-rewrite-divmod`:
 
-1. Let Steps 1-3 allocate `%q, %r = lvx.divmodd %a, %b` completely
-   normally -- `$quotient`/`$remainder` land on whatever ordinary,
-   unpinned registers the scan picks, exactly as today (the register-
-   allocation tests already exercise this "structurally," per the note
-   above).
-2. A new small pass, run after `-lvx-allocate-registers` (a natural
-   sibling to `-lvx-scf-to-cf`, or folded into it), finds every
+1. Steps 1-3 allocate `%q, %r = lvx.divmodd %a, %b` completely
+   normally -- `%q`/`%r` land on whatever ordinary, unpinned registers the
+   scan picks, exactly like any other value; no allocator changes needed.
+2. `-lvx-rewrite-divmod`, run after `-lvx-allocate-registers`, finds every
    `lvx.divmodd`/`divmodud`/`divmodw`/`divmoduw` op and rewrites it in
-   place: retype its own two results to the fixed pair
-   (`!lvx.reg<r30>`/`!lvx.reg<r31>`), then immediately insert two
-   `lvx.mv` copies from `r30`/`r31` into `%q`/`%r`'s *original* allocated
-   registers (a no-op, harmless copy in the rare case Steps 1-3 happened
-   to pick `r30`/`r31` already -- same "cheap even when same-register"
-   reasoning already used for the induction-variable copy-in).
-3. `-lvx-emit-asm` gets one new case: print the `divmod` family using the
-   `pairedReg` destination syntax rather than the generic two-result
-   printer used for everything else -- the exact real-assembly spelling
-   (does `lvx-mbr-as` want `divmodd $r30 = $ra, $rb` with `$r31` implicit,
-   or something else?) needs the same hand-assemble-and-check step every
-   other opcode in this doc already went through, not a guess.
+   place: retypes its own two results to the fixed pair
+   (`!lvx.reg<r30>`/`!lvx.reg<r31>`), then, for each result that actually
+   has a use, inserts an `lvx.mv` copy from `r30`/`r31` into that result's
+   *original* allocated register (skipped for a discarded quotient or
+   remainder -- `arith.divsi`/`remsi` each lower to their own full
+   `lvx.divmodd`, per the "duplicates the divmod computation" note above,
+   so one of the two results is often unused; a no-op, harmless copy in
+   the rare case Steps 1-3 happened to pick `r30`/`r31` already -- same
+   "cheap even when same-register" reasoning already used for the
+   induction-variable copy-in).
+3. `-lvx-emit-asm` gets a matching case: prints the `divmod` family using
+   the confirmed `pairedReg` destination syntax, re-deriving the pair from
+   the (by then always r30:r31) result types rather than hard-coding them,
+   so a mis-ordered pipeline is caught as an error instead of emitting
+   wrong syntax silently.
 
-Steps 1-3's actual allocation logic needs **no changes** -- `%q`/`%r`
+Steps 1-3's actual allocation logic needed **no changes** -- `%q`/`%r`
 never become fixed/pinned intervals in the allocator's own view, they're
-ordinary values like any other. Only a new, narrow post-allocation
-rewrite pass and one new `-lvx-emit-asm` printing case are needed, both
-following patterns this project has already built and tested for other
-reasons. This is a real path to unblocking `divmod` well before the
-general `!lvx.pair`/`RegClass` machinery (`docs/lvx/
-MultiRegisterClasses.md`) exists -- **not implemented here**, this is a
-design sketch to work from when `divmod` support is actually picked up.
+ordinary values like any other. Verified with a full `arith.divsi`/
+`arith.remsi` kernel run through the entire pipeline (`convert-to-lvx` →
+`lvx-allocate-registers` → `lvx-rewrite-divmod` → `lvx-scf-to-cf` →
+`lvx-emit-asm` → real `lvx-mbr-as`/`lvx-mbr-ld` → real `lvx-gem5`): `17 /
+5, 17 % 5` computed as `q*100+r`, exit code 302, matching `3*100+2`.
 
 **Why a `swap` instruction (`docs/lvx/LinearScanComparison.md`'s Hack
 2006 discussion) doesn't help here, for the record.** It was considered
