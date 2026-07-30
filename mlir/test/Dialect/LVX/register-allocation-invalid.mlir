@@ -10,7 +10,7 @@ lvx_func.func @loop_spill_not_implemented(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %lb = lvx.li 0 : i64 : !lvx.reg
   %ub = lvx.li 10 : i64 : !lvx.reg
   %step = lvx.li 1 : i64 : !lvx.reg
-  // expected-error@+1 {{spilling a coalesced lvx_scf.for loop-carried channel is not yet implemented}}
+  // expected-error@+1 {{spilling a coalesced register group (lvx_scf.for loop-carried channel, lvx_cf branch edge, or ffma/ffms accumulator) is not yet implemented}}
   %init = lvx.li 0 : i64 : !lvx.reg
   %r = lvx_scf.for %lb : !lvx.reg to %ub : !lvx.reg step %step : !lvx.reg iter_args(%init) : (!lvx.reg) -> (!lvx.reg) {
   ^bb0(%iv: !lvx.reg, %acc: !lvx.reg):

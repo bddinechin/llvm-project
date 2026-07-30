@@ -44,9 +44,12 @@ using namespace mlir::lvx;
 namespace {
 
 /// One unit of register assignment: either a single SSA value (the common
-/// case) or a coalesced `lvx_scf.for` loop-carried channel (init operand,
-/// body iter_arg, yield operand, and the op's own result, all sharing one
-/// physical register -- see docs/lvx/RegisterAllocation.md).
+/// case) or a coalesced group of values forced to share one physical
+/// register -- an `lvx_scf.for` loop-carried channel (init operand, body
+/// iter_arg, yield operand, and the op's own result), an `lvx_cf` branch
+/// edge (forwarded operand and destination block argument), or an
+/// `ffma`/`ffms` accumulator (the `c` operand and the op's own result) --
+/// see docs/lvx/RegisterAllocation.md.
 struct AllocItem {
   SmallVector<Value, 4> values;
   unsigned start = 0;
@@ -206,6 +209,37 @@ static void insertLoopCarriedPreservingCopies(lvx_func::FuncOp func) {
   }
 }
 
+// Same "preserving copy" idea as `insertLoopCarriedPreservingCopies` above,
+// for a different coalescing source: `lvx.ffmad`/`lvx.ffmaw`/`lvx.ffmsd`/
+// `lvx.ffmsw`'s third operand (`c`, the accumulator) is force-coalesced
+// with the op's own result in `buildAllocItems` below (real hardware has
+// no separate destination register -- see docs/lvx/RegisterAllocation.md,
+// "`ffma`/`ffms` accumulator coalescing"). If `c`'s value is read anywhere
+// else too, that other read must not observe the register being
+// overwritten in place by this op -- so redirect every *other* use to an
+// independent copy made right before the op, exactly mirroring the loop
+// case (the op itself keeps reading the original value; only outside
+// readers move to the copy).
+static void insertFmaAccumulatorPreservingCopies(lvx_func::FuncOp func) {
+  SmallVector<Operation *> fmaOps;
+  func.walk([&](Operation *op) {
+    if (isa<FfmadOp, FfmawOp, FfmsdOp, FfmswOp>(op))
+      fmaOps.push_back(op);
+  });
+  for (Operation *op : fmaOps) {
+    Value c = op->getOperand(2);
+    bool hasOtherUse = llvm::any_of(c.getUses(), [&](OpOperand &use) {
+      return use.getOwner() != op;
+    });
+    if (!hasOtherUse)
+      continue;
+    OpBuilder builder(op);
+    auto copy = builder.create<MvOp>(op->getLoc(), c.getType(), c);
+    llvm::SmallPtrSet<Operation *, 2> keep{op, copy};
+    c.replaceAllUsesExcept(copy, keep);
+  }
+}
+
 static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
                                               const LVXLiveIntervals &live,
                                               bool &conflictingFixedGroup) {
@@ -290,6 +324,27 @@ static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
         orderedValues.append({operand, blockArg});
       }
     }
+  });
+
+  // Union-find over `ffma`/`ffms`'s accumulator operand (`c`) and the op's
+  // own result: real FFMAD/FFMAW/FFMSD/FFMSW have only two explicit source
+  // registers (registerZ, registerY); the destination (registerW) doubles
+  // as the third, implicit accumulate-into operand, so `c`'s register and
+  // `result`'s register must be identical or the instruction has no way to
+  // be printed at all -- see docs/lvx/RegisterAllocation.md, "`ffma`/`ffms`
+  // accumulator coalescing". Same JOIN-style idea as the loop/branch
+  // unioning above, just a 2-value group.
+  // `insertFmaAccumulatorPreservingCopies` (run before this pass builds
+  // live intervals) already guarantees any *other* use of `c` reads an
+  // independent copy first, so merging `c` and `result` here can never
+  // silently corrupt a value still needed elsewhere.
+  func.walk([&](Operation *op) {
+    if (!isa<FfmadOp, FfmawOp, FfmsdOp, FfmswOp>(op))
+      return;
+    Value c = op->getOperand(2);
+    Value result = op->getResult(0);
+    unite(c, result);
+    orderedValues.append({c, result});
   });
 
   // Build one AllocItem per union-find root, in first-encountered order
@@ -504,14 +559,17 @@ struct LVXAllocateRegistersPass
       return;
 
     insertLoopCarriedPreservingCopies(func);
+    insertFmaAccumulatorPreservingCopies(func);
 
     LVXLiveIntervals live(func);
     bool conflictingFixedGroup = false;
     SmallVector<AllocItem> items =
         buildAllocItems(func, live, conflictingFixedGroup);
     if (conflictingFixedGroup) {
-      func.emitError("lvx_scf.for loop-carried channel has members pinned "
-                      "to different physical registers");
+      func.emitError("a coalesced register group (lvx_scf.for loop-carried "
+                      "channel, lvx_cf branch edge, or ffma/ffms "
+                      "accumulator) has members pinned to different "
+                      "physical registers");
       return signalPassFailure();
     }
     markCallCrossings(func, live, items);
@@ -623,9 +681,10 @@ struct LVXAllocateRegistersPass
       if (item.isGroup()) {
         mlir::emitError(item.values.front().getLoc())
             << "linear scan register allocation failed: spilling a "
-               "coalesced lvx_scf.for loop-carried channel is not yet "
-               "implemented (live range [" << item.start << ", " << item.end
-            << "])";
+               "coalesced register group (lvx_scf.for loop-carried "
+               "channel, lvx_cf branch edge, or ffma/ffms accumulator) is "
+               "not yet implemented (live range [" << item.start << ", "
+            << item.end << "])";
         return signalPassFailure();
       }
       allocateSpillSlot(item);

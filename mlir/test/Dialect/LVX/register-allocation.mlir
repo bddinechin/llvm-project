@@ -130,3 +130,31 @@ lvx_func.func @caller(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %p = lvx.mv %use : (!lvx.reg) -> !lvx.reg<r0>
   lvx_func.return %p : !lvx.reg<r0>
 }
+
+// `lvx.ffmad`/`lvx.ffmsd`/`lvx.ffmaw`/`lvx.ffmsw` have no separate
+// destination register on real hardware -- the `c` operand and the op's
+// own result must be coalesced into one physical register
+// (docs/lvx/RegisterAllocation.md, "`ffma`/`ffms` accumulator
+// coalescing"): `%2`/`%4` below both land in `r1`. `%2` (the accumulator)
+// is *also* read again after the ffma (`%5`'s second operand), so
+// `insertFmaAccumulatorPreservingCopies` must insert a defensive copy
+// (`%3`, independently allocated to `r2`) before the ffma clobbers `r1` in
+// place -- `%5` reads `%3`, not `%2`, getting the correct pre-ffma value.
+// CHECK-LABEL: lvx_func.func @ffma_preserve
+// CHECK-NEXT: %0 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r3>
+// CHECK-NEXT: %1 = lvx.mv %arg1 : (!lvx.reg<r1>) -> !lvx.reg<r0>
+// CHECK-NEXT: %2 = lvx.mv %arg2 : (!lvx.reg<r2>) -> !lvx.reg<r1>
+// CHECK-NEXT: %3 = lvx.mv %2 : (!lvx.reg<r1>) -> !lvx.reg<r2>
+// CHECK-NEXT: %4 = lvx.ffmad cs %0, %1, %2 : (<r3>, <r0>, <r1>) -> <r1>
+// CHECK-NEXT: %5 = lvx.addd %4, %3 : (<r1>, <r2>) -> <r0>
+// CHECK-NEXT: %6 = lvx.mv %5 : (!lvx.reg<r0>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %6 : !lvx.reg<r0>
+lvx_func.func @ffma_preserve(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %acc: !lvx.reg<r2>) -> !lvx.reg<r0> {
+  %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
+  %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg
+  %2 = lvx.mv %acc : (!lvx.reg<r2>) -> !lvx.reg
+  %3 = lvx.ffmad cs %0, %1, %2 : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
+  %4 = lvx.addd %3, %2 : (!lvx.reg, !lvx.reg) -> !lvx.reg
+  %p = lvx.mv %4 : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %p : !lvx.reg<r0>
+}
