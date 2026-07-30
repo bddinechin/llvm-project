@@ -10,8 +10,8 @@
 // `muld`, since those are two different consuming ops).
 // CHECK-LABEL: lvx_func.func @straight
 // CHECK-NEXT: %0 = lvx.sp : <r12>
-// CHECK-NEXT: %1 = lvx.li 16 : i64 : !lvx.reg
-// CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (<r12>, !lvx.reg) -> <r12>
+// CHECK-NEXT: %1 = lvx.li 16 : i64 : <r29>
+// CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (<r12>, <r29>) -> <r12>
 // CHECK-NEXT: %3 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r29>
 // CHECK-NEXT: lvx.sd %3, %2, 0 : (<r29>, <r12>)
 // CHECK-NEXT: %4 = lvx.mv %arg1 : (!lvx.reg<r1>) -> !lvx.reg<r0>
@@ -22,8 +22,8 @@
 // CHECK-NEXT: %8 = lvx.ld %2, 8 : (!lvx.reg<r12>) -> !lvx.reg<r30>
 // CHECK-NEXT: %9 = lvx.muld %8, %7 : (<r30>, <r29>) -> <r0>
 // CHECK-NEXT: %10 = lvx.mv %9 : (!lvx.reg<r0>) -> !lvx.reg<r0>
-// CHECK-NEXT: %11 = lvx.li 16 : i64 : !lvx.reg
-// CHECK-NEXT: %12 = lvx.addd %2, %11 : (<r12>, !lvx.reg) -> <r12>
+// CHECK-NEXT: %11 = lvx.li 16 : i64 : <r29>
+// CHECK-NEXT: %12 = lvx.addd %2, %11 : (<r12>, <r29>) -> <r12>
 // CHECK-NEXT: lvx_func.return %10 : !lvx.reg<r0>
 lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg

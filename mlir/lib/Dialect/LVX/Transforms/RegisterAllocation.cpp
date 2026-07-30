@@ -370,25 +370,56 @@ static void markCallCrossings(lvx_func::FuncOp func,
 /// Inserts `%sp0 = lvx.sp; %off = lvx.li frameSize; %spBase = lvx.sbfd %sp0,
 /// %off` at the top of `func`'s entry block, and mirrors the subtraction
 /// with an `lvx.addd` restore before every `lvx_func.return` in the
-/// function. Returns the value spill loads/stores should use as their base
-/// operand. Only called when `frameSize > 0`.
+/// function. `off`/`off2` are pinned directly to `kSpillScratchRegs[0]`
+/// (r29) rather than left for a later allocation decision -- this pass
+/// runs strictly after Step 2/3's own scan, so nothing would ever assign
+/// them a register otherwise, and `-lvx-emit-asm` hard-errors on an
+/// unallocated value. Safe for the usual transient reason: each dies at
+/// its one use (the immediately following `lvx.sbfd`/`lvx.addd`), so nothing
+/// else can observe it live. If `raOffset` is set (only for a non-leaf
+/// function -- one that itself executes an `lvx_func.call`), also
+/// snapshots $ra into that frame slot right after establishing the frame
+/// and restores it right before each `lvx.addd` epilogue restore -- see
+/// docs/lvx/RegisterAllocation.md, "Return-address save/restore": $ra is
+/// otherwise silently overwritten by the function's own call(s) before its
+/// own `ret` gets to use it. The snapshot/restore values are pinned to the
+/// same `kSpillScratchRegs[0]`, for the same transient-and-sequential
+/// reason: each entry/exit site's `off`/`raVal` pair never overlaps in
+/// time (one is always fully consumed before the next is defined).
+/// Returns the value spill loads/stores should use as their base operand.
+/// Only called when `frameSize > 0`.
 static Value insertPrologueEpilogue(lvx_func::FuncOp func, unsigned frameSize,
+                                    std::optional<unsigned> raOffset,
                                     MLIRContext *ctx) {
   Type r12Ty = RegisterType::get(ctx, Register::r12);
-  Type genTy = RegisterType::get(ctx, std::nullopt);
+  Type raScratchTy = RegisterType::get(ctx, kSpillScratchRegs[0]);
   OpBuilder builder(ctx);
 
   Block &entry = func.getBody().front();
   builder.setInsertionPointToStart(&entry);
   Location loc = func.getLoc();
   Value sp0 = builder.create<SpOp>(loc, r12Ty);
-  Value off =
-      builder.create<LiOp>(loc, genTy, builder.getI64IntegerAttr(frameSize));
+  Value off = builder.create<LiOp>(loc, raScratchTy,
+                                   builder.getI64IntegerAttr(frameSize));
   Value spBase = builder.create<SbfdOp>(loc, r12Ty, sp0, off);
+
+  if (raOffset) {
+    auto raOffsetAttr =
+        builder.getSI32IntegerAttr(static_cast<int32_t>(*raOffset));
+    Value raVal = builder.create<GetraOp>(loc, raScratchTy);
+    builder.create<SdOp>(loc, raVal, spBase, raOffsetAttr);
+  }
 
   func.walk([&](lvx_func::ReturnOp ret) {
     builder.setInsertionPoint(ret);
-    Value off2 = builder.create<LiOp>(ret.getLoc(), genTy,
+    if (raOffset) {
+      auto raOffsetAttr =
+          builder.getSI32IntegerAttr(static_cast<int32_t>(*raOffset));
+      Value raVal = builder.create<LdOp>(ret.getLoc(), raScratchTy, spBase,
+                                         raOffsetAttr);
+      builder.create<SetraOp>(ret.getLoc(), raVal);
+    }
+    Value off2 = builder.create<LiOp>(ret.getLoc(), raScratchTy,
                                       builder.getI64IntegerAttr(frameSize));
     builder.create<AdddOp>(ret.getLoc(), r12Ty, spBase, off2);
   });
@@ -612,8 +643,21 @@ struct LVXAllocateRegistersPass
         v.setType(newTy);
     }
 
+    // A function that itself executes a call clobbers its own $ra before
+    // its own `ret` gets to use it (docs/lvx/RegisterAllocation.md,
+    // "Return-address save/restore") -- reserve one more frame slot and
+    // force a prologue/epilogue to exist even if nothing was spilled.
+    bool isNonLeaf = false;
+    func.walk([&](lvx_func::CallOp) { isNonLeaf = true; });
+    std::optional<unsigned> raOffset;
+    if (isNonLeaf) {
+      raOffset = frameSize;
+      frameSize += 8;
+    }
+
     if (frameSize > 0) {
-      Value spBase = insertPrologueEpilogue(func, frameSize, &getContext());
+      Value spBase =
+          insertPrologueEpilogue(func, frameSize, raOffset, &getContext());
       if (failed(rewriteSpills(&getContext(), items, spBase)))
         return signalPassFailure();
     }

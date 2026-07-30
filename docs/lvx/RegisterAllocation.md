@@ -555,11 +555,19 @@ it's worth getting right now rather than leaving a known-broken gap.
 - Spill slots: bump-allocate 8-byte-aligned offsets from 0 (every `!lvx.reg`
   is a 64-bit LP64 value) as items are marked spilled during the scan;
   tracked in a per-function running `frameSize`.
-- Prologue: only emitted if `frameSize > 0`. At the top of the entry block:
-  `%sp0 = lvx.sp`, `%off = lvx.li frameSize : i64 : !lvx.reg`,
-  `%spBase = lvx.sbfd %sp0, %off : (!lvx.reg<r12>, !lvx.reg) -> !lvx.reg<r12>`.
+- Prologue: only emitted if `frameSize > 0` (this now also covers the
+  `$ra`-only case below). At the top of the entry block: `%sp0 = lvx.sp`,
+  `%off = lvx.li frameSize : i64 : !lvx.reg<r29>`,
+  `%spBase = lvx.sbfd %sp0, %off : (!lvx.reg<r12>, !lvx.reg<r29>) -> !lvx.reg<r12>`.
   `%spBase` is the `base` operand for every spill `lvx.sd`/`lvx.ld` in the
-  function.
+  function. `%off`'s type is pinned directly to `r29` (one of the reserved
+  scratch registers above) at construction, rather than left unallocated for
+  a later scan to assign — this pass runs strictly after Step 2/3's own
+  scan, so nothing else would ever give it a register, and `-lvx-emit-asm`
+  hard-errors on any unallocated value. Safe because `%off`/`%off2` each die
+  immediately at their one use (the following `sbfd`/`addd`), non-overlapping
+  with the adjacent `$ra` snapshot/restore's own r29 use at the same site
+  (see "Return-address save/restore" below).
 - Epilogue: before *every* `lvx_func.return` in the function (there can be
   more than one, reached via different `lvx_cf` blocks), mirror the
   subtraction with `lvx.addd` to restore R12 to its caller-supplied value,
@@ -574,6 +582,61 @@ would need to know that a register-pinned result can carry a load-bearing
 side effect even with zero real uses — or `lvx_func.return` would need to
 grow an explicit (possibly implicit-in-the-syntax) epilogue-registers list.
 Not fixed now; flagged so it isn't rediscovered the hard way later.
+
+### Return-address save/restore
+
+LVX has a single hardware link register, `$ra`, written implicitly by every
+real `call` (there is no software call stack) and read implicitly by `ret`.
+A non-leaf function — one that itself executes a `call` — must snapshot its
+own `$ra` before making any call of its own, or that call silently
+clobbers it, and the function's own eventual `ret` loops back into itself
+forever. Confirmed both by reproducing the hang with hand-written assembly
+on real gem5 (`docs/lvx/EndToEndValidation.md`, bug 4) and by fixing it with
+hand-written save/restore code that correctly returns.
+
+Real opcodes, confirmed via `lvx-mds/lvx-refs/FE/YAML/lvx/lvx_v1/Description.yml`'s
+CALL/RET entries and empirically via real `lvx-mbr-as`/`lvx-mbr-objdump`:
+`get $rd = $ra` reads `$ra` into a GPR (`lvx.getra`); `set $ra = $rs` writes
+a GPR into `$ra` (`lvx.setra`). Both are ordinary dialect ops (`lvx.getra`
+is `Pure`; `lvx.setra` is not — the following `ret` implicitly depends on
+its side effect).
+
+**Mechanism**: `insertPrologueEpilogue` takes an optional `raOffset`. A
+function is detected as non-leaf by walking it for any `lvx_func.call`; if
+found, `raOffset` is appended *after* all spill slots (`raOffset =
+frameSize; frameSize += 8`), forcing a prologue/epilogue to exist even when
+nothing was spilled (`@caller` in `register-allocation.mlir` is the
+minimal case: no spills, but still gets a full frame purely for `$ra`).
+When `raOffset` is set:
+
+- Right after the frame is established at function entry: `%raVal =
+  lvx.getra : !lvx.reg<r29>`, `lvx.sd %raVal, %spBase, raOffset`.
+- Right before each epilogue's stack-pointer restore (i.e. immediately
+  before every `lvx_func.return`): `%raVal2 = lvx.ld %spBase, raOffset :
+  !lvx.reg<r29>`, `lvx.setra %raVal2`.
+
+Both use the same `r29` scratch register as `%off`/`%off2` above — safe by
+the same transient, non-overlapping reasoning, and the two never execute
+back-to-back without an intervening def/use that would create a real
+conflict.
+
+**Call ABI pinning was a separate, larger gap.** Verifying `$ra` end to end
+with a real compiler-generated call surfaced two more pre-existing bugs,
+both now fixed: `lvx_func.call` wasn't a `Terminator`, so
+`-lvx-emit-asm`'s `emitBlock` routed it through the generic arity-based
+dispatch instead of printing `call <callee>` (fixed by giving it its own
+case in `emitOp`'s `TypeSwitch`, since a real `call` is not a terminator —
+control returns to the very next instruction, so it can sit mid-block).
+More fundamentally, `-convert-to-lvx`'s `CallToLVX` pattern never pinned a
+call's operands/results to the ABI's argument ($r0-$r11) / result
+($r0-$r3) registers at all — Step 1-3's general scan was free to assign
+them anywhere, not necessarily where the callee actually expects/produces
+them. Fixed by mirroring `ReturnToLVX`'s copy-in and `FuncFuncToLVX`'s
+copy-out patterns: `lvx.mv` each operand into its pinned argument register
+immediately before the `lvx_func.call`, and `lvx.mv` each pinned result
+back into a fresh virtual register immediately after. Verified end to end
+on real gem5 with a genuine two-level call chain
+(`docs/lvx/EndToEndValidation.md`).
 
 ### No interval splitting / no lifetime holes
 

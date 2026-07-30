@@ -152,6 +152,9 @@ substantially bigger feature than anything else in this session. Flagged
 here so it isn't rediscovered the hard way; the next kernel that needs a
 real call graph (not just a single-level driver) will need this.
 
+**Fixed later** (see the "return-address save/restore, and a real call
+chain (2026-07-30)" section below) -- this is no longer a known limitation.
+
 ## What this confirms
 
 - `lvx-gem5`'s build is healthy again (it was confirmed broken -- universal
@@ -227,3 +230,63 @@ separate `divmodd` instructions in the same function, each pinned to and
 copied out of the same `r30:r31` pair in sequence -- no interference
 between the two, confirming the "always transient, dead before the next
 instruction" reasoning the reserved-pair design relies on.
+
+## Return-address save/restore, and a real call chain (2026-07-30)
+
+Implementing `$ra` save/restore (`docs/lvx/RegisterAllocation.md`,
+"Return-address save/restore") for real, and trying to verify it end to
+end with a genuine compiler-generated call (not a hand-written driver
+calling a single leaf kernel, like every prior exercise above), surfaced
+two more previously-unknown bugs in the same area, both fixed as part of
+this work:
+
+1. **`lvx_func.call` emission was silently wrong.** It has no `Terminator`
+   trait (a real `call` returns control to the very next instruction, so
+   it legitimately sits mid-block, unlike `lvx_cf.br`/`lvx_func.return`) --
+   so `-lvx-emit-asm`'s `emitBlock` never routed it to `emitTerminator`'s
+   (correct, but dead) `CallOp` handling, and it fell through to the
+   generic arity-based `.Default` dispatch instead. For a 1-operand/
+   1-result call this misfired as a plain binary op, printing `call $r0 =
+   $r0` -- ignoring the callee symbol entirely -- which real `lvx-mbr-as`
+   rejects outright. Fixed by giving `lvx_func.call` its own case directly
+   in `emitOp`'s `TypeSwitch`.
+2. **A call's operands/results were never pinned to the ABI's
+   argument/result registers anywhere in the real pipeline.** Confirmed by
+   running a real multi-argument `func.call` through `-convert-to-lvx` and
+   observing the emitted `lvx_func.call`'s operands/results were plain
+   unpinned `!lvx.reg` -- meaning Step 1-3's general register-allocation
+   scan was free to assign them to whatever register was convenient, not
+   necessarily where the callee actually expects/produces them. This is a
+   real correctness gap for *any* compiled call with real arguments, not
+   just a `$ra` corner case. Fixed in `ConvertToLVX.cpp`'s `CallToLVX`
+   pattern by mirroring the copy-in/copy-out shape already used for
+   function entry/exit: `lvx.mv` each operand into its pinned argument
+   register immediately before the call, `lvx.mv` each pinned result back
+   into a fresh virtual register immediately after.
+
+With both fixed, a genuine two-level call chain was compiled and run
+end to end:
+
+```mlir
+func.func private @callee(%x: i64) -> i64 {
+  %c1 = arith.constant 1 : i64
+  %r = arith.addi %x, %c1 : i64
+  return %r : i64
+}
+func.func @caller(%a: i64) -> i64 {
+  %r = func.call @callee(%a) : (i64) -> i64
+  %c2 = arith.constant 2 : i64
+  %s = arith.addi %r, %c2 : i64
+  return %s : i64
+}
+```
+
+`@caller` is non-leaf (it calls `@callee`), so it gets the full `$ra`
+save/restore prologue/epilogue even though nothing is spilled. Run through
+the same full pipeline as the kernels above, assembled/linked with the
+real toolchain, and driven by a hand-written `_start` that does
+`make $r0 = 10`, `call caller`, `scall 1`: exit code `13`, matching the
+hand-computed `(10 + 1) + 2`. Without the `$ra` fix this would hang
+(`@caller`'s own `ret` would loop back into itself after `@callee`'s
+`call` clobbers `$ra`); without the two emission/ABI-pinning fixes above,
+it wouldn't even assemble. All 15 lit tests continue to pass.

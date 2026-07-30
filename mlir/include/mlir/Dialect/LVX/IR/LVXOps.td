@@ -68,6 +68,38 @@ def LVX_SpOp : LVX_Op<"sp", [Pure]> {
   let assemblyFormat = "attr-dict `:` type($result)";
 }
 
+def LVX_GetraOp : LVX_Op<"getra", [Pure]> {
+  let summary = "read the return-address register into a GPR";
+  let description = [{
+    Backed by the real `GET_registerZ_systemS3` opcode (`$rd = $ra`,
+    printed `get`, confirmed against the real `lvx-mbr-as`/`lvx-mbr-objdump`
+    -- see docs/lvx/RegisterAllocation.md, "Return-address save/restore").
+    $ra is LVX's single hardware link register, written implicitly by
+    every real `call` with no software-visible call stack; a non-leaf
+    function (one that itself executes a `call`) must snapshot its own
+    $ra with this op before making any call of its own, since that call
+    will overwrite it. Inserted by the register allocator's non-leaf
+    prologue (Step 3), not user-written.
+  }];
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "attr-dict `:` type($result)";
+}
+
+def LVX_SetraOp : LVX_Op<"setra"> {
+  let summary = "write a GPR's value into the return-address register";
+  let description = [{
+    Backed by the real `SET_systemRA_registerZ` opcode (`$ra = $rs`,
+    printed `set`). Restores $ra from a snapshot taken by `lvx.getra` at
+    function entry, immediately before `lvx_func.return` in a non-leaf
+    function -- see that op's own doc comment. Not `Pure`: writes a
+    system register that the real `ret` immediately following depends on
+    with no SSA-visible use, a genuine side effect that must not be
+    treated as dead code.
+  }];
+  let arguments = (ins LVX_RegType:$source);
+  let assemblyFormat = "$source attr-dict `:` type($source)";
+}
+
 //===----------------------------------------------------------------------===//
 // Integer arithmetic (paired 64-bit `d` / 32-bit `w` real mnemonics).
 //===----------------------------------------------------------------------===//
