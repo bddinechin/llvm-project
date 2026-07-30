@@ -81,7 +81,13 @@ approach the validation harness itself is built on.
   case names (e.g. `wnez`, `lt`) omit the leading dot (MLIR keyword
   syntax), so emission must add it back.
 - Control flow: `goto <label>` (unconditional), `call <label>`, `ret`,
-  `scall <N>` (unused here, harness-only).
+  `scall <N>` (unused here, harness-only). `call` is the one exception to
+  "control flow only appears as a block terminator": a real `call` returns
+  control to the very next instruction, so `lvx_func.call` legitimately
+  sits mid-block and has no `Terminator` trait -- it's emitted via its own
+  case in `emitOp`'s dispatch, not `emitTerminator`'s (see
+  `docs/lvx/RegisterAllocation.md`, "Return-address save/restore", for the
+  bug this caused before it had one).
 - Bundle terminator: `;;` on its own line after each bundle.
 - Comments: `#`. Labels: `name:` for global/function symbols, `.Lxxx:` for
   internal-only ones (block labels here), plus the usual numeric

@@ -728,15 +728,46 @@ struct FuncFuncToLVX : public OpConversionPattern<func::FuncOp> {
   }
 };
 
+// Mirrors `ReturnToLVX`'s copy-in and `FuncFuncToLVX`'s copy-out patterns: the
+// callee's ABI (like a function's own entry/exit) is expressed as pinned
+// physical registers, so a call's operands must be `mv`'d into the ABI
+// argument registers ($r0-$r11) immediately before the call, and its pinned
+// results `mv`'d back out into fresh virtual registers immediately after --
+// otherwise Step 1-3's general register-allocation scan is free to assign a
+// call's operands/results to arbitrary registers that don't match what the
+// callee actually expects/produces.
 struct CallToLVX : public OpConversionPattern<func::CallOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
   matchAndRewrite(func::CallOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    Type regTy = RegisterType::get(getContext(), std::nullopt);
-    SmallVector<Type> resultTypes(op.getNumResults(), regTy);
-    rewriter.replaceOpWithNewOp<lvx_func::CallOp>(
-        op, op.getCallee(), resultTypes, adaptor.getOperands());
+    MLIRContext *ctx = getContext();
+    Location loc = op.getLoc();
+    if (adaptor.getOperands().size() > kMaxAbiArgRegs ||
+        op.getNumResults() > kMaxAbiResultRegs)
+      return rewriter.notifyMatchFailure(
+          op, "call exceeds the regular calling convention's register "
+              "capacity");
+
+    SmallVector<Value> pinnedOperands;
+    for (auto [idx, operand] : llvm::enumerate(adaptor.getOperands())) {
+      Type pinnedTy = RegisterType::get(ctx, static_cast<Register>(idx));
+      pinnedOperands.push_back(
+          rewriter.create<lvx::MvOp>(loc, pinnedTy, operand));
+    }
+    SmallVector<Type> pinnedResultTypes;
+    for (unsigned i = 0; i < op.getNumResults(); ++i)
+      pinnedResultTypes.push_back(
+          RegisterType::get(ctx, static_cast<Register>(i)));
+    auto call = rewriter.create<lvx_func::CallOp>(
+        loc, op.getCallee(), pinnedResultTypes, pinnedOperands);
+
+    Type virtualRegTy = RegisterType::get(ctx, std::nullopt);
+    SmallVector<Value> mvResults;
+    for (Value result : call.getResults())
+      mvResults.push_back(
+          rewriter.create<lvx::MvOp>(loc, virtualRegTy, result));
+    rewriter.replaceOp(op, mvResults);
     return success();
   }
 };

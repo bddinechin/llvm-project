@@ -99,11 +99,29 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // `%live` is defined before the call and used after it, so it must not
 // land in a caller-saved register -- it should be forced into the first
 // callee-saved candidate (r14), per the "Call clobbering" mechanism.
+//
+// `@caller` itself executes a call, so it's non-leaf and gets a
+// prologue/epilogue purely for $ra even though nothing is spilled here
+// (docs/lvx/RegisterAllocation.md, "Return-address save/restore"): $ra is
+// snapshotted (`lvx.getra` + `lvx.sd`, both r29) right after the frame is
+// established, and restored (`lvx.ld` + `lvx.setra`) right before the
+// epilogue's stack-pointer restore -- otherwise `@callee`'s own `call`
+// would silently overwrite `@caller`'s $ra before its own `ret` uses it.
 // CHECK-LABEL: lvx_func.func @caller
-// CHECK-NEXT: %0 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r14>
-// CHECK-NEXT: %1 = lvx_func.call @callee(%arg0) : (!lvx.reg<r0>) -> !lvx.reg<r0>
-// CHECK-NEXT: %2 = lvx.addd %0, %1 : (<r14>, <r0>) -> <r1>
-// CHECK-NEXT: %3 = lvx.mv %2 : (!lvx.reg<r1>) -> !lvx.reg<r0>
+// CHECK-NEXT: %0 = lvx.sp : <r12>
+// CHECK-NEXT: %1 = lvx.li 8 : i64 : <r29>
+// CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (<r12>, <r29>) -> <r12>
+// CHECK-NEXT: %3 = lvx.getra : <r29>
+// CHECK-NEXT: lvx.sd %3, %2, 0 : (<r29>, <r12>)
+// CHECK-NEXT: %4 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r14>
+// CHECK-NEXT: %5 = lvx_func.call @callee(%arg0) : (!lvx.reg<r0>) -> !lvx.reg<r0>
+// CHECK-NEXT: %6 = lvx.addd %4, %5 : (<r14>, <r0>) -> <r1>
+// CHECK-NEXT: %7 = lvx.mv %6 : (!lvx.reg<r1>) -> !lvx.reg<r0>
+// CHECK-NEXT: %8 = lvx.ld %2, 0 : (!lvx.reg<r12>) -> !lvx.reg<r29>
+// CHECK-NEXT: lvx.setra %8 : <r29>
+// CHECK-NEXT: %9 = lvx.li 8 : i64 : <r29>
+// CHECK-NEXT: %10 = lvx.addd %2, %9 : (<r12>, <r29>) -> <r12>
+// CHECK-NEXT: lvx_func.return %7 : !lvx.reg<r0>
 lvx_func.func private @callee(!lvx.reg<r0>) -> !lvx.reg<r0>
 lvx_func.func @caller(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %live = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg

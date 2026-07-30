@@ -267,6 +267,23 @@ private:
           return success();
         })
         .Case([&](MvOp mv) { return emitUnary(mv, "copyd"); })
+        // $ra save/restore (docs/lvx/RegisterAllocation.md, "Return-
+        // address save/restore"): real `get`/`set` on the RA system
+        // register, confirmed via the real lvx-mbr-as/lvx-mbr-objdump.
+        .Case([&](GetraOp op) {
+          FailureOr<std::string> rd = reg(op.getResult());
+          if (failed(rd))
+            return failure();
+          os << "\tget " << *rd << " = $ra\n\t;;\n";
+          return success();
+        })
+        .Case([&](SetraOp op) {
+          FailureOr<std::string> rs = reg(op.getSource());
+          if (failed(rs))
+            return failure();
+          os << "\tset $ra = " << *rs << "\n\t;;\n";
+          return success();
+        })
         // Memory.
         .Case([&](LbzOp op) { return emitLoad(op, "lbz", op.getBase(), op.getOffset()); })
         .Case([&](LbsOp op) { return emitLoad(op, "lbs", op.getBase(), op.getOffset()); })
@@ -300,6 +317,17 @@ private:
         .Case([&](DivmodudOp op) { return emitDivmod(op, "divmodud"); })
         .Case([&](DivmodwOp op) { return emitDivmod(op, "divmodw"); })
         .Case([&](DivmoduwOp op) { return emitDivmod(op, "divmoduw"); })
+        // `lvx_func.call` is not a terminator -- a real `call` returns
+        // control to the very next instruction, so it can (and typically
+        // does) sit mid-block, unlike `lvx_cf.br`/`lvx_func.return`. It
+        // therefore never reaches `emitTerminator`'s dispatch and must be
+        // handled here instead; its own operands/results are pinned to the
+        // ABI's argument/result registers by `-convert-to-lvx`'s
+        // `CallToLVX`, so nothing but the callee symbol needs printing.
+        .Case([&](lvx_func::CallOp op) {
+          os << "\tcall " << op.getCallee() << "\n\t;;\n";
+          return success();
+        })
         // Everything else with plain (unattributed) register
         // operands/results is dispatched purely by arity: this dialect's
         // mnemonics match real LVX mnemonics verbatim (top-level
@@ -360,10 +388,6 @@ private:
         return loopdo.emitError(
             "lvx-emit-asm: lvx_cf.loopdo's body successor must be the "
             "block immediately following it in emission order");
-      return success();
-    }
-    if (auto call = dyn_cast<lvx_func::CallOp>(op)) {
-      os << "\tcall " << call.getCallee() << "\n\t;;\n";
       return success();
     }
     if (isa<lvx_func::ReturnOp>(op)) {
