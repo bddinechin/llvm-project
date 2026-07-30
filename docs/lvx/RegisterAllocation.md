@@ -383,12 +383,16 @@ pattern written against the old text would compute the wrong sign.
 
 Verified via the real `lvx-mbr-as`/`lvx-mbr-objdump` round-trip
 (`emit-asm.mlir`'s `@ffma` case, which this file's own RUN line
-re-assembles with the real toolchain on every test run) and via
+re-assembles with the real toolchain on every test run), via
 `register-allocation.mlir`'s `@ffma_preserve` case for the defensive-copy
-path. **Not** verified by real execution on `lvx-gem5` -- see
-`docs/lvx/EndToEndValidation.md`'s "Floating-point instructions crash
-`lvx-gem5`" for why, and note that this is a pre-existing gap in a sibling
-project's ISS, unrelated to this fix's own correctness.
+path, and via real execution on `lvx-gem5` -- a genuine two-`ffma`-chain
+kernel with non-trivial double operands, confirmed bit-exact (both
+magnitude and sign) against an independently-computed fused result. See
+`docs/lvx/EndToEndValidation.md`, "`ffma`/`ffms` accumulator coalescing,
+verified end to end" for the full account, including two since-fixed
+`lvx-gem5` crashes this verification ran into along the way (floating-
+point arithmetic, then comparisons -- both sibling-project ISS gaps, not
+this fix's own correctness).
 
 ### Nested `lvx_scf.for`: coalescing across nesting levels (fixed)
 

@@ -249,11 +249,13 @@ RegisterAllocation.md, "`ffma`/`ffms` accumulator coalescing") didn't run,
 so this is a pipeline-ordering check, not a normal-path failure.
 
 Verified via the real `lvx-mbr-as`/`lvx-mbr-objdump` round-trip
-(`emit-asm.mlir`'s `@ffma` case). **Not** verified by real execution --
-see `docs/lvx/EndToEndValidation.md`, "Floating-point instructions crash
-`lvx-gem5`": every floating-point opcode, not just `ffma`/`ffms`, crashes
-the real ISS in this environment, a pre-existing gap in a sibling project
-unrelated to this fix.
+(`emit-asm.mlir`'s `@ffma` case) and via real execution on `lvx-gem5`
+(a chained `ffmad`→`ffmsd` kernel, bit-exact against an independently
+computed fused result) -- see `docs/lvx/EndToEndValidation.md`, "`ffma`/
+`ffms` accumulator coalescing, verified end to end" for the full account,
+including two since-fixed `lvx-gem5` crashes this verification ran into
+along the way (floating-point arithmetic, then comparisons -- both
+sibling-project gaps, not this fix's own correctness).
 
 **Out of scope, not attempted**: `FFMAH`/`FFMSH` (half-precision) and
 `FFMAWC` (complex-number fused multiply-add with `conjugate`/`imultiply`
