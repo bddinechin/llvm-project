@@ -291,7 +291,7 @@ hand-computed `(10 + 1) + 2`. Without the `$ra` fix this would hang
 `call` clobbers `$ra`); without the two emission/ABI-pinning fixes above,
 it wouldn't even assemble. All 15 lit tests continue to pass.
 
-## `ffma`/`ffms` accumulator coalescing, and floating-point instructions crash `lvx-gem5` (2026-07-30)
+## `ffma`/`ffms` accumulator coalescing, verified end to end (2026-07-30)
 
 Checking whether `lvx.ffmad`/`lvx.ffmaw`/`lvx.ffmsd`/`lvx.ffmsw` (declared
 in the dialect, but never exercised beyond a bare parser/printer
@@ -309,47 +309,60 @@ fixed) `a*b-c` → `c-a*b` sign-doc bug: `docs/lvx/RegisterAllocation.md`,
 "`ffma`/`ffms` accumulator coalescing", and `docs/lvx/AssemblyEmission.md`,
 "`ffma`/`ffms`: implicit accumulator, implemented".
 
-Verification hit a wall one level lower than any previous exercise in this
-project's history, though: trying to actually *run* an `ffmad` on real
-`lvx-gem5` (the same rigor as every kernel above) crashes the simulator
-itself --
+**First attempt hit a wall one level lower than any previous exercise in
+this project's history**: trying to actually *run* an `ffmad` on real
+`lvx-gem5` crashed the simulator process itself (`SIGILL`, core dump --
+not a simulated trap in the guest program). Isolated at the time to
+confirm scope: the assembled encoding round-tripped correctly through the
+real `lvx-mbr-as`/`lvx-mbr-objdump` (not an encoding bug on this side),
+and *every* floating-point instruction crashed identically, not just
+`ffmad` -- a plain `faddd` reproduced it with no `ffma`-specific
+coalescing involved at all, consistent with no kernel in this project's
+history ever having exercised a floating-point opcode on real gem5
+before. `lvx-gem5` is a sibling project (`lvx-csw/lvx-gem5`), out of
+scope for this repository, so a minimal repro (`tests/lvx/
+fpu_crash_repro.s`, plus its README entry) was added there for a
+dedicated `lvx-gem5` session to fix, rather than attempting a simulator-
+level fix here.
 
-```
-$ build/gem5-lvx1.opt tests/lvx/run_lvx.py ffma_isolated.elf
-...
-== LVX gem5 (atomic): beginning execution of .../ffma_isolated.elf ==
-Illegal instruction (core dumped)
-```
+**That fix has since landed, and floating-point arithmetic now executes
+correctly on real gem5.** Re-ran the full pipeline for a genuine
+two-`ffma`-chain kernel (`ffmad` feeding its result into `ffmsd`'s
+accumulator, exercising the exact coalescing this fix adds) with real,
+non-trivial double values (`1.1`, `2.2`, `3.3`, `4.4`, `5.5`) chosen
+specifically so a truly *fused* multiply-add (single rounding) gives a
+different bit pattern than two separately-rounded operations would --
+confirmed with exact rational arithmetic (Python's `fractions.Fraction`)
+that `ffmad(1.1, 2.2, 5.5)` differs from naive `1.1*2.2+5.5` by 1 ULP.
 
-This is gem5's own process taking `SIGILL` and dumping core -- not a
-simulated trap inside the guest program (compare to a real illegal
-instruction in the guest, which gem5 would report and handle without
-crashing itself). Isolated down to confirm scope:
+Assembled/linked with the real toolchain and driven by a hand-written
+`_start` loading the five operands and `call`ing the compiled function:
+`scall 1` exits with the *low 32 bits* of the raw result register (gem5
+prints the exit code as a signed 32-bit int; confirmed separately that a
+64-bit value's low 32 bits are what's reported, not the full magnitude,
+by probing with `2^32 + 1` → `code=1`). The expected fused result is
+`-6.6` (`0xc01a666666666666`); its low 32 bits alone don't distinguish
+sign (a sign-bit flip only changes bit 63), so a second run right-shifted
+the raw result by 32 (`lvx.srld`, an ordinary integer op, sidestepping the
+need for any float-classed instruction) to expose the *high* 32 bits
+instead -- `0xc01a6666` if correct, `0x401a6666` if the old `a*b-c`
+sign bug were still present. Actual result: `code=-1072011674`, which as
+an unsigned 32-bit value is `3222955622` = `0xc01a6666` -- an exact,
+sign-and-magnitude match for the correct, fused computation. This
+confirms, on real hardware: the `ffmad`→`ffmsd` accumulator chain
+correctly reuses one physical register in place (the coalescing fix), the
+computation is genuinely fused (single-rounding, not naive), and the
+`c - a*b` sign correction is right.
 
-- The assembled encoding round-trips correctly through the real
-  `lvx-mbr-as`/`lvx-mbr-objdump` (`ffmad $r3 = $r5, $r0` assembles and
-  disassembles back to itself) -- this is not an encoding bug on the
-  lvx-mlir/toolchain side.
-- A `make` loading the same 64-bit float bit pattern into a register, with
-  no FPU-class instruction after it, runs fine (`exit code 0` as
-  expected).
-- **Every floating-point instruction tried crashes gem5 identically, not
-  just `ffmad`**: a plain `faddd $r0 = $r5, $r0` (no `ffma`-specific
-  coalescing involved at all) crashes exactly the same way. This is a
-  general, pre-existing gap in this build's floating-point instruction
-  support, not anything specific to `ffma`/`ffms` or to this session's
-  fix -- consistent with the fact that no kernel in this project's history
-  (`sum_squares`, `divmod_kernel`, the `$ra` call-chain kernel above) ever
-  exercised a single floating-point opcode on real gem5 before now.
-
-**Out of scope, not attempted**: `lvx-gem5` is a sibling project
-(`lvx-csw/lvx-gem5`), not part of this repository, and fixing a simulator-
-level crash in its FPU instruction decode/execution is a substantially
-different kind of work than anything else in this codebase. Flagged here
-so it isn't rediscovered the hard way -- the next kernel that needs a
-*real, executed* floating-point result (not just a correctly-assembled
-one) will need this fixed on the `lvx-gem5` side first. This fix's own
-correctness is verified at the assembler level (real encode/decode
-round-trip) and structurally (the coalescing and emission lit tests), the
-same standard `docs/lvx/RegisterAllocation.md`'s "What remains a hard
-error" cases are held to when execution-level verification isn't available.
+**Narrower gap discovered while re-verifying, fixed the same day**:
+floating-point *comparisons* (`lvx.fcompd`, real `FCOMPD`) crashed
+`lvx-gem5` identically to the original bug, even though arithmetic
+(`faddd`/`fsbfd`/`fmuld`/`fdivd`/`ffmad`/`ffmsd`, all independently
+checked) already worked -- `Behavior_floatcomp_64` was simply missing
+from `shim_fp.cc`. This is why the sign check above used an integer
+shift instead of the more obvious `fcompd olt` comparison against zero:
+that check was written *while* this gap was still open. Re-verified after
+the `lvx-gem5` fix landed: `fcompd.olt $r1 = $r3, $r0` against the same
+`-6.6` result now correctly yields `1`, an independent confirmation of
+the sign fix via the more direct check the shift was originally standing
+in for.
