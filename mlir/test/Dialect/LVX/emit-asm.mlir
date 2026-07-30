@@ -197,6 +197,44 @@ lvx_func.func @divmod(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
   lvx_func.return %p : !lvx.reg<r0>
 }
 
+// `ffmad`/`ffmsd`: real hardware has no separate destination register --
+// the `c` operand and the result share one physical register in place
+// (docs/lvx/RegisterAllocation.md, "`ffma`/`ffms` accumulator
+// coalescing"). Two chained ops (`%5`'s result feeds `%6`'s `c`) confirm
+// the whole chain coalesces to one register (`$r3` throughout) rather than
+// each op getting an independent one.
+// CHECK-LABEL: ffma:
+// CHECK-NEXT: copyd $r5 = $r0
+// CHECK-NEXT: ;;
+// CHECK-NEXT: copyd $r0 = $r1
+// CHECK-NEXT: ;;
+// CHECK-NEXT: copyd $r1 = $r2
+// CHECK-NEXT: ;;
+// CHECK-NEXT: copyd $r2 = $r3
+// CHECK-NEXT: ;;
+// CHECK-NEXT: copyd $r3 = $r4
+// CHECK-NEXT: ;;
+// CHECK-NEXT: ffmad $r3 = $r5, $r0
+// CHECK-NEXT: ;;
+// CHECK-NEXT: ffmsd $r3 = $r1, $r2
+// CHECK-NEXT: ;;
+// CHECK-NEXT: copyd $r0 = $r3
+// CHECK-NEXT: ;;
+// CHECK-NEXT: ret
+// CHECK-NEXT: ;;
+lvx_func.func @ffma(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %c: !lvx.reg<r2>,
+                    %d: !lvx.reg<r3>, %acc0: !lvx.reg<r4>) -> !lvx.reg<r0> {
+  %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
+  %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg
+  %2 = lvx.mv %c : (!lvx.reg<r2>) -> !lvx.reg
+  %3 = lvx.mv %d : (!lvx.reg<r3>) -> !lvx.reg
+  %4 = lvx.mv %acc0 : (!lvx.reg<r4>) -> !lvx.reg
+  %5 = lvx.ffmad cs %0, %1, %4 : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
+  %6 = lvx.ffmsd cs %2, %3, %5 : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
+  %p = lvx.mv %6 : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %p : !lvx.reg<r0>
+}
+
 // The step-2 fallback (non-unit step, not eligible for the hardware-loop
 // path -- see scf-to-cf.mlir) still assembles correctly with ordinary
 // branches, exercising the fallthrough-elision rule on the entry edge too

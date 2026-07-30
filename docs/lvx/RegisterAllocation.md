@@ -331,6 +331,65 @@ connected component, exactly like a real phi, with no special-casing
 needed for the multi-predecessor case versus the single-predecessor one
 that `FuncFuncToLVX` actually produces today.
 
+### `ffma`/`ffms` accumulator coalescing
+
+Real `FFMAD`/`FFMAW`/`FFMSD`/`FFMSW` (`lvx-mds` `Opcode.table`'s
+`registerW_registerZ_registerY` shape, confirmed by hand-assembling with
+the real `lvx-mbr-as` and round-tripping through `lvx-mbr-objdump`) have
+only *two* explicit source registers -- the destination (`registerW`)
+doubles as the third, implicit "accumulate into" operand. Real syntax is
+`ffmad $rW = $rZ, $rY`, computing `$rW := $rZ * $rY [+|-] $rW` in place;
+there is no separate destination field to encode a different register into.
+
+This dialect's `LVX_FfmadOp`/`LVX_FfmawOp`/`LVX_FfmsdOp`/`LVX_FfmswOp`
+still model it as an ordinary 3-independent-operand SSA op (`a`, `b`, `c`
+→ `result`, no `SameOperandsAndResultType`-style constraint, consistent
+with this dialect's general type-system stance -- top-level CLAUDE.md's
+"type-system invariant to preserve"). Before this fix, nothing forced `c`'s
+register and `result`'s register to be the same, so a real kernel using
+these ops would, essentially always, get an instruction `-lvx-emit-asm`
+had no correct way to print (the generic arity-based dispatch printed a
+non-existent 4-register form, e.g. `ffmad $rd = $ra, $rb, $rc`, which the
+real assembler rejects outright). Discovered while checking whether these
+already-declared-but-never-exercised ops (`ops.mlir`'s only prior use was
+a plain parser/printer round-trip test) could actually be generated
+correctly end to end, the same "does this op existing prove it works"
+question the divmod dual-output bug and the call ABI-pinning gap both
+turned out to fail.
+
+**Fix, in two parts, mirroring the `lvx_cf` block-argument coalescing
+above:**
+
+- `buildAllocItems`'s union-find pass also unites each `ffma`/`ffms` op's
+  `c` operand with its own `result` -- the same JOIN-style idea as loop
+  tuples and branch edges, just a 2-value group. A chain of accumulations
+  (`c` of one op being a *later* op's own result) unions transitively into
+  one group spanning the whole chain, which is exactly the real-hardware
+  behavior of reusing one physical register as a running accumulator.
+- Mirroring `insertLoopCarriedPreservingCopies`: if `c` is read anywhere
+  *else* too (not just by this one op), that reader must not observe the
+  register being overwritten in place. `insertFmaAccumulatorPreservingCopies`
+  inserts an `lvx.mv` copy of `c` right before the op and redirects every
+  other use to the copy, before Step 1 builds live intervals -- the op
+  itself keeps reading the original value (so the coalescing above is
+  unaffected), while the copy is an ordinary, independently allocated
+  value for everyone else.
+
+Also fixed alongside this: `LVX_FfmsdOp`/`LVX_FfmswOp`'s summary
+previously read "`a*b-c`"; the real semantics (`f64_mulnAdd`/`f32_mulnAdd`
+in `lvx-mds` `Opcode.table`) is `c - a*b` -- an actual sign bug in the
+documented contract, not just a missing feature, since any future lowering
+pattern written against the old text would compute the wrong sign.
+
+Verified via the real `lvx-mbr-as`/`lvx-mbr-objdump` round-trip
+(`emit-asm.mlir`'s `@ffma` case, which this file's own RUN line
+re-assembles with the real toolchain on every test run) and via
+`register-allocation.mlir`'s `@ffma_preserve` case for the defensive-copy
+path. **Not** verified by real execution on `lvx-gem5` -- see
+`docs/lvx/EndToEndValidation.md`'s "Floating-point instructions crash
+`lvx-gem5`" for why, and note that this is a pre-existing gap in a sibling
+project's ISS, unrelated to this fix's own correctness.
+
 ### Nested `lvx_scf.for`: coalescing across nesting levels (fixed)
 
 Found while building `docs/lvx/HardwareLoops.md`'s hardware-loop lowering

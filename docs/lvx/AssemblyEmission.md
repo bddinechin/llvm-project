@@ -226,6 +226,48 @@ one-way copies (step 2 above), not a permutation, and this project
 already has a mechanism for exactly that shape without needing any
 bundling trick.
 
+### `ffma`/`ffms`: implicit accumulator, implemented
+
+`lvx.ffmad`/`lvx.ffmaw`/`lvx.ffmsd`/`lvx.ffmsw` were declared in the
+dialect (`ops.mlir` had a bare parser/printer round-trip test) but had
+never actually been checked against a real opcode until now, the same gap
+`divmod`'s dual output and the call ABI-pinning issue both turned out to
+have: existing doesn't mean correct.
+
+Real `FFMAD`/`FFMAW`/`FFMSD`/`FFMSW` (`registerW_registerZ_registerY`
+shape) have only two explicit source registers -- the destination doubles
+as the third, implicit "accumulate into" operand, confirmed by hand-
+assembling `ffmad $r1 = $r2, $r3` with the real `lvx-mbr-as` (accepted,
+disassembles back identically) versus a 4-register form (rejected: "Extra
+token when parsing"). `-lvx-emit-asm` used to fall through to the generic
+arity-based dispatch for these ops (3 operands, 1 result → the wrong
+4-register ternary shape); it now has its own case (`emitFma`) that prints
+only the two non-accumulator source registers and hard-errors if the
+accumulator operand's register doesn't match the result's -- which is only
+possible if `-lvx-allocate-registers`'s new coalescing (docs/lvx/
+RegisterAllocation.md, "`ffma`/`ffms` accumulator coalescing") didn't run,
+so this is a pipeline-ordering check, not a normal-path failure.
+
+Verified via the real `lvx-mbr-as`/`lvx-mbr-objdump` round-trip
+(`emit-asm.mlir`'s `@ffma` case). **Not** verified by real execution --
+see `docs/lvx/EndToEndValidation.md`, "Floating-point instructions crash
+`lvx-gem5`": every floating-point opcode, not just `ffma`/`ffms`, crashes
+the real ISS in this environment, a pre-existing gap in a sibling project
+unrelated to this fix.
+
+**Out of scope, not attempted**: `FFMAH`/`FFMSH` (half-precision) and
+`FFMAWC` (complex-number fused multiply-add with `conjugate`/`imultiply`
+modifiers) also match "`FFMA*`/`FFMS*`" in `Opcode.table`, but neither fits
+this dialect's current phase -- no half-precision op of *any* kind exists
+yet (not even plain `faddh`), and `FFMAWC`'s complex/lane-packed semantics
+belong with the later SIMD phase (top-level CLAUDE.md, "Current phase"),
+not scalar arithmetic. The `fnegate` modifier (an overall-negate on the
+whole FMA, distinct from the `mulnAdd`/subtract already modeled) also
+isn't represented, matching the existing gap that float `mode` (rounding)
+attributes are accepted at the dialect level but silently dropped by every
+current float-op emission path, not just `ffma`/`ffms` -- a pre-existing,
+broader issue, not reintroduced by this fix.
+
 ### `lvx.sp` is never emitted
 
 `lvx.sp`'s only purpose was to give the (pre-emission) SSA IR an anchor

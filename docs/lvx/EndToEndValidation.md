@@ -290,3 +290,66 @@ hand-computed `(10 + 1) + 2`. Without the `$ra` fix this would hang
 (`@caller`'s own `ret` would loop back into itself after `@callee`'s
 `call` clobbers `$ra`); without the two emission/ABI-pinning fixes above,
 it wouldn't even assemble. All 15 lit tests continue to pass.
+
+## `ffma`/`ffms` accumulator coalescing, and floating-point instructions crash `lvx-gem5` (2026-07-30)
+
+Checking whether `lvx.ffmad`/`lvx.ffmaw`/`lvx.ffmsd`/`lvx.ffmsw` (declared
+in the dialect, but never exercised beyond a bare parser/printer
+round-trip test) could actually be generated correctly surfaced the same
+"does this op existing prove it works" gap as the divmod dual-output bug
+and the call ABI-pinning issue: real `FFMAD` et al. have no separate
+destination register (the accumulator operand and the destination are the
+same physical register on real hardware), which this dialect's plain
+3-independent-operand modeling didn't enforce anywhere. Fixed --
+`-lvx-allocate-registers` now coalesces the accumulator operand with the
+op's own result (with a defensive copy when the accumulator is read again
+elsewhere), and `-lvx-emit-asm` prints the real two-source-register form
+instead of a non-existent 4-register one. Full details and the (also
+fixed) `a*b-c` → `c-a*b` sign-doc bug: `docs/lvx/RegisterAllocation.md`,
+"`ffma`/`ffms` accumulator coalescing", and `docs/lvx/AssemblyEmission.md`,
+"`ffma`/`ffms`: implicit accumulator, implemented".
+
+Verification hit a wall one level lower than any previous exercise in this
+project's history, though: trying to actually *run* an `ffmad` on real
+`lvx-gem5` (the same rigor as every kernel above) crashes the simulator
+itself --
+
+```
+$ build/gem5-lvx1.opt tests/lvx/run_lvx.py ffma_isolated.elf
+...
+== LVX gem5 (atomic): beginning execution of .../ffma_isolated.elf ==
+Illegal instruction (core dumped)
+```
+
+This is gem5's own process taking `SIGILL` and dumping core -- not a
+simulated trap inside the guest program (compare to a real illegal
+instruction in the guest, which gem5 would report and handle without
+crashing itself). Isolated down to confirm scope:
+
+- The assembled encoding round-trips correctly through the real
+  `lvx-mbr-as`/`lvx-mbr-objdump` (`ffmad $r3 = $r5, $r0` assembles and
+  disassembles back to itself) -- this is not an encoding bug on the
+  lvx-mlir/toolchain side.
+- A `make` loading the same 64-bit float bit pattern into a register, with
+  no FPU-class instruction after it, runs fine (`exit code 0` as
+  expected).
+- **Every floating-point instruction tried crashes gem5 identically, not
+  just `ffmad`**: a plain `faddd $r0 = $r5, $r0` (no `ffma`-specific
+  coalescing involved at all) crashes exactly the same way. This is a
+  general, pre-existing gap in this build's floating-point instruction
+  support, not anything specific to `ffma`/`ffms` or to this session's
+  fix -- consistent with the fact that no kernel in this project's history
+  (`sum_squares`, `divmod_kernel`, the `$ra` call-chain kernel above) ever
+  exercised a single floating-point opcode on real gem5 before now.
+
+**Out of scope, not attempted**: `lvx-gem5` is a sibling project
+(`lvx-csw/lvx-gem5`), not part of this repository, and fixing a simulator-
+level crash in its FPU instruction decode/execution is a substantially
+different kind of work than anything else in this codebase. Flagged here
+so it isn't rediscovered the hard way -- the next kernel that needs a
+*real, executed* floating-point result (not just a correctly-assembled
+one) will need this fixed on the `lvx-gem5` side first. This fix's own
+correctness is verified at the assembler level (real encode/decode
+round-trip) and structurally (the coalescing and emission lit tests), the
+same standard `docs/lvx/RegisterAllocation.md`'s "What remains a hard
+error" cases are held to when execution-level verification isn't available.

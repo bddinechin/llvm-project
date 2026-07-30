@@ -229,6 +229,19 @@ class LVX_FloatBinaryOp<string mnemonic, list<Trait> traits = []> :
     "$mode $lhs `,` $rhs attr-dict `:` `(` type($lhs) `,` type($rhs) `)` `->` type($result)";
 }
 
+// Real FFMAD/FFMAW/FFMSD/FFMSW/FFMAH/FFMSH (lvx-mds Opcode.table's
+// `registerW_registerZ_registerY` shape) only have *two* explicit source
+// registers (Z, Y); the destination (W) doubles as the third, implicit
+// "accumulate into" operand -- syntax is `ffmad $rW = $rZ, $rY`, computing
+// `$rW := $rZ * $rY [+|-] $rW` in place. There is no separate destination
+// field. This dialect still models it as a plain 3-independent-operand SSA
+// op (`a`, `b`, `c` -> `result`, no `SameOperandsAndResultType`-style
+// constraint at the type-system level, consistent with this dialect's
+// general stance -- see top-level CLAUDE.md's "type-system invariant to
+// preserve"), but `-lvx-allocate-registers` must coalesce `c` and `result`
+// into the *same* physical register before `-lvx-emit-asm` can print a
+// real instruction -- see docs/lvx/RegisterAllocation.md, "`ffma`/`ffms`
+// accumulator coalescing".
 class LVX_FloatTernaryOp<string mnemonic, list<Trait> traits = []> :
     LVX_Op<mnemonic, traits # [Pure]>,
     Arguments<(ins LVX_RegType:$a, LVX_RegType:$b, LVX_RegType:$c,
@@ -254,8 +267,14 @@ def LVX_FdivdOp : LVX_FloatBinaryOp<"fdivd"> {
 def LVX_FfmadOp : LVX_FloatTernaryOp<"ffmad"> {
   let summary = "FFMAD -- double-precision fused multiply-add: a*b+c";
 }
+// Real hardware's `f64_mulnAdd` negates the *product*, not the whole
+// expression: `result = c - a*b`, not `a*b - c` (confirmed against
+// lvx-mds Opcode.table's FFMSD execution semantics, which previously
+// disagreed with this summary -- an actual doc/semantics bug, not just a
+// missing feature, since a lowering pattern written against the old text
+// would compute the wrong sign).
 def LVX_FfmsdOp : LVX_FloatTernaryOp<"ffmsd"> {
-  let summary = "FFMSD -- double-precision fused multiply-subtract: a*b-c";
+  let summary = "FFMSD -- double-precision fused multiply-subtract: c-a*b";
 }
 
 def LVX_FaddwOp : LVX_FloatBinaryOp<"faddw"> {
@@ -273,8 +292,9 @@ def LVX_FdivwOp : LVX_FloatBinaryOp<"fdivw"> {
 def LVX_FfmawOp : LVX_FloatTernaryOp<"ffmaw"> {
   let summary = "FFMAW -- single-precision fused multiply-add: a*b+c";
 }
+// See LVX_FfmsdOp: same `c - a*b` correction applies here.
 def LVX_FfmswOp : LVX_FloatTernaryOp<"ffmsw"> {
-  let summary = "FFMSW -- single-precision fused multiply-subtract: a*b-c";
+  let summary = "FFMSW -- single-precision fused multiply-subtract: c-a*b";
 }
 
 //===----------------------------------------------------------------------===//

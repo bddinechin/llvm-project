@@ -164,6 +164,37 @@ private:
     return success();
   }
 
+  /// `FFMAD`/`FFMAW`/`FFMSD`/`FFMSW` (lvx-mds Opcode.table's
+  /// `registerW_registerZ_registerY` shape) have only *two* explicit
+  /// source registers -- the destination doubles as the third, implicit
+  /// accumulate-into operand, so real syntax is `ffmad $rW = $rZ, $rY`,
+  /// not a 4-register ternary. `-lvx-allocate-registers` coalesces this
+  /// op's `c` operand with its own result to guarantee they land in the
+  /// same physical register (docs/lvx/RegisterAllocation.md, "`ffma`/
+  /// `ffms` accumulator coalescing"); this only re-checks that invariant
+  /// rather than assuming it, so a mis-ordered pipeline (this pass run
+  /// without register allocation's coalescing having applied) is caught as
+  /// an error instead of emitting a real instruction with a silently wrong
+  /// accumulator.
+  LogicalResult emitFma(Operation *op, StringRef mnemonic) {
+    FailureOr<std::string> rd = reg(op->getResult(0));
+    FailureOr<std::string> ra = reg(op->getOperand(0));
+    FailureOr<std::string> rb = reg(op->getOperand(1));
+    FailureOr<std::string> rc = reg(op->getOperand(2));
+    if (failed(rd) || failed(ra) || failed(rb) || failed(rc))
+      return failure();
+    if (*rc != *rd)
+      return op->emitError("lvx-emit-asm: ")
+             << mnemonic << "'s accumulator operand (c) is " << *rc
+             << " but the result is " << *rd
+             << " -- real hardware has no separate destination field, only "
+                "$rW = $rZ, $rY, so they must be the same register (run "
+                "-lvx-allocate-registers first)";
+    os << "\t" << mnemonic << " " << *rd << " = " << *ra << ", " << *rb
+       << "\n\t;;\n";
+    return success();
+  }
+
   LogicalResult emitUnary(Operation *op, StringRef mnemonic) {
     FailureOr<std::string> rd = reg(op->getResult(0));
     FailureOr<std::string> rs = reg(op->getOperand(0));
@@ -317,6 +348,11 @@ private:
         .Case([&](DivmodudOp op) { return emitDivmod(op, "divmodud"); })
         .Case([&](DivmodwOp op) { return emitDivmod(op, "divmodw"); })
         .Case([&](DivmoduwOp op) { return emitDivmod(op, "divmoduw"); })
+        // ffma/ffms: implicit accumulator, see emitFma's comment.
+        .Case([&](FfmadOp op) { return emitFma(op, "ffmad"); })
+        .Case([&](FfmsdOp op) { return emitFma(op, "ffmsd"); })
+        .Case([&](FfmawOp op) { return emitFma(op, "ffmaw"); })
+        .Case([&](FfmswOp op) { return emitFma(op, "ffmsw"); })
         // `lvx_func.call` is not a terminator -- a real `call` returns
         // control to the very next instruction, so it can (and typically
         // does) sit mid-block, unlike `lvx_cf.br`/`lvx_func.return`. It
