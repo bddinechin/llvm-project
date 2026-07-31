@@ -66,7 +66,7 @@ operand and the shared block argument land in one connected component).
 
 ### 2. `sbfd`/`sbfw`/`fsbfd`/`fsbfw` have "subtract FROM" semantics, backwards from every caller's assumption
 
-Real hardware (`lvx-mds/refs/FE/YAML/lvx/lvx_v1/Description.yml`, `SBFD`
+Real hardware (`lvx-mds/lvx-refs/FE/YAML/lvx/lvx_v1/Description.yml`, `SBFD`
 et al.): "The %2 is subtracted from the %3" -- `mnemonic $rd = $rs1, $rs2`
 computes `$rs2 - $rs1`, the *reverse* of every other binary op's
 `$rd = $rs1 op $rs2` reading. Confirmed both from the spec text and
