@@ -154,6 +154,20 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     return;
   }
 
+  // ISD::JumpTable -> MAKE_Y of the table's base address, exactly like
+  // ISD::GlobalAddress above: a link-time symbol whose value is unknown at
+  // compile time, so the widest MAKE form is used unconditionally. The
+  // BR_JT that referenced it has already been expanded (it is declared
+  // Expand in LVXTargetLowering) into this base, a scaled index, a load and
+  // an ISD::BRIND -- so all that survives here is an ordinary address.
+  if (N->getOpcode() == ISD::JumpTable) {
+    auto *JT = cast<JumpTableSDNode>(N);
+    SDValue TJT = CurDAG->getTargetJumpTable(JT->getIndex(), MVT::i64);
+    SDNode *Res = CurDAG->getMachineNode(LVX::MAKE_Y, DL, MVT::i64, TJT);
+    ReplaceNode(N, Res);
+    return;
+  }
+
   // ISD::SDIVREM / UDIVREM → DIVMODD / DIVMODUD plus two subregister reads.
   //
   // These are declared Legal in LVXTargetLowering (not Custom/Expand) and

@@ -1906,6 +1906,10 @@ def IGOTO : BCU_IBC_Inst<0b10110, "igoto", [], BCU_XFER_BRRP> {
 }
 // Same caller-saved clobber set as CALL above -- see that comment. An
 // indirect call clobbers exactly what a direct one does.
+// Indirect branch, which is what an expanded jump table lands on: the target
+// address has already been loaded out of the table into a register.
+def : Pat<(brind i64:$addr), (IGOTO i64:$addr)>;
+
 def ICALL : BCU_IBC_Inst<0b10111, "icall", [], BCU_XFER_BRRP> {
   let isCall = 1;
   let Defs   = [RA, R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11,

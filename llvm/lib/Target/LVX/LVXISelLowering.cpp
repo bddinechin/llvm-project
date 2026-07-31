@@ -186,6 +186,16 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::BR_CC, MVT::i64, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::i64, Expand);
 
+  // A switch's jump table. LVX has no dedicated table-branch instruction, so
+  // BR_JT is expanded into the generic sequence -- scale the index, add the
+  // table base, load the entry, and branch indirectly through it -- and only
+  // the resulting ISD::BRIND needs a pattern (-> IGOTO). Leaving BR_JT at its
+  // default Legal action meant isel failed with "Cannot select: br_jt" on any
+  // switch dense enough for a table, which at -O0 is most of them (at higher
+  // -O levels the optimizer often picks a compare chain instead, which is why
+  // this only showed up in unoptimized builds).
+  setOperationAction(ISD::BR_JT, MVT::Other, Expand);
+
   //===--------------------------------------------------------------------===//
   // Floating point
   //
