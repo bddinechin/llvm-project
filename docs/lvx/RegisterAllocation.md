@@ -394,6 +394,88 @@ verified end to end" for the full account, including two since-fixed
 point arithmetic, then comparisons -- both sibling-project ISS gaps, not
 this fix's own correctness).
 
+### Captured values across a re-entered loop (fixed)
+
+Found while resuming work on the "hardware-loop clobber bug"
+(`docs/lvx/HardwareLoops.md`, bottom): a value defined outside an
+`lvx_scf.for` and used inside its body (a "capture," in the closure
+sense -- an outer-scope value referenced via plain SSA dominance, not
+threaded through the loop's own `iter_args`) can end up sharing a
+register with something defined *inside* that body, if the capture's own
+last recorded use happens to fall exactly at the boundary Step 1's
+numbering creates around a nested `lvx_scf.for`.
+
+**Root cause**: `LiveIntervals.cpp`'s `numberBlock` assigns a nested
+`lvx_scf.for`'s own number (say `N`, covering its `lb`/`ub`/`step`/
+`iter_args` operand list), then *immediately* recurses into that for's
+body, whose own block gets `N+1`. A captured value used only as that
+nested for's own operand has its ordinary operand-tracked interval end
+at `N`; the nested loop's own induction variable, a block argument of
+the body, has its interval *start* at `N+1`. By the numeric [start, end]
+check alone, these look like two cleanly back-to-back, non-overlapping
+intervals -- free to share a register, the same way any two ordinary
+sequential values would be. That reasoning is correct for a loop that
+runs once, but wrong the instant that `lvx_scf.for` is itself nested
+inside another loop: the *whole* body -- including whichever value now
+occupies that shared register, and however it's been mutated by a full
+pass through the inner loop -- re-executes on the next outer iteration,
+at which point the operand reference that used to read the capture's
+original value now reads whatever the inner loop's own machinery left
+behind instead.
+
+This is not specific to hardware loops (`loopdo`) -- the same numbering
+gap exists for a branch-based re-entered inner loop too -- but it was
+*found* via a hardware loop specifically, because `loopdo`'s
+induction-variable lowering (`docs/lvx/HardwareLoops.md`, "New subtlety
+specific to hardware loops") increments its register in place, so a
+collision there produces an obviously-wrong leftover value rather than
+something a branch-based loop's own bookkeeping might happen to mask.
+
+**Fix**: extend the *existing* mechanism that already does exactly this
+for a loop's own induction variable and `step` operand (the "implicit
+extra use" extension immediately above in `LiveIntervals.cpp`) to cover
+*every* captured value, not just those two. `mlir::getUsedValuesDefinedAbove`
+(`mlir/Transforms/RegionUtils.h` -- the same closure-capture utility
+MLIR's own region-isolation transforms use) gives exactly the set of
+values referenced anywhere inside a `lvx_scf.for`'s body, at any nesting
+depth, but defined outside it; each gets its interval end extended to
+that for-op's own body-end, same as iv/step. Applied at *every* nesting
+level (`func.walk` visits each `lvx_scf.for`, inner and outer alike), a
+value captured across multiple levels gets extended multiple times, and
+the outermost extension always wins via the same `std::max` pattern used
+throughout this file -- so a capture shared with the outermost re-entered
+loop ends up protected for that loop's *entire* span, not just the
+inner one's.
+
+**Verified two ways.** Structurally: `scf-to-cf.mlir`'s pre-existing
+`@nested` test already had this exact shape (a doubly-nested loop
+reusing the same `%lb`/`%ub`/`%step` for both levels) without anyone
+having noticed it was also exhibiting the bug -- before this fix, its
+own CHECK lines showed `%11 = lvx.mv %0 : (!lvx.reg<r0>) -> !lvx.reg<r0>`,
+a same-register self-copy (the inner loop's own induction-variable seed
+literally sharing `%lb`'s register), "safe" only because the test never
+checked what a second outer iteration would do. After the fix, that copy
+lands in a fresh register (`r5`), and the self-copy is gone. On real
+gem5: assembled/linked the exact `@nested` function, called with a
+10-iteration outer loop (bound 0..10, step 1) each re-running a
+10-iteration inner loop with the same bounds, accumulating the inner
+loop's own result (`sum(0..9) = 45`) into the outer loop-carried value
+each pass. Correct result is `450` (`45 × 10`, since every outer
+iteration's inner loop must genuinely re-run with the right bounds);
+before this fix (confirmed by temporarily reverting it and rebuilding),
+the same kernel gave `45` -- the first outer iteration's inner sum
+correct, then every subsequent outer iteration's `sbfd`-computed trip
+count came out `0` (the corrupted `%lb` register making `ub - lb`
+evaluate to `10 - 10`), so `loopdo`'s documented zero-trip-count
+short-circuit (`docs/lvx/HardwareLoops.md`, "Zero trip count is safe on
+LVX") silently skipped every remaining inner loop entirely.
+
+All 15 lit tests continue to pass (three CHECK blocks updated for the
+now-longer, now-correct intervals: `live-intervals.mlir`'s `@loop`, and
+`scf-to-cf.mlir`'s `@nested` and its own comment plus
+`@nested_combined_accumulator`'s, which previously described this as a
+known, unfixed limitation).
+
 ### Nested `lvx_scf.for`: coalescing across nesting levels (fixed)
 
 Found while building `docs/lvx/HardwareLoops.md`'s hardware-loop lowering

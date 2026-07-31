@@ -213,23 +213,42 @@ Two additions:
   wrong) and a Step 1 live-interval gap for the induction variable/`step`
   (see `docs/lvx/RegisterAllocation.md`). Both are now fixed and covered by
   a regression test (`scf-to-cf.mlir`'s `@loop_reads_iv`).
-- **Found while verifying the "combined accumulator" fix above, not
-  addressed**: a repeatedly re-entered hardware loop (a nested
+- **Found while verifying the "combined accumulator" fix above, fixed
+  (2026-07-31)**: a repeatedly re-entered hardware loop (a nested
   `lvx_scf.for` inside an outer loop, so it lowers to `loopdo` fresh each
-  outer iteration) can have its own induction variable land, by ordinary
+  outer iteration) could have its own induction variable land, by ordinary
   uncoalesced allocation coincidence rather than any deliberate
   coalescing decision, in the exact register an *outer-scope* value it
   shares (e.g. a lower bound reused verbatim as the inner loop's own
-  bound) still occupies. The first outer iteration's `loopdo` increments
-  that register in place as designed (`docs/lvx/HardwareLoops.md` above,
-  "New subtlety specific to hardware loops") -- but if that register was
-  also the *outer-scope* value's home, and the inner loop is re-entered
-  on the next outer iteration still expecting that original value, it
-  reads the leftover post-loop induction-variable state instead. Not
-  fixed here (out of scope, not yet reduced to a minimal case) --
-  `scf-to-cf.mlir`'s `@nested_combined_accumulator` sidesteps it
-  deliberately (fresh `lvx.li` bounds inside the outer loop body, not
-  shared with the outer loop's own) specifically to isolate the fix it
-  *is* testing; avoid reusing an outer loop's bounds/step as a repeatedly
-  re-entered inner hardware loop's own bounds/step until this is
-  addressed.
+  bound) still occupied. The first outer iteration's `loopdo` increments
+  that register in place as designed ("New subtlety specific to hardware
+  loops" above) -- but if that register was also the *outer-scope*
+  value's home, and the inner loop is re-entered on the next outer
+  iteration still expecting that original value, it reads the leftover
+  post-loop induction-variable state instead.
+
+  Root cause turned out to be in Step 1 (`LiveIntervals.cpp`), not
+  anything hardware-loop-specific: `numberBlock` numbers a nested
+  `lvx_scf.for`'s own operand list (its number, `N`) immediately before
+  recursing into its body (`N+1` for the body block's own number, where a
+  captured value like the shared bound has no further recorded use). A
+  captured value's ordinary operand-tracked interval therefore ends at
+  `N` -- one less than where the inner loop's own induction variable's
+  interval begins -- so the two look non-overlapping and free to share a
+  register, even though the whole inner loop (and thus that register's
+  reuse) re-executes on every subsequent outer iteration. This is a
+  Step 1 numbering gap, not a `loopdo`-specific defect; it would apply
+  equally to a branch-based re-entered inner loop, just harder to notice
+  since nothing there writes the shared register in a single obviously
+  wrong in-place increment the way `loopdo`'s IV lowering does.
+
+  Fixed by extending the *existing* iv/step body-end extension (the "New
+  subtlety" bullet above) to cover every value `getUsedValuesDefinedAbove`
+  (an MLIR `RegionUtils` closure-capture helper) finds referenced anywhere
+  inside a `lvx_scf.for`'s body but defined outside it -- not just the
+  loop's own iv and step. See `docs/lvx/RegisterAllocation.md`, "Captured
+  values across a re-entered loop" for the full account, including a
+  real-gem5 before/after: the exact bound-sharing shape already present in
+  `scf-to-cf.mlir`'s `@nested` test computed `450` (correct: 10 outer
+  iterations × sum(0..9)=45) after the fix, versus `45` (only the first
+  outer iteration's inner sum survived) before it.

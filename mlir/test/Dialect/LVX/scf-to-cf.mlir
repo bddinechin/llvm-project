@@ -81,6 +81,20 @@ lvx_func.func @loop_step2(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // across nesting levels": the inner loop's own result (%14, via the
 // group ^bb4 feeds from) is the outer loop's directly-yielded operand,
 // which used to make this either fail verification or crash this pass.
+//
+// This test also, incidentally, reuses the outer loop's own bounds/step
+// (%lb/%ub/%step) verbatim as the inner loop's -- exactly the shape that
+// exposed the hardware-loop clobber bug (docs/lvx/HardwareLoops.md): `%0`
+// (the shared lower bound, r0) used to get reused for the inner loop's
+// own induction-variable copy too (`%11 = lvx.mv %0 : (!lvx.reg<r0>) ->
+// !lvx.reg<r0>` -- a same-register self-copy, only "safe" because this
+// test never checked what happens on the outer loop's *second* iteration,
+// where the first iteration's inner-loop IV increments would have already
+// overwritten r0's original bound value). Now fixed
+// (`getUsedValuesDefinedAbove`-based capture extension in
+// `LiveIntervals.cpp`): `%0` correctly stays live for the whole outer
+// loop, and the inner IV's copy (`%11`) lands in a fresh register (`r5`)
+// instead.
 // CHECK-LABEL: lvx_func.func @nested
 // CHECK: %3 = lvx.li 0 : i64 : <r3>
 // CHECK: lvx_cf.br ^bb1(%4, %3 : !lvx.reg<r4>, !lvx.reg<r3>)
@@ -89,11 +103,11 @@ lvx_func.func @loop_step2(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: lvx_cf.cond_br wnez %7 : <r29>, ^bb2(%5, %6 : !lvx.reg<r4>, !lvx.reg<r3>), ^bb5(%6 : !lvx.reg<r3>)
 // CHECK-NEXT: ^bb2(%8: !lvx.reg<r4>, %9: !lvx.reg<r3>):
 // CHECK-NEXT: %10 = lvx.sbfd %1, %0 : (<r1>, <r0>) -> <r29>
-// CHECK-NEXT: %11 = lvx.mv %0 : (!lvx.reg<r0>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_cf.loopdo %10 : <r29>, ^bb3(%11, %9 : !lvx.reg<r0>, !lvx.reg<r3>), ^bb4(%9 : !lvx.reg<r3>)
-// CHECK-NEXT: ^bb3(%12: !lvx.reg<r0>, %13: !lvx.reg<r3>):
-// CHECK-NEXT: %14 = lvx.addd %13, %12 : (<r3>, <r0>) -> <r3>
-// CHECK-NEXT: %15 = lvx.addd %12, %2 : (<r0>, <r2>) -> <r0>
+// CHECK-NEXT: %11 = lvx.mv %0 : (!lvx.reg<r0>) -> !lvx.reg<r5>
+// CHECK-NEXT: lvx_cf.loopdo %10 : <r29>, ^bb3(%11, %9 : !lvx.reg<r5>, !lvx.reg<r3>), ^bb4(%9 : !lvx.reg<r3>)
+// CHECK-NEXT: ^bb3(%12: !lvx.reg<r5>, %13: !lvx.reg<r3>):
+// CHECK-NEXT: %14 = lvx.addd %13, %12 : (<r3>, <r5>) -> <r3>
+// CHECK-NEXT: %15 = lvx.addd %12, %2 : (<r5>, <r2>) -> <r5>
 // CHECK-NEXT: lvx_cf.br ^bb4(%14 : !lvx.reg<r3>)
 // CHECK-NEXT: ^bb4(%16: !lvx.reg<r3>):
 // CHECK-NEXT: %17 = lvx.addd %5, %2 : (<r4>, <r2>) -> <r4>
@@ -145,20 +159,21 @@ lvx_func.func @nested(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // hand-derived expected result (`docs/lvx/EndToEndValidation.md`-style
 // verification, not run separately as its own kernel here).
 //
-// The inner loop's own bounds (`%lb2`/`%ub2`/`%step2`) are deliberately
-// *not* the same values as the outer loop's (`%lb`/`%ub`/`%step`,
-// contrast the `@nested` case above) -- reusing them uncovered a second,
-// separate, still-open bug while verifying this fix: the inner hardware
-// loop's induction variable can land in the very register the shared
-// lower-bound value itself occupies (an ordinary, uncoalesced allocation
-// coincidence, not a coalescing decision), so the first outer iteration's
-// inner loop permanently overwrites that register before the second
-// outer iteration re-enters the inner loop needing the original bound
-// again. Not fixed here -- out of scope for this change and not yet
-// reduced to a minimal case -- but flagged so it isn't rediscovered the
-// hard way: avoid reusing an outer-scope `lvx_scf.for`'s bounds/step as a
-// *repeatedly re-entered* inner hardware loop's own bounds/step until
-// this is addressed.
+// The inner loop's own bounds (`%lb2`/`%ub2`/`%step2`) were originally
+// kept deliberately *different* from the outer loop's (`%lb`/`%ub`/
+// `%step`, contrast the `@nested` case above) to sidestep a second,
+// separate bug found while first verifying this fix: the inner hardware
+// loop's induction variable could land in the very register a reused
+// outer-scope value (e.g. a shared lower bound) still occupied -- an
+// ordinary, uncoalesced allocation coincidence, not a coalescing decision
+// -- so the first outer iteration's inner loop would permanently
+// overwrite that register before the second outer iteration re-entered
+// the inner loop needing the original value again. **Now fixed** (same
+// `getUsedValuesDefinedAbove`-based capture extension in
+// `LiveIntervals.cpp` documented on `@nested` above, and exercised there
+// directly with genuinely shared bounds) -- this test's own inner bounds
+// remain independent `lvx.li`s regardless, since that's not what it's
+// isolating.
 // CHECK-LABEL: lvx_func.func @nested_combined_accumulator
 // CHECK: lvx_cf.br ^bb1(%4, %3 : !lvx.reg<r0>, !lvx.reg<r3>)
 // CHECK-NEXT: ^bb1(%5: !lvx.reg<r0>, %6: !lvx.reg<r3>):
