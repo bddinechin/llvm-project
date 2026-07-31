@@ -346,7 +346,7 @@ register needed** if the target has a swap instruction (`xchg` on x86) or
 three `xor`s if it doesn't.
 
 LVX has no dedicated register-register swap opcode -- checked directly
-against ground truth (`lvx-mds/refs/FE/YAML/lvx/lvx_v1/Description.yml`):
+against ground truth (`lvx-mds/lvx-refs/FE/YAML/lvx/lvx_v1/Description.yml`):
 the only `*SWAP*` entries are `RSWAP` (a system-register swap, not
 general-purpose) and the `ASWAP`/`ACSWAP` families (atomic *memory*
 swap/compare-swap via the LSU, unrelated to register-register exchange).

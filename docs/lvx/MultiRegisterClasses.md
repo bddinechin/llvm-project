@@ -76,8 +76,8 @@ forming double-precision registers on MIPS/SPARC/PA-RISC and ARM VFP).
 
 The negative case they give -- the Intel i960, whose triple-width integer
 registers break exactness while remaining safe -- doesn't apply here.
-Nothing in LVX's register file (`lvx-target`'s eventual `RegFile`/`RegClass`
-extraction, `PGR`/`QGR` per `CLAUDE.md`) suggests a non-power-of-two
+Nothing in LVX's register file (`lvx-refs`' `RegFile`/`RegClass` tables,
+`PGR`/`QGR` per `CLAUDE.md`) suggests a non-power-of-two
 grouping. So *if* the class tree described in this paper is built for
 LVX's actual register classes, the colorability criterion it produces
 would be provably as good as an ideal, brute-force one -- not just a
@@ -205,13 +205,13 @@ synthetic graph structure.
 ## Recommendation: revisit when `!lvx.pair`/`!lvx.quad` land
 
 Not actionable now -- there is no multi-register candidate anywhere in
-the dialect yet. When the SIMD phase starts (new `lvx-target`
-`RegFile`/`RegClass` extraction per `CLAUDE.md`, `!lvx.pair`/`!lvx.quad`
+the dialect yet. When the SIMD phase starts (`RegFile`/`RegClass` read
+from `lvx-refs` per `CLAUDE.md`, `!lvx.pair`/`!lvx.quad`
 types, lane/blend/guard ops), the concrete next step is:
 
 1. Confirm LVX's actual pair/quad alignment from the extracted
    `RegFile`/`RegClass` data (don't assume -- verify against
-   `lvx-mds/refs/**` per `CLAUDE.md`'s ground-truth rule) matches the
+   `lvx-mds/lvx-refs/**` per `CLAUDE.md`'s ground-truth rule) matches the
    power-of-two/aligned shape assumed above.
 2. If it does (expected, based on what's known today), skip the paper's
    own `squeeze`/class-tree machinery entirely and extend Step 2's
