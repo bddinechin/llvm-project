@@ -10,4 +10,5 @@ add_mlir_dialect_library(MLIRLVXAnalysis
   MLIRLVXDialect
   MLIRLVXFuncDialect
   MLIRLVXSCFDialect
+  MLIRTransformUtils
 )

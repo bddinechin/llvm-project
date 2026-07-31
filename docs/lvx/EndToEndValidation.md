@@ -366,3 +366,41 @@ the `lvx-gem5` fix landed: `fcompd.olt $r1 = $r3, $r0` against the same
 `-6.6` result now correctly yields `1`, an independent confirmation of
 the sign fix via the more direct check the shift was originally standing
 in for.
+
+## Hardware-loop clobber bug, fixed with a real gem5 before/after (2026-07-31)
+
+The last item from the "not addressed" list this project had accumulated
+(`docs/lvx/HardwareLoops.md`, bottom): a value captured from outside a
+`lvx_scf.for` and used inside its body could share a register with
+something the loop itself defines, safe only if that loop runs once --
+wrong if it's nested inside another loop and re-entered. Root-caused to a
+Step 1 (`LiveIntervals.cpp`) numbering gap around nested `lvx_scf.for`
+ops, not anything `loopdo`-specific; full mechanism and fix in
+`docs/lvx/RegisterAllocation.md`, "Captured values across a re-entered
+loop".
+
+Unusually, this bug already had a real repro sitting in the test suite
+without anyone noticing: `scf-to-cf.mlir`'s pre-existing `@nested` test
+(a doubly-nested loop reusing the same bounds for both levels) exhibited
+exactly this shape, its CHECK lines silently encoding the bug (a
+same-register self-copy for the inner loop's own induction-variable
+seed) as if it were merely a stylistic quirk. Building on that, ran the
+exact `@nested` function through the real toolchain and gem5 both before
+and after the fix (reverting `LiveIntervals.cpp` alone, rebuilding,
+re-running, then restoring it), driven by a 10-iteration outer loop each
+re-running a 10-iteration inner loop with the same bounds and folding the
+inner loop's own sum (`sum(0..9) = 45`) into the outer loop-carried
+value:
+
+- **After the fix**: `code=450` (`45 × 10`) -- correct, every outer
+  iteration's inner loop genuinely re-runs with the right bounds.
+- **Before the fix**: `code=45` -- only the first outer iteration's inner
+  sum survived. The corrupted shared-bound register made every subsequent
+  iteration's `sbfd`-computed trip count evaluate to `10 - 10 = 0`, and
+  `loopdo`'s documented zero-trip-count short-circuit (`docs/lvx/
+  HardwareLoops.md`, "Zero trip count is safe on LVX") silently skipped
+  the inner loop entirely from the second outer iteration onward -- not a
+  crash or a hang, a plausible-looking wrong answer, the same class of bug
+  this project's real-execution testing has repeatedly existed to catch.
+
+All 15 lit tests pass with the fix in place.
