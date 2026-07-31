@@ -93,6 +93,26 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     return;
   }
 
+  // ISD::ConstantFP → the same MAKE/MAKE_X/MAKE_Y ladder as an integer
+  // constant, over the value's raw bit pattern. There is no FP immediate form
+  // and no constant pool in use here; since FP shares the GPR file, loading
+  // the bits IS loading the value. f32 is materialized as its 32-bit encoding
+  // zero-extended, which is where f32 values live in a GPR.
+  if (N->getOpcode() == ISD::ConstantFP) {
+    auto *CFP = cast<ConstantFPSDNode>(N);
+    EVT VT = N->getValueType(0);
+    APInt Bits = CFP->getValueAPF().bitcastToAPInt();
+    int64_t Val = VT == MVT::f32 ? (int64_t)Bits.getZExtValue()
+                                 : (int64_t)Bits.getSExtValue();
+    unsigned Opc = isInt<16>(Val) ? LVX::MAKE
+                 : isInt<43>(Val) ? LVX::MAKE_X
+                                  : LVX::MAKE_Y;
+    SDValue Imm = CurDAG->getTargetConstant(Val, DL, MVT::i64);
+    SDNode *Res = CurDAG->getMachineNode(Opc, DL, VT, Imm);
+    ReplaceNode(N, Res);
+    return;
+  }
+
   // ISD::FrameIndex (Phase 5.6) → ADDD_i $rW = FI, 0, i.e. materialize the
   // local's address into a register. This is for a FrameIndex used as a
   // plain VALUE (e.g. taking a local's address, or passing an array to a
@@ -230,7 +250,13 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
       ISD::LoadExtType Ext = LD->getExtensionType();
       EVT MemVT = LD->getMemoryVT();
       unsigned Opc = 0;
-      if      (MemVT == MVT::i64)                             Opc = LVX::LD;
+      // f64/f32 live in GPRs, so an FP load is the same LD/LWZ as the
+      // integer one of the same width -- only the value type differs.
+      // FP loads must be non-extending: an f32->f64 EXTLOAD needs a real
+      // FWIDENWD after the load, so it is declared Expand in
+      // LVXTargetLowering and must never be matched here as a bare LWZ.
+      if      (MemVT == MVT::i64 || MemVT == MVT::f64)        Opc = LVX::LD;
+      else if (MemVT == MVT::f32 && Ext == ISD::NON_EXTLOAD)  Opc = LVX::LWZ;
       else if (MemVT == MVT::i32 && Ext != ISD::SEXTLOAD)    Opc = LVX::LWZ;
       else if (MemVT == MVT::i32 && Ext == ISD::SEXTLOAD)    Opc = LVX::LWS;
       else if (MemVT == MVT::i16 && Ext != ISD::SEXTLOAD)    Opc = LVX::LHZ;
@@ -241,7 +267,14 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
       if (Opc) {
         SDValue Var  = CurDAG->getTargetConstant(0, DL, MVT::i32); // variant=0
         SDValue Ops[] = {Var, Offset, Base, LD->getChain()};
-        SDNode *Res = CurDAG->getMachineNode(Opc, DL, MVT::i64, MVT::Other, Ops);
+        // Result type comes from the node, not a hardcoded i64: an f32/f64
+        // load produces an f32/f64 value (the loaded bits land in a GPR
+        // either way), and replacing it with an i64-typed machine node trips
+        // ReplaceAllUsesWith's "Cannot use this version" assertion. For the
+        // extending integer loads the node type is already i64, so this is
+        // unchanged for them.
+        SDNode *Res = CurDAG->getMachineNode(Opc, DL, N->getValueType(0),
+                                             MVT::Other, Ops);
         CurDAG->setNodeMemRefs(cast<MachineSDNode>(Res), {LD->getMemOperand()});
         ReplaceNode(N, Res);
         return;
@@ -261,7 +294,8 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     if (selectAddr(CurDAG, DL, ST->getBasePtr(), Base, Offset)) {
       EVT MemVT = ST->getMemoryVT();
       unsigned Opc = 0;
-      if      (MemVT == MVT::i64) Opc = LVX::SD;
+      if      (MemVT == MVT::i64 || MemVT == MVT::f64) Opc = LVX::SD;
+      else if (MemVT == MVT::f32) Opc = LVX::SW;
       else if (MemVT == MVT::i32) Opc = LVX::SW;
       else if (MemVT == MVT::i16) Opc = LVX::SH;
       else if (MemVT == MVT::i8)  Opc = LVX::SB;

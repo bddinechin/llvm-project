@@ -114,6 +114,14 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // intact as a single legal type.
   addRegisterClass(MVT::v4i64, &LVX::GPR256RegClass);
 
+  // Floating point lives in the SAME general-purpose registers as integers --
+  // LVX has no separate FP register file, and every FPU instruction in
+  // LVXInstrInfo.td takes and returns GPR operands. f32 values occupy the low
+  // 32 bits of their GPR (the ISA's f32 operations zero-extend their result,
+  // e.g. FNEGW is "_ZX_32(argument2 ^ 0x80000000)").
+  addRegisterClass(MVT::f64, &LVX::GPRRegClass);
+  addRegisterClass(MVT::f32, &LVX::GPRRegClass);
+
   // Compute derived properties from the register classes we just declared
   // (mirrors the standard boilerplate every target's constructor performs
   // right after addRegisterClass calls).
@@ -177,6 +185,90 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // still has no CMOVED/CMOVEQ pattern wired up and stays Expand.
   setOperationAction(ISD::BR_CC, MVT::i64, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::i64, Expand);
+
+  //===--------------------------------------------------------------------===//
+  // Floating point
+  //
+  // Rounding mode: the arithmetic patterns in LVXInstrInfo.td all pass
+  // floatmode=7, which is the "no suffix" member and means DYNAMIC -- take the
+  // mode from $cs.RM. That is deliberate and matches RISC-V, whose rm=111 is
+  // likewise DYN and is what its assembler defaults to for "fadd.d". LVX FP is
+  // specified to follow RISC-V exactly, and the floatmode table lines up
+  // member-for-member (0=.RN/RNE, 1=.RZ/RTZ, 2=.RD/RDN, 3=.RU/RUP, 4=.RM/RMM).
+  // The conversions to integer instead pass floatmode=1 (.RZ) explicitly,
+  // because C's fptosi/fptoui truncate toward zero regardless of $cs.
+  //===--------------------------------------------------------------------===//
+  for (MVT VT : {MVT::f32, MVT::f64}) {
+    // No hardware for these; they are libm calls in C anyway.
+    setOperationAction(ISD::FREM, VT, Expand);
+    setOperationAction(ISD::FSIN, VT, Expand);
+    setOperationAction(ISD::FCOS, VT, Expand);
+    setOperationAction(ISD::FSINCOS, VT, Expand);
+    setOperationAction(ISD::FPOW, VT, Expand);
+    setOperationAction(ISD::FEXP, VT, Expand);
+    setOperationAction(ISD::FEXP2, VT, Expand);
+    setOperationAction(ISD::FLOG, VT, Expand);
+    setOperationAction(ISD::FLOG2, VT, Expand);
+    setOperationAction(ISD::FLOG10, VT, Expand);
+    setOperationAction(ISD::FCEIL, VT, Expand);
+    setOperationAction(ISD::FFLOOR, VT, Expand);
+    setOperationAction(ISD::FTRUNC, VT, Expand);
+    setOperationAction(ISD::FROUND, VT, Expand);
+    setOperationAction(ISD::FNEARBYINT, VT, Expand);
+
+    // FFMAD/FFMAW accumulate INTO their destination register
+    // (Description.yml: "f64_mulAdd(RM, argument3, argument2^fsign,
+    // argument1^fsign)" -- argument1 is registerW, the destination), so they
+    // need a tied-operand form that ISD::FMA's separate-destination shape does
+    // not have. Expanding to a separate multiply and add is correct, just not
+    // fused; wiring the real FMA is deferred.
+    setOperationAction(ISD::FMA, VT, Expand);
+
+    // FSIGND/FSIGNW would be the natural copysign, but their masks in
+    // lvx-refs clear exponent bit 62 as well as the sign bit
+    // ("argument2 & 0x3FFFFFFFFFFFFFFF" where RISC-V's fsgnj.d and LVX's own
+    // FABSD both use 0x7FFF...). Confirmed wrong on the ISS: fsignd(2.0,-1.0)
+    // returns -0.0 rather than -2.0. Expanding builds copysign from bit
+    // operations instead, which is correct; revisit once the ISA is fixed.
+    setOperationAction(ISD::FCOPYSIGN, VT, Expand);
+
+    // There is no FP compare-and-branch and no FP conditional move: go through
+    // an explicit FCOMPD/FCOMPW producing a 0/1 GPR, then an integer branch.
+    setOperationAction(ISD::BR_CC, VT, Expand);
+    setOperationAction(ISD::SELECT_CC, VT, Expand);
+
+    // floatcomp has eight members covering four complementary pairs --
+    // ONE/UEQ, OEQ/UNE, OLT/UGE, OGE/ULT (Modifier.table). GT/LE forms are
+    // reached by swapping the compared operands, which the patterns in
+    // LVXInstrInfo.td do. Ordered/unordered as a standalone predicate has no
+    // single encoding, so let the legalizer synthesize those two.
+    setCondCodeAction(ISD::SETO, VT, Expand);
+    setCondCodeAction(ISD::SETUO, VT, Expand);
+  }
+
+  // There is no extending FP load and no truncating FP store: widening and
+  // narrowing are separate instructions (FWIDENWD / FNARROWDW). Without these,
+  // DAGCombiner folds "fpextend (load f32)" into a single f32->f64 EXTLOAD and
+  // "store (fpround f64)" into an f64->f32 TRUNCSTORE, and the conversion is
+  // then silently dropped -- the bits get moved but never converted. That is
+  // exactly what happened: "(double)f" compiled to an lwz followed by an sd,
+  // with no FWIDENWD anywhere, and the differential harness caught it as a
+  // wrong value rather than a crash. Expand splits them back into a plain
+  // load/store plus a real conversion.
+  setLoadExtAction(ISD::EXTLOAD, MVT::f64, MVT::f32, Expand);
+  setTruncStoreAction(MVT::f64, MVT::f32, Expand);
+
+  // A ConstantFP has no immediate form -- it is materialized by
+  // LVXISelDAGToDAG as an integer MAKE of the value's bit pattern, exactly
+  // like any other 64-bit constant.
+  setOperationAction(ISD::ConstantFP, MVT::f64, Legal);
+  setOperationAction(ISD::ConstantFP, MVT::f32, Legal);
+
+  // f32 and f64 share the GPR file with i64, so a bitcast between them is a
+  // register-to-register move at worst.
+  setOperationAction(ISD::BITCAST, MVT::f64, Legal);
+  setOperationAction(ISD::BITCAST, MVT::f32, Legal);
+  setOperationAction(ISD::BITCAST, MVT::i64, Legal);
 
   setMinFunctionAlignment(Align(4));
   setPrefFunctionAlignment(Align(4));
@@ -411,9 +503,24 @@ SDValue LVXTargetLowering::LowerFormalArguments(
         // to i32, not bitcast). f64 (same bit width as i64, via
         // CCBitConvertToType) is the one case BITCAST is actually correct
         // for.
-        ArgValue = ArgVT.isFloatingPoint()
-                       ? DAG.getNode(ISD::BITCAST, DL, ArgVT, ArgValue)
-                       : DAG.getNode(ISD::TRUNCATE, DL, ArgVT, ArgValue);
+        if (ArgVT.isFloatingPoint()) {
+          // f64 is the same width as the slot, so a plain BITCAST is right.
+          // f16/f32 are NARROWER: CC_LVX reinterprets them as i16/i32 and
+          // then promotes that to the i64 slot, so undoing it takes both
+          // steps -- truncate to the same-sized integer, then bitcast.
+          // Bitcasting straight from i64 asserts on the size mismatch.
+          if (ArgVT == MVT::f32) {
+            // Reinterpret the low 32 bits of the slot in place. Truncating to
+            // i32 and bitcasting would route the value through memory (i32 is
+            // not legal here) and lose the value entirely -- see the
+            // LVXISD::BITS_TO_F32 comment in LVXInstrInfo.td.
+            ArgValue = DAG.getNode(LVXISD::BITS_TO_F32, DL, MVT::f32, ArgValue);
+          } else {
+            ArgValue = DAG.getNode(ISD::BITCAST, DL, ArgVT, ArgValue);
+          }
+        } else {
+          ArgValue = DAG.getNode(ISD::TRUNCATE, DL, ArgVT, ArgValue);
+        }
       }
     } else if (Pieces.size() == 2) {
       // i128: a genuine wide integer split across two i64 halves.
@@ -533,6 +640,10 @@ LVXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
       Pieces.push_back(ValVT == MVT::i64
                             ? Val
                             : DAG.getNode(ISD::BITCAST, DL, MVT::i64, Val));
+    } else if (ValVT == MVT::f32) {
+      // Mirror of LowerFormalArguments' f32 path: reinterpret in place rather
+      // than bitcasting through an illegal i32.
+      Pieces.push_back(DAG.getNode(LVXISD::F32_TO_BITS, DL, MVT::i64, Val));
     } else if (ValVT == MVT::i128) {
       Pieces.push_back(DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i64, Val,
                                    DAG.getIntPtrConstant(0, DL)));

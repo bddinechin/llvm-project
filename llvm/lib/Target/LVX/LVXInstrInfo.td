@@ -84,6 +84,22 @@ def LVXretglue : SDNode<"LVXISD::RET_GLUE", SDTNone,
 def SDT_LVXBrCC : SDTypeProfile<0, 4, []>;
 def LVXccb : SDNode<"LVXISD::CCB", SDT_LVXBrCC, [SDNPHasChain]>;
 
+// f32 <-> raw GPR bits. LVX keeps f32 in the low 32 bits of a 64-bit GPR, so
+// moving between an f32 value and the i64 argument/return slot that carries it
+// is a pure reinterpretation -- the same register, no instruction.
+//
+// ISD::BITCAST cannot express it: bitcasting f32 to i64 is a size mismatch,
+// and going via i32 does not work either because i32 is not a legal type here
+// (only i64 is), so the legalizer lowers the i32 bitcast through MEMORY. That
+// is not merely slow -- it silently dropped the conversion entirely, turning
+// "fpext float to double" into a store/reload of the raw f32 bits with no
+// FWIDENWD at all. These two nodes keep the reinterpretation in registers,
+// where it belongs.
+def SDT_LVXF32ToBits : SDTypeProfile<1, 1, [SDTCisVT<0, i64>, SDTCisVT<1, f32>]>;
+def SDT_LVXBitsToF32 : SDTypeProfile<1, 1, [SDTCisVT<0, f32>, SDTCisVT<1, i64>]>;
+def LVXf32tobits : SDNode<"LVXISD::F32_TO_BITS", SDT_LVXF32ToBits>;
+def LVXbitstof32 : SDNode<"LVXISD::BITS_TO_F32", SDT_LVXBitsToF32>;
+
 //===----------------------------------------------------------------------===//
 // Call-frame pseudo instructions
 //
@@ -138,7 +154,13 @@ def ADJCALLSTACKUP : LVXPseudo<(outs), (ins i64imm:$amt1, i64imm:$amt2),
 let usesCustomInserter = 1 in
 def Select_GPR : LVXPseudo<(outs GPR:$dst), (ins GPR:$cond, GPR:$T, GPR:$F),
                            "# Select_GPR $dst = $cond ? $T : $F",
-                           [(set GPR:$dst, (select GPR:$cond, GPR:$T, GPR:$F))]>;
+                           // Types are pinned to i64 rather than left as
+                           // bare GPR: GPR now carries f64/f32 as well, and
+                           // ISD::SELECT is type-agnostic, so TableGen could
+                           // not infer which. FP selects are handled by the
+                           // same pseudo after a bitcast.
+                           [(set i64:$dst, (select i64:$cond, i64:$T,
+                                                   i64:$F))]>;
 
 //===----------------------------------------------------------------------===//
 // Scheduling classes (itinerary stubs — filled in during Phase 5)
@@ -1854,8 +1876,8 @@ def CCB   : BCU_CCB_Inst<"ccb", []> {
 // (Right/secondary), per BCU_CCB_Inst's ins order (cmp, target, rY, rZ)
 // and the Description.yml-confirmed Z=Left/Y=Right roles (see LVXccb's
 // own comment above).
-def : Pat<(LVXccb (i32 timm:$cmp), GPR:$rZ, GPR:$rY, bb:$target),
-          (CCB (i32 timm:$cmp), bb:$target, GPR:$rY, GPR:$rZ)>;
+def : Pat<(LVXccb (i32 timm:$cmp), i64:$rZ, i64:$rY, bb:$target),
+          (CCB (i32 timm:$cmp), bb:$target, i64:$rY, i64:$rZ)>;
 def CB    : BCU_CB_Inst<"cb", []> {
   let isBranch     = 1;
   let isTerminator = 1;
@@ -2047,16 +2069,16 @@ def CMOVED : ALU_DCMWRR_Inst<"cmoved", []>;
 // canonicalization is needed: every condition maps straight through.
 // $lhs binds to COMPD's $rZ (Left/primary, per the same
 // Description.yml-confirmed roles as CCB) and $rhs to $rY (Right).
-def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETEQ)),  (COMPD 4,  GPR:$rhs, GPR:$lhs)>;
-def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETNE)),  (COMPD 5,  GPR:$rhs, GPR:$lhs)>;
-def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETLT)),  (COMPD 0,  GPR:$rhs, GPR:$lhs)>;
-def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETGE)),  (COMPD 1,  GPR:$rhs, GPR:$lhs)>;
-def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETLE)),  (COMPD 8,  GPR:$rhs, GPR:$lhs)>;
-def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETGT)),  (COMPD 9,  GPR:$rhs, GPR:$lhs)>;
-def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETULT)), (COMPD 2,  GPR:$rhs, GPR:$lhs)>;
-def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETUGE)), (COMPD 3,  GPR:$rhs, GPR:$lhs)>;
-def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETULE)), (COMPD 10, GPR:$rhs, GPR:$lhs)>;
-def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETUGT)), (COMPD 11, GPR:$rhs, GPR:$lhs)>;
+def : Pat<(i64 (setcc i64:$lhs, i64:$rhs, SETEQ)), (COMPD 4, i64:$rhs, i64:$lhs)>;
+def : Pat<(i64 (setcc i64:$lhs, i64:$rhs, SETNE)), (COMPD 5, i64:$rhs, i64:$lhs)>;
+def : Pat<(i64 (setcc i64:$lhs, i64:$rhs, SETLT)), (COMPD 0, i64:$rhs, i64:$lhs)>;
+def : Pat<(i64 (setcc i64:$lhs, i64:$rhs, SETGE)), (COMPD 1, i64:$rhs, i64:$lhs)>;
+def : Pat<(i64 (setcc i64:$lhs, i64:$rhs, SETLE)), (COMPD 8, i64:$rhs, i64:$lhs)>;
+def : Pat<(i64 (setcc i64:$lhs, i64:$rhs, SETGT)), (COMPD 9, i64:$rhs, i64:$lhs)>;
+def : Pat<(i64 (setcc i64:$lhs, i64:$rhs, SETULT)), (COMPD 2, i64:$rhs, i64:$lhs)>;
+def : Pat<(i64 (setcc i64:$lhs, i64:$rhs, SETUGE)), (COMPD 3, i64:$rhs, i64:$lhs)>;
+def : Pat<(i64 (setcc i64:$lhs, i64:$rhs, SETULE)), (COMPD 10, i64:$rhs, i64:$lhs)>;
+def : Pat<(i64 (setcc i64:$lhs, i64:$rhs, SETUGT)), (COMPD 11, i64:$rhs, i64:$lhs)>;
 
 // BRCOND -> CB (Phase 5.5): branch on a computed boolean register (the
 // counterpart to the SETCC fallback above) via CB's "not equal to zero"
@@ -2453,6 +2475,107 @@ def FFMSH    : ALU_FDFMA_Inst<0b101, 0b01, 1, "ffmsh",    []>;
 def FMULH    : ALU_FDFMA_Inst<0b110, 0b01, 1, "fmulh",    []>;
 def FDIVH    : ALU_FDFMA_Inst<0b111, 0b01, 1, "fdivh",    [], ALU_FULL>;
 
+//===----------------------------------------------------------------------===//
+// Floating-point patterns
+//
+// Operand-order reminder, because every two-source FPU format here has the
+// same shape and it is the reverse of how the assembly reads: the ins list is
+// (..., GPR:$rY, GPR:$rZ) while the printed form is "$rW = $rZ, $rY". So in a
+// pattern the FIRST register operand written is $rY (the ISA's argument3) and
+// the SECOND is $rZ (argument2).
+//
+// The floatmode immediate is 7 on every arithmetic pattern -- the "no suffix"
+// member, meaning dynamic rounding from $cs.RM, matching RISC-V's DYN default.
+// Conversions to integer use 1 (.RZ) because C truncates toward zero.
+//===----------------------------------------------------------------------===//
+
+// ---- f64 arithmetic -------------------------------------------------------
+// FADDD/FMULD are commutative so operand order is free; FSBFD and FDIVD are
+// not. FSBFD is "subtract FROM": f64_sub(RM, argument3, argument2) = rY - rZ,
+// so "a - b" needs rY=a and rZ=b. FDIVD is f64_div(RM, argument2, argument3)
+// = rZ / rY, so "a / b" needs rZ=a and rY=b -- the opposite placement.
+def : Pat<(fadd f64:$a, f64:$b), (FADDD 7, f64:$b, f64:$a)>;
+def : Pat<(fsub f64:$a, f64:$b), (FSBFD 7, f64:$a, f64:$b)>;
+def : Pat<(fmul f64:$a, f64:$b), (FMULD 0, 7, f64:$b, f64:$a)>;
+def : Pat<(fdiv f64:$a, f64:$b), (FDIVD 0, 7, f64:$b, f64:$a)>;
+def : Pat<(fsqrt f64:$a),        (FSQRTD 7, f64:$a)>;
+def : Pat<(fneg f64:$a),         (FNEGD f64:$a)>;
+def : Pat<(fabs f64:$a),         (FABSD f64:$a)>;
+
+// ---- f32 arithmetic -------------------------------------------------------
+def : Pat<(fadd f32:$a, f32:$b), (FADDW 7, f32:$b, f32:$a)>;
+def : Pat<(fsub f32:$a, f32:$b), (FSBFW 7, f32:$a, f32:$b)>;
+def : Pat<(fmul f32:$a, f32:$b), (FMULW 0, 7, f32:$b, f32:$a)>;
+def : Pat<(fdiv f32:$a, f32:$b), (FDIVW 0, 7, f32:$b, f32:$a)>;
+def : Pat<(fsqrt f32:$a),        (FSQRTW 7, f32:$a)>;
+def : Pat<(fneg f32:$a),         (FNEGW f32:$a)>;
+def : Pat<(fabs f32:$a),         (FABSW f32:$a)>;
+
+// ---- Comparisons ----------------------------------------------------------
+// floatcomp encodings (Modifier.table): 0 .ONE, 1 .UEQ, 2 .OEQ, 3 .UNE,
+// 4 .OLT, 5 .UGE, 6 .OGE, 7 .ULT. The set has no GT/LE members, so those are
+// obtained by swapping the two compared registers -- note the swapped
+// patterns below pass ($a, $b) rather than ($b, $a).
+// FCOMPD computes floatcomp_64(fc, argument2=rZ, argument3=rY), so the
+// unswapped forms put the pattern's $a in rZ.
+multiclass FCmpPat<ValueType vt, Instruction cmp> {
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETOEQ)), (cmp 2, vt:$b, vt:$a)>;
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETONE)), (cmp 0, vt:$b, vt:$a)>;
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETOLT)), (cmp 4, vt:$b, vt:$a)>;
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETOGE)), (cmp 6, vt:$b, vt:$a)>;
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETUEQ)), (cmp 1, vt:$b, vt:$a)>;
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETUNE)), (cmp 3, vt:$b, vt:$a)>;
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETUGE)), (cmp 5, vt:$b, vt:$a)>;
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETULT)), (cmp 7, vt:$b, vt:$a)>;
+  // Swapped: a>b is b<a, a<=b is b>=a, and likewise for the unordered forms.
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETOGT)), (cmp 4, vt:$a, vt:$b)>;
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETOLE)), (cmp 6, vt:$a, vt:$b)>;
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETUGT)), (cmp 7, vt:$a, vt:$b)>;
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETULE)), (cmp 5, vt:$a, vt:$b)>;
+
+  // The "don't care" condition codes. LLVM defines SETEQ/SETNE/SETLT/... on
+  // floating point as undefined when either operand is NaN (ISDOpcodes.h:
+  // "Don't care operations: undefined if the operands are NaNs"), so each may
+  // be answered with either the ordered or the unordered member of its pair.
+  // They are not merely theoretical -- clang emits a bare setne against a
+  // ConstantFP for "(double)n == -9.0" at -O0, which failed to select before.
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETEQ)), (cmp 2, vt:$b, vt:$a)>;
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETNE)), (cmp 3, vt:$b, vt:$a)>;
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETLT)), (cmp 4, vt:$b, vt:$a)>;
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETGE)), (cmp 6, vt:$b, vt:$a)>;
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETGT)), (cmp 4, vt:$a, vt:$b)>;
+  def : Pat<(i64 (setcc vt:$a, vt:$b, SETLE)), (cmp 6, vt:$a, vt:$b)>;
+}
+defm : FCmpPat<f64, FCOMPD>;
+defm : FCmpPat<f32, FCOMPW>;
+
+// ---- Conversions ----------------------------------------------------------
+// i64 is the only legal integer type, so the narrower FIXED*W / FLOATW forms
+// are never selected directly -- the type legalizer promotes i32 conversions
+// to these 64-bit ones and truncates/extends around them.
+def : Pat<(i64 (fp_to_sint f64:$a)), (FIXEDD   1, f64:$a)>;
+def : Pat<(i64 (fp_to_uint f64:$a)), (FIXEDUD  1, f64:$a)>;
+def : Pat<(i64 (fp_to_sint f32:$a)), (FIXEDWD  1, f32:$a)>;
+def : Pat<(i64 (fp_to_uint f32:$a)), (FIXEDUWD 1, f32:$a)>;
+def : Pat<(f64 (sint_to_fp i64:$a)), (FLOATD   7, i64:$a)>;
+def : Pat<(f64 (uint_to_fp i64:$a)), (FLOATUD  7, i64:$a)>;
+def : Pat<(f32 (sint_to_fp i64:$a)), (FLOATDW  7, i64:$a)>;
+def : Pat<(f32 (uint_to_fp i64:$a)), (FLOATUDW 7, i64:$a)>;
+
+// f32 <-> f64. FWIDENWD reads the f32 from the low half of its source when
+// mostsig=0, which is where f32 values live here.
+def : Pat<(f64 (fpextend f32:$a)), (FWIDENWD  0, f32:$a)>;
+def : Pat<(f32 (fpround f64:$a)),  (FNARROWDW 7, f64:$a)>;
+
+// ---- Bitcasts -------------------------------------------------------------
+// FP and integer share the GPR file, so these are pure type changes.
+def : Pat<(f64 (bitconvert i64:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
+def : Pat<(i64 (bitconvert f64:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
+
+// The f32 reinterpretations declared above: also register-to-register.
+def : Pat<(i64 (LVXf32tobits f32:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
+def : Pat<(f32 (LVXbitstof32 i64:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
+
 // ---- NOP ------------------------------------------------------------------
 
 def NOP : LVXInst<(outs), (ins), "nop", [], ALU_TINY> {
@@ -2507,8 +2630,11 @@ def LO_idx  : LSU_LOBI_Inst<"lo", []>;
 
 def SB : LSU_SSBO_Inst<0b10000, "sb", []>;
 def SH : LSU_SSBO_Inst<0b10001, "sh", []>;
-def SW : LSU_SSBO_Inst<0b10010, "sw", [(store GPR:$rT, (add GPR:$rZ, simm10imm:$off))]>;
-def SD : LSU_SSBO_Inst<0b10011, "sd", [(store GPR:$rT, (add GPR:$rZ, simm10imm:$off))]>;
+// Pinned to i64 for the same type-inference reason as above. FP and
+// narrower stores are selected by hand in LVXISelDAGToDAG::Select, which
+// runs before these fallback patterns.
+def SW : LSU_SSBO_Inst<0b10010, "sw", [(store i64:$rT, (add i64:$rZ, simm10imm:$off))]>;
+def SD : LSU_SSBO_Inst<0b10011, "sd", [(store i64:$rT, (add i64:$rZ, simm10imm:$off))]>;
 def SQ : LSU_SQBO_Inst<"sq", []>;
 def SO : LSU_SOBO_Inst<"so", []>;
 
