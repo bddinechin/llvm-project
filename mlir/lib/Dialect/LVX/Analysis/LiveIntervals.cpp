@@ -10,7 +10,9 @@
 #include "mlir/Dialect/LVXSCF/IR/LVXSCF.h"
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/IR/RegionGraphTraits.h"
+#include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/PostOrderIterator.h"
+#include "llvm/ADT/SetVector.h"
 
 using namespace mlir;
 using namespace mlir::lvx;
@@ -105,6 +107,43 @@ void LVXLiveIntervals::buildIntervals(lvx_func::FuncOp func) {
     LiveInterval &step_interval =
         getOrCreate(forOp.getStep(), valueToIntervalIndex, intervals);
     step_interval.end = std::max(step_interval.end, bodyEnd);
+
+    // Any value captured from outside this loop -- referenced as one of
+    // the op's own bound operands, or by any op transitively nested
+    // inside its body (including a nested `lvx_scf.for`'s own bound
+    // operands) -- must be treated as live for this loop's *entire* span,
+    // not just up to wherever it happens to be last referenced textually.
+    // Ordinary operand-based interval tracking sets such a value's `end`
+    // to the number of the (possibly deeply nested) op that consumes it;
+    // if that op is itself a nested `lvx_scf.for`, that number is exactly
+    // one less than its own body block's number (`numberBlock` assigns
+    // the nested for-op's number, then immediately recurses into its
+    // body) -- so a captured value's computed interval can end the
+    // instant before the nested loop's own induction variable's interval
+    // begins, making them appear non-overlapping and free to share a
+    // register. That's only safe if this loop runs once; if it's itself
+    // nested inside another loop (so its whole body, including that
+    // reused register, re-executes on the next outer iteration), the
+    // capture's *original* value is needed again at that point, but the
+    // register has since been overwritten by the inner loop's own
+    // induction-variable increments -- see docs/lvx/HardwareLoops.md,
+    // "hardware-loop clobber bug" for the concrete failure this caused.
+    // `getUsedValuesDefinedAbove` (the same "closure capture" utility
+    // MLIR's own region-isolation transforms use) gives exactly the set
+    // of values used anywhere inside `forOp`'s body but defined outside
+    // it; extending each to `bodyEnd` here, at *every* nesting level (the
+    // outermost extension always wins via `std::max`, since outer bodies
+    // strictly contain inner ones in this numbering), makes the interval
+    // that reused register would need span the true worst case: the
+    // entire loop the capture could be re-read across, not just one pass
+    // through it.
+    llvm::SetVector<Value> captured;
+    getUsedValuesDefinedAbove(forOp.getBodyRegion(), forOp.getBodyRegion(),
+                              captured);
+    for (Value v : captured) {
+      LiveInterval &civ = getOrCreate(v, valueToIntervalIndex, intervals);
+      civ.end = std::max(civ.end, bodyEnd);
+    }
   });
 
   // Extend intervals for values that pass through a block untouched (live
