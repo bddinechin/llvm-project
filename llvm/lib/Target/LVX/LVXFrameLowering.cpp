@@ -88,6 +88,25 @@ void LVXFrameLowering::emitPrologue(MachineFunction &MF,
   if (StackSize == 0 && !MFI.adjustsStack() && !hasFP(MF))
     return;
 
+  // The Frame Marker ($ra + caller FP, 8 bytes each) needs 16 bytes of real
+  // stack space whenever it's saved/restored below, but MFI has no concept
+  // of it (it's never registered as a stack object anywhere) -- StackSize
+  // above reflects only locals/spills (plus outgoing-arg space, already
+  // folded in by PEI when hasReservedCallFrame(), i.e. whenever !hasFP()).
+  // Without this padding, functions with zero locals that still make calls
+  // (e.g. any non-leaf function with no local variables, such as a simple
+  // recursive helper) allocate NO stack at all and every recursion level's
+  // SD $ra/$r14 aliases the exact same bytes, corrupting the return-address
+  // chain. AllocSize is the real, total amount physically (de)allocated;
+  // FP is set to point at the incoming SP (SP_new + AllocSize) so
+  // LVXRegisterInfo::eliminateFrameIndex's existing FP/SP-relative local
+  // addressing (which assumes exactly that invariant) needs no changes for
+  // the hasFP() path -- only the !hasFP() SP-relative path there also needs
+  // to add this same MarkerSize (see the matching comment there).
+  bool NeedsMarker = hasFP(MF) || MFI.adjustsStack();
+  uint64_t MarkerSize = NeedsMarker ? 16 : 0;
+  uint64_t AllocSize = StackSize + MarkerSize;
+
   // Step 1: Allocate the stack frame.
   // "addd $r12 = -FrameSize, $r12" when it fits ADDD_i's simm10 immediate
   // ([-512,511]); otherwise materialize -FrameSize into a scratch register
@@ -96,13 +115,13 @@ void LVXFrameLowering::emitPrologue(MachineFunction &MF,
   // one of the "veneer / long-branch temporary" scratch registers per
   // LVXRegisterInfo.td) is free here since nothing is live yet at
   // function entry.
-  if (StackSize > 0) {
-    if (isInt<10>(-(int64_t)StackSize)) {
+  if (AllocSize > 0) {
+    if (isInt<10>(-(int64_t)AllocSize)) {
       BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD_i), LVX::R12)
-          .addImm(-(int64_t)StackSize)
+          .addImm(-(int64_t)AllocSize)
           .addReg(LVX::R12);
     } else {
-      TII->loadImmediate(MBB, MBBI, DL, LVX::R16, -(int64_t)StackSize);
+      TII->loadImmediate(MBB, MBBI, DL, LVX::R16, -(int64_t)AllocSize);
       BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD), LVX::R12)
           .addReg(LVX::R12)
           .addReg(LVX::R16);
@@ -111,18 +130,15 @@ void LVXFrameLowering::emitPrologue(MachineFunction &MF,
 
   // Step 2: Save the Frame Marker ($ra, caller FP) when a frame pointer
   // is needed or when the function calls other functions (adjustsStack).
-  // The Frame Marker sits just above the Outgoing Arguments region:
-  //   SP+0 .. SP+(OutgoingArgSize-1) = Outgoing Arguments
-  //   SP+OutgoingArgSize+0  = caller FP  (8 bytes)
-  //   SP+OutgoingArgSize+8  = $ra        (8 bytes)
-  // Per ABI: FP points to the caller-FP slot (= SP+OutgoingArgSize).
-  if (hasFP(MF) || MFI.adjustsStack()) {
-    unsigned OutgoingArgSize = MFI.getMaxCallFrameSize();
-    // Align to 8 bytes.
-    OutgoingArgSize = alignTo(OutgoingArgSize, 8);
-
-    int64_t FPOffset = (int64_t)OutgoingArgSize;     // caller FP slot
-    int64_t RAOffset = (int64_t)OutgoingArgSize + 8; // $ra slot
+  // Placed in the 16 bytes of padding just added above, i.e. immediately
+  // below the incoming-SP boundary that FP will point to:
+  //   SP_new+0 .. SP_new+StackSize-1        = locals (+ folded outgoing args)
+  //   SP_new+StackSize+0  = $ra        (8 bytes)
+  //   SP_new+StackSize+8  = caller FP  (8 bytes)
+  //   SP_new+StackSize+16 = FP (= incoming SP)
+  if (NeedsMarker) {
+    int64_t RAOffset = (int64_t)StackSize;     // $ra slot
+    int64_t FPOffset = (int64_t)StackSize + 8; // caller FP slot
 
     // Save caller FP.
     {
@@ -147,14 +163,18 @@ void LVXFrameLowering::emitPrologue(MachineFunction &MF,
           .addReg(Base);
     }
 
-    // Set frame pointer: FP = SP + FrameSize (points to Frame Marker).
-    // "addd $r14 = FrameSize, $r12"
-    if (isInt<10>((int64_t)StackSize)) {
+    // Set frame pointer: FP = SP_new + AllocSize = incoming SP. This must
+    // use the padded AllocSize, not the bare local-only StackSize, or FP
+    // would point 16 bytes short of the incoming SP -- LVXRegisterInfo::
+    // eliminateFrameIndex's FP-relative addressing (hasFP() path) assumes
+    // FP == incoming SP exactly.
+    // "addd $r14 = AllocSize, $r12"
+    if (isInt<10>((int64_t)AllocSize)) {
       BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD_i), LVX::R14)
-          .addImm((int64_t)StackSize)
+          .addImm((int64_t)AllocSize)
           .addReg(LVX::R12);
     } else {
-      TII->loadImmediate(MBB, MBBI, DL, LVX::R14, (int64_t)StackSize);
+      TII->loadImmediate(MBB, MBBI, DL, LVX::R14, (int64_t)AllocSize);
       BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD), LVX::R14)
           .addReg(LVX::R14)
           .addReg(LVX::R12);
@@ -181,13 +201,15 @@ void LVXFrameLowering::emitEpilogue(MachineFunction &MF,
   if (StackSize == 0 && !MFI.adjustsStack() && !hasFP(MF))
     return;
 
-  // Step 1: Restore Frame Marker ($ra, caller FP).
-  if (hasFP(MF) || MFI.adjustsStack()) {
-    unsigned OutgoingArgSize = MFI.getMaxCallFrameSize();
-    OutgoingArgSize = alignTo(OutgoingArgSize, 8);
+  // Same Frame Marker padding as emitPrologue -- see the comment there.
+  bool NeedsMarker = hasFP(MF) || MFI.adjustsStack();
+  uint64_t MarkerSize = NeedsMarker ? 16 : 0;
+  uint64_t AllocSize = StackSize + MarkerSize;
 
-    int64_t FPOffset = (int64_t)OutgoingArgSize;
-    int64_t RAOffset = (int64_t)OutgoingArgSize + 8;
+  // Step 1: Restore Frame Marker ($ra, caller FP).
+  if (NeedsMarker) {
+    int64_t RAOffset = (int64_t)StackSize;
+    int64_t FPOffset = (int64_t)StackSize + 8;
 
     // Restore $ra. LD's destination is GPR-typed (same reason as the
     // GETRA save above), so load into scratch R16 first, then SETRA it
@@ -215,13 +237,13 @@ void LVXFrameLowering::emitEpilogue(MachineFunction &MF,
   // "addd $r12 = FrameSize, $r12" when it fits simm10; otherwise MAKE/
   // MAKE_X/MAKE_Y + ADDD via scratch R16, same fallback as emitPrologue's
   // allocation step.
-  if (StackSize > 0) {
-    if (isInt<10>((int64_t)StackSize)) {
+  if (AllocSize > 0) {
+    if (isInt<10>((int64_t)AllocSize)) {
       BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD_i), LVX::R12)
-          .addImm((int64_t)StackSize)
+          .addImm((int64_t)AllocSize)
           .addReg(LVX::R12);
     } else {
-      TII->loadImmediate(MBB, MBBI, DL, LVX::R16, (int64_t)StackSize);
+      TII->loadImmediate(MBB, MBBI, DL, LVX::R16, (int64_t)AllocSize);
       BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD), LVX::R12)
           .addReg(LVX::R12)
           .addReg(LVX::R16);

@@ -9,6 +9,7 @@
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 
@@ -120,16 +121,55 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
 
   setStackPointerRegisterToSaveRestore(LVX::R12);
 
-  // Have all idivs/irems expanded to libcalls for now (Phase 3 minimal
-  // bring-up); LVX does have DIVMODD/DIVMODUD/DIVMODW/DIVMODUW
-  // instructions (Phase 2), but wiring SelectionDAG's sdiv/srem/udiv/urem
-  // nodes to them via setOperationAction + a real pattern or custom
-  // lowering is deferred until basic call/return lowering is verified
-  // working end-to-end.
+  // COMPD/CCB (SETCC->COMPD, BR_CC->CCB patterns) always produce/consume a
+  // real 0-or-1 value across the full 64-bit register (Description.yml's
+  // comparisons are "_ZX_64"-zero-extended), and brcond's generic semantics
+  // test the WHOLE operand for nonzero -- not just bit 0. The default
+  // UndefinedBooleanContent ("only bit 0 counts, rest can be garbage") is
+  // unsound for that combination: it lets the type legalizer skip masking
+  // when promoting a truncate-to-i1 boolean (e.g. a bit-parity test) back to
+  // i64, and DAGCombiner's brcond(xor x,y)->br_cc(setne x,y) fold then
+  // silently upgrades a bit-0-only test into a full-width test. Declaring
+  // ZeroOrOneBooleanContent makes the type legalizer insert the real
+  // zero-extend+mask that keeps upper bits at 0, matching every SETCC this
+  // backend actually emits.
+  setBooleanContents(ZeroOrOneBooleanContent);
+
+  // Integer division/remainder maps onto the hardware DIVMODD/DIVMODUD
+  // instructions, which compute BOTH the quotient and the remainder in one
+  // shot and deliver them as a 128-bit register pair (quotient in the
+  // architecturally low half, remainder in the high half -- see
+  // Description.yml's DIVMODD, "result1.64[0] = dividend / divisor;
+  // result1.64[1] = dividend % divisor").
+  //
+  // That maps exactly onto ISD::SDIVREM/UDIVREM, so those are the nodes
+  // declared Legal and hand-selected in LVXISelDAGToDAG::Select. The four
+  // single-result operations stay Expand: SelectionDAGLegalize::ExpandNode
+  // turns an Expand-ed SDIV/UDIV/SREM/UREM into the corresponding
+  // SDIVREM/UDIVREM whenever that is legal-or-custom, and simply keeps
+  // result 0 (quotient) or result 1 (remainder). So "a / b" and "a % b"
+  // each become one DIVMODD, and a function doing both on the same
+  // operands gets a single shared one.
+  //
+  // Declaring the REM forms is not optional bookkeeping: DAGCombiner fuses
+  // an adjacent "a / b" and "a % b" into ISD::UDIVREM/SDIVREM directly, and
+  // that is a distinct opcode from UDIV/UREM. Leaving it unhandled made
+  // isel fail with "Cannot select: udivrem" and abort llc.
+  //
+  // Division by a *constant* never reaches any of this -- it is
+  // strength-reduced far earlier into a reciprocal multiply (MULD .hu/.h
+  // plus a shift).
   setOperationAction(ISD::SDIV, MVT::i64, Expand);
   setOperationAction(ISD::UDIV, MVT::i64, Expand);
   setOperationAction(ISD::SREM, MVT::i64, Expand);
   setOperationAction(ISD::UREM, MVT::i64, Expand);
+  setOperationAction(ISD::SDIVREM, MVT::i64, Legal);
+  setOperationAction(ISD::UDIVREM, MVT::i64, Legal);
+
+  // No dedicated byte-swap instruction in the ISA (Description.yml has
+  // none); expand into the generic shift/mask/or sequence, which only
+  // needs ops (SHL/SRL/AND/OR) this backend already supports.
+  setOperationAction(ISD::BSWAP, MVT::i64, Expand);
 
   // BR_CC (Phase 5.4): fuse compare+branch into CCB directly, custom
   // lowered below (LowerBR_CC) -- LVX has real compare-and-branch
@@ -204,6 +244,64 @@ SDValue LVXTargetLowering::LowerBR_CC(SDValue Op, SelectionDAG &DAG) const {
   SDValue CCImm = DAG.getTargetConstant(getCCBCompForCC(CC), DL, MVT::i32);
   return DAG.getNode(LVXISD::CCB, DL, MVT::Other, Chain, CCImm, LHS, RHS,
                      Dest);
+}
+
+// Select_GPR has no real encoding (LVXInstrInfo.td) -- it exists only so
+// SelectionDAGISel has something to match ISD::SELECT to. Expand it here,
+// post-isel, into the standard cmov-less-RISC diamond:
+//
+//   ThisMBB:  CB .dnez SinkMBB, $cond   ; branch to Sink if cond != 0
+//             (falls through to Copy0MBB otherwise)
+//   Copy0MBB: (empty, falls through to SinkMBB)
+//   SinkMBB:  $dst = PHI [$T, ThisMBB], [$F, Copy0MBB]
+//
+// i.e. the direct branch carries the "true" value and the fallthrough path
+// carries the "false" value, matching MI's (cond, T, F) operand order.
+MachineBasicBlock *
+LVXTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
+                                               MachineBasicBlock *BB) const {
+  assert(MI.getOpcode() == LVX::Select_GPR &&
+        "unexpected opcode for EmitInstrWithCustomInserter");
+
+  const TargetInstrInfo &TII = *BB->getParent()->getSubtarget().getInstrInfo();
+  DebugLoc DL = MI.getDebugLoc();
+
+  Register DstReg = MI.getOperand(0).getReg();
+  Register CondReg = MI.getOperand(1).getReg();
+  Register TReg = MI.getOperand(2).getReg();
+  Register FReg = MI.getOperand(3).getReg();
+
+  MachineFunction *MF = BB->getParent();
+  MachineBasicBlock *ThisMBB = BB;
+  MachineFunction::iterator It = ++BB->getIterator();
+
+  MachineBasicBlock *Copy0MBB = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MachineBasicBlock *SinkMBB = MF->CreateMachineBasicBlock(BB->getBasicBlock());
+  MF->insert(It, Copy0MBB);
+  MF->insert(It, SinkMBB);
+
+  // Move the remainder of ThisMBB (everything after the pseudo) into
+  // SinkMBB, and hand SinkMBB ThisMBB's successors/PHI edges.
+  SinkMBB->splice(SinkMBB->begin(), ThisMBB,
+                  std::next(MachineBasicBlock::iterator(MI)), ThisMBB->end());
+  SinkMBB->transferSuccessorsAndUpdatePHIs(ThisMBB);
+
+  ThisMBB->addSuccessor(Copy0MBB);
+  ThisMBB->addSuccessor(SinkMBB);
+  Copy0MBB->addSuccessor(SinkMBB);
+
+  // CB .dnez: branch to SinkMBB directly when $cond != 0 (the "true" case).
+  BuildMI(ThisMBB, DL, TII.get(LVX::CB))
+      .addImm(5 /* .dnez, per the existing brcond->CB pattern */)
+      .addMBB(SinkMBB)
+      .addReg(CondReg);
+
+  BuildMI(*SinkMBB, SinkMBB->begin(), DL, TII.get(TargetOpcode::PHI), DstReg)
+      .addReg(TReg).addMBB(ThisMBB)
+      .addReg(FReg).addMBB(Copy0MBB);
+
+  MI.eraseFromParent();
+  return SinkMBB;
 }
 
 bool LVXTargetLowering::CanLowerReturn(
@@ -304,8 +402,19 @@ SDValue LVXTargetLowering::LowerFormalArguments(
     SDValue ArgValue;
     if (Pieces.size() == 1) {
       ArgValue = Pieces[0];
-      if (ArgVT != MVT::i64)
-        ArgValue = DAG.getNode(ISD::BITCAST, DL, ArgVT, ArgValue);
+      if (ArgVT != MVT::i64) {
+        // CC_LVX promotes i1/i8/i16/i32 to a full i64 slot (CCPromoteToType)
+        // -- narrower than the i64 piece, so this is a genuine TRUNCATE, not
+        // a same-size BITCAST (which asserts "Cannot BITCAST between types
+        // of different sizes", confirmed by a real crash compiling
+        // memset(void*, int, size_t) -- int's slot must be truncated back
+        // to i32, not bitcast). f64 (same bit width as i64, via
+        // CCBitConvertToType) is the one case BITCAST is actually correct
+        // for.
+        ArgValue = ArgVT.isFloatingPoint()
+                       ? DAG.getNode(ISD::BITCAST, DL, ArgVT, ArgValue)
+                       : DAG.getNode(ISD::TRUNCATE, DL, ArgVT, ArgValue);
+      }
     } else if (Pieces.size() == 2) {
       // i128: a genuine wide integer split across two i64 halves.
       // BUILD_PAIR is the standard node for this (low half first, per
@@ -382,8 +491,15 @@ LVXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   if (IsVarArg)
     report_fatal_error("Variadic functions not yet supported on LVX");
-  if (CLI.IsTailCall)
-    report_fatal_error("Tail calls not yet supported on LVX");
+
+  // A tail call is an OPTIMIZATION, not a requirement: IsTailCall arrives set
+  // whenever the optimizer thinks the call is eligible, and every target is
+  // free to decline by clearing it and emitting an ordinary call. Aborting
+  // instead used to kill llc outright ("LLVM ERROR: Tail calls not yet
+  // supported on LVX") on ordinary self-recursive C at -O2 -- a plain
+  // recursive fib() was enough -- even though the correct, always-legal
+  // lowering was simply to ignore the request.
+  CLI.IsTailCall = false;
 
   MachineFunction &MF = DAG.getMachineFunction();
 

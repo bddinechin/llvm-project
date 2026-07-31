@@ -52,6 +52,13 @@ public:
   getSingleConstraintMatchWeight(AsmOperandInfo &Info,
                                  const char *Constraint) const override;
 
+  // LVX has no conditional-move instruction, so Select_GPR (the pseudo
+  // ISD::SELECT is pattern-matched to -- see LVXInstrInfo.td) is expanded
+  // into a real two-block diamond CFG here rather than at DAG-select time.
+  MachineBasicBlock *
+  EmitInstrWithCustomInserter(MachineInstr &MI,
+                              MachineBasicBlock *BB) const override;
+
 private:
   SDValue LowerBR_CC(SDValue Op, SelectionDAG &DAG) const;
 

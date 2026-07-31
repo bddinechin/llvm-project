@@ -83,6 +83,38 @@ public:
   void loadImmediate(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
                      const DebugLoc &DL, Register DestReg,
                      int64_t Imm) const;
+
+  // Branch analysis. Without these the CFG-rewriting passes cannot run:
+  // insertBranch in particular is a hard requirement, and its unimplemented
+  // default aborts with "Target didn't implement TargetInstrInfo::
+  // insertBranch!" the moment the Control Flow Optimizer wants to move a
+  // block. LVX has three branch forms:
+  //   GOTO target                 unconditional
+  //   CB   cond, target, rZ       conditional on one register (bcucond)
+  //   CCB  cmp, target, rY, rZ    fused compare-and-branch (ccbcomp)
+  //
+  // The Cond vector handed back by analyzeBranch (and consumed by
+  // insertBranch/reverseBranchCondition) is encoded as
+  //   Cond[0] = the branch opcode (LVX::CB or LVX::CCB)
+  //   Cond[1] = the condition immediate
+  //   Cond[2..] = the register operands, in instruction order
+  // i.e. every operand of the original branch except its target block,
+  // which travels separately as TBB.
+  bool analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
+                     MachineBasicBlock *&FBB,
+                     SmallVectorImpl<MachineOperand> &Cond,
+                     bool AllowModify) const override;
+
+  unsigned insertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+                        MachineBasicBlock *FBB,
+                        ArrayRef<MachineOperand> Cond, const DebugLoc &DL,
+                        int *BytesAdded = nullptr) const override;
+
+  unsigned removeBranch(MachineBasicBlock &MBB,
+                        int *BytesRemoved = nullptr) const override;
+
+  bool
+  reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
 };
 
 } // end namespace llvm

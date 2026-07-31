@@ -28,21 +28,25 @@ add_llvm_target(LVXCodeGen
   LVXSelectionDAGInfo.cpp
   LVXSubtarget.cpp
   LVXTargetMachine.cpp
+  # LVXDesc/LVXInfo belong in LINK_COMPONENTS, not LINK_LIBS: they are
+  # registered LLVM components (see the subdirectory CMakeLists), and listing
+  # them as components is what records the dependency in the component graph
+  # rather than only as a raw CMake library edge. Every other target does it
+  # this way.
   LINK_COMPONENTS
     Analysis
     AsmPrinter
     CodeGen
     CodeGenTypes
     Core
+    LVXDesc
+    LVXInfo
     MC
     SelectionDAG
     Support
     Target
     TargetParser
     TransformUtils
-  LINK_LIBS
-    LVXDesc
-    LVXInfo
   ADD_TO_COMPONENT
     LVX
 )

@@ -220,11 +220,17 @@ inline int parseSignextw(StringRef s) {
 
 // ────────────────────────────────────────────────────────────────
 // highmult — 2 bits  (High Multiply)
+// NOTE: highmult is the one modifier in the whole ISA whose "no suffix"
+// member is NOT encoding 0 -- lvx-refs Modifier.table gives
+// members=".H .HU .HSU ." over values="0 1 2 3", so encoding 3 is the
+// plain low multiply and 0/1/2 are the three high-multiply variants. This
+// table used to assume the usual "0 == default == no suffix" layout and
+// was therefore rotated by one on every value.
 static const char *HighmultSuffixes[4] = {
-  "",        // 0: Low
-  ".h",      // 1: High
-  ".hu",     // 2: High Unsigned
-  ".hsu",    // 3: High Signed Unsigned
+  ".h",      // 0: High (signed x signed)
+  ".hu",     // 1: High Unsigned (zero-ext x zero-ext)
+  ".hsu",    // 2: High Signed by Unsigned
+  "",        // 3: Low -- plain "muld", no suffix
 };
 
 inline const char *getHighmultSuffix(uint8_t enc) {
@@ -233,10 +239,10 @@ inline const char *getHighmultSuffix(uint8_t enc) {
 }
 
 inline int parseHighmult(StringRef s) {
-  if (s.empty())     return 0;
-  if (s == ".h")           return 1;
-  if (s == ".hu")          return 2;
-  if (s == ".hsu")         return 3;
+  if (s.empty())     return 3;
+  if (s == ".h")           return 0;
+  if (s == ".hu")          return 1;
+  if (s == ".hsu")         return 2;
   return -1;
 }
 

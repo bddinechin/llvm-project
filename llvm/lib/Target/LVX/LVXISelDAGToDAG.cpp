@@ -93,6 +93,88 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     return;
   }
 
+  // ISD::FrameIndex (Phase 5.6) → ADDD_i $rW = FI, 0, i.e. materialize the
+  // local's address into a register. This is for a FrameIndex used as a
+  // plain VALUE (e.g. taking a local's address, or passing an array to a
+  // function) rather than as a load/store base (that case is handled
+  // inside selectAddr/the LOAD/STORE cases below and never reaches here).
+  // ADDD_i's ins order (simm10:$imm, GPR:$rZ) places the offset
+  // immediately before the base-register operand -- the FrameIndex here
+  // fills that $rZ slot with offset 0 -- which is exactly the "offset
+  // precedes base" layout LVXRegisterInfo::eliminateFrameIndex already
+  // assumes for every load/store format; PEI later rewrites this FI
+  // operand to the real frame register and the 0 to the true offset
+  // (falling back to MAKE_X/Y + scavenging via the usual mechanism if it
+  // doesn't fit simm10), turning this into a real address computation.
+  if (N->getOpcode() == ISD::FrameIndex) {
+    int FI = cast<FrameIndexSDNode>(N)->getIndex();
+    SDValue TFI = CurDAG->getTargetFrameIndex(FI, N->getValueType(0));
+    SDValue Zero = CurDAG->getTargetConstant(0, DL, MVT::i64);
+    SDNode *Res = CurDAG->getMachineNode(LVX::ADDD_i, DL, MVT::i64, Zero, TFI);
+    ReplaceNode(N, Res);
+    return;
+  }
+
+  // ISD::GlobalAddress used as a plain VALUE (e.g. the base of a switch
+  // lookup table SimplifyCFG materialized, or any other &global reference
+  // that isn't a direct CALL callee -- that case is handled separately
+  // above). This backend has no MCCodeEmitter, so the real encoding of
+  // MAKE_Y's wide immediate is moot (LVXInstrInfo.td's Inst{...}=? bits are
+  // explicitly deferred); what matters is that LVXMCInstLower's generic
+  // MO_GlobalAddress handling prints this as a real symbol reference, and
+  // MAKE_Y is used unconditionally (not the narrower MAKE/MAKE_X) since a
+  // link-time symbol address isn't known at compile time and can't be
+  // range-checked into those forms the way ISD::Constant's literal value is.
+  if (N->getOpcode() == ISD::GlobalAddress) {
+    auto *GA = cast<GlobalAddressSDNode>(N);
+    SDValue Sym = CurDAG->getTargetGlobalAddress(
+        GA->getGlobal(), DL, MVT::i64, GA->getOffset());
+    SDNode *Res = CurDAG->getMachineNode(LVX::MAKE_Y, DL, MVT::i64, Sym);
+    ReplaceNode(N, Res);
+    return;
+  }
+
+  // ISD::SDIVREM / UDIVREM → DIVMODD / DIVMODUD plus two subregister reads.
+  //
+  // These are declared Legal in LVXTargetLowering (not Custom/Expand) and
+  // selected here by hand, because the machine instruction has a shape
+  // TableGen patterns express poorly: one instruction, one 128-bit paired
+  // result, feeding two independent 64-bit values.
+  //
+  // Result layout, per Description.yml's DIVMODD/DIVMODUD:
+  //   result1.64[0] = quotient    result1.64[1] = remainder
+  // and .64[0] is the architecturally LOW half of the pair, which in this
+  // target's (confusingly named) subregister indices is sub_hi -- the one
+  // at bit offset 0, i.e. the even/lower-numbered GPR of the pair. See the
+  // matching note in LVXInstrInfo.cpp's copyPhysReg. So quotient = sub_hi,
+  // remainder = sub_lo. Swapping them silently exchanges "/" and "%".
+  //
+  // Operand order needs the same care. ALU_DDMWRR_Inst is
+  // "(ins GPR:$rY, GPR:$rZ)" printed as "$rM = $rZ, $rY", and the ISA makes
+  // $rZ the dividend (argument2) and $rY the divisor (argument3). The
+  // machine node therefore takes (divisor, dividend) in that order, which
+  // is the reverse of how the assembly reads.
+  if (N->getOpcode() == ISD::SDIVREM || N->getOpcode() == ISD::UDIVREM) {
+    bool IsSigned = N->getOpcode() == ISD::SDIVREM;
+    unsigned Opc = IsSigned ? LVX::DIVMODD : LVX::DIVMODUD;
+    SDValue Dividend = N->getOperand(0);
+    SDValue Divisor = N->getOperand(1);
+
+    SDNode *Pair =
+        CurDAG->getMachineNode(Opc, DL, MVT::i128, Divisor, Dividend);
+    SDValue PairVal(Pair, 0);
+
+    SDValue Quo =
+        CurDAG->getTargetExtractSubreg(sub_hi, DL, MVT::i64, PairVal);
+    SDValue Rem =
+        CurDAG->getTargetExtractSubreg(sub_lo, DL, MVT::i64, PairVal);
+
+    ReplaceUses(SDValue(N, 0), Quo);
+    ReplaceUses(SDValue(N, 1), Rem);
+    CurDAG->RemoveDeadNode(N);
+    return;
+  }
+
   // ISD::BUILD_PAIR (i128 from two i64 halves) → CATDQ.
   // LowerFormalArguments produces BUILD_PAIR when reassembling an i128
   // argument from its two i64 CC slots. CATDQ is the single LVX instruction

@@ -222,3 +222,173 @@ void LVXInstrInfo::loadImmediate(MachineBasicBlock &MBB,
                                    : LVX::MAKE_Y;
   BuildMI(MBB, MI, DL, get(Opc), DestReg).addImm(Imm);
 }
+
+//===----------------------------------------------------------------------===//
+// Branch analysis
+//
+// See the Cond-vector encoding described in LVXInstrInfo.h.
+//===----------------------------------------------------------------------===//
+
+// True for the two conditional branch forms; GOTO is handled separately since
+// it is unconditional (and isBarrier).
+static bool isCondBranchOpcode(unsigned Opc) {
+  return Opc == LVX::CB || Opc == LVX::CCB;
+}
+
+// Packs a conditional branch's non-target operands into the Cond vector.
+// CB is "cond, target, rZ" and CCB is "cmp, target, rY, rZ", so in both the
+// target is operand 1 and everything else carries over in order.
+static void encodeCond(const MachineInstr &MI,
+                       SmallVectorImpl<MachineOperand> &Cond) {
+  Cond.push_back(MachineOperand::CreateImm(MI.getOpcode()));
+  Cond.push_back(MI.getOperand(0)); // condition immediate
+  for (unsigned I = 2, E = MI.getNumOperands(); I != E; ++I)
+    Cond.push_back(MI.getOperand(I)); // register operands
+}
+
+bool LVXInstrInfo::analyzeBranch(MachineBasicBlock &MBB,
+                                 MachineBasicBlock *&TBB,
+                                 MachineBasicBlock *&FBB,
+                                 SmallVectorImpl<MachineOperand> &Cond,
+                                 bool AllowModify) const {
+  TBB = FBB = nullptr;
+  Cond.clear();
+
+  MachineBasicBlock::iterator I = MBB.getLastNonDebugInstr();
+  if (I == MBB.end() || !isUnpredicatedTerminator(*I))
+    return false; // falls through only
+
+  // Collect the trailing run of terminators, newest first.
+  MachineBasicBlock::iterator FirstTerm = I;
+  while (FirstTerm != MBB.begin()) {
+    auto Prev = std::prev(FirstTerm);
+    if (Prev->isDebugInstr() || !isUnpredicatedTerminator(*Prev))
+      break;
+    FirstTerm = Prev;
+  }
+
+  SmallVector<MachineInstr *, 4> Terms;
+  for (auto T = FirstTerm; T != MBB.end(); ++T)
+    if (!T->isDebugInstr())
+      Terms.push_back(&*T);
+
+  // Anything that is not GOTO/CB/CCB (an indirect IGOTO, a RET, ...) is not
+  // something this can rewrite safely.
+  for (MachineInstr *T : Terms)
+    if (T->getOpcode() != LVX::GOTO && !isCondBranchOpcode(T->getOpcode()))
+      return true;
+
+  if (Terms.size() == 1) {
+    MachineInstr *T = Terms[0];
+    if (T->getOpcode() == LVX::GOTO) {
+      TBB = T->getOperand(0).getMBB();
+      return false;
+    }
+    // Conditional with fallthrough.
+    TBB = T->getOperand(1).getMBB();
+    encodeCond(*T, Cond);
+    return false;
+  }
+
+  // Conditional followed by an unconditional jump: "cond ? TBB : FBB".
+  if (Terms.size() == 2 && isCondBranchOpcode(Terms[0]->getOpcode()) &&
+      Terms[1]->getOpcode() == LVX::GOTO) {
+    TBB = Terms[0]->getOperand(1).getMBB();
+    FBB = Terms[1]->getOperand(0).getMBB();
+    encodeCond(*Terms[0], Cond);
+    return false;
+  }
+
+  // Two unconditional jumps in a row: the second is dead. SelectionDAG emits
+  // exactly this shape ("cb ... ; goto A ; goto B" collapses to it after the
+  // conditional is folded), and leaving it unanalyzable would block block
+  // placement on ordinary if/else code.
+  if (Terms.size() == 2 && Terms[0]->getOpcode() == LVX::GOTO &&
+      Terms[1]->getOpcode() == LVX::GOTO) {
+    if (!AllowModify) {
+      TBB = Terms[0]->getOperand(0).getMBB();
+      return false;
+    }
+    Terms[1]->eraseFromParent();
+    TBB = Terms[0]->getOperand(0).getMBB();
+    return false;
+  }
+
+  return true; // give up on longer/odder terminator runs
+}
+
+unsigned LVXInstrInfo::insertBranch(MachineBasicBlock &MBB,
+                                    MachineBasicBlock *TBB,
+                                    MachineBasicBlock *FBB,
+                                    ArrayRef<MachineOperand> Cond,
+                                    const DebugLoc &DL, int *BytesAdded) const {
+  assert(TBB && "insertBranch must be given a true destination");
+  assert((Cond.empty() || Cond.size() >= 2) &&
+         "malformed LVX branch condition");
+
+  unsigned Count = 0;
+
+  if (Cond.empty()) {
+    assert(!FBB && "unconditional branch cannot have a false destination");
+    BuildMI(&MBB, DL, get(LVX::GOTO)).addMBB(TBB);
+    ++Count;
+  } else {
+    // Rebuild the conditional in its original operand order: the condition
+    // immediate, then the target, then the registers.
+    unsigned Opc = Cond[0].getImm();
+    auto MIB = BuildMI(&MBB, DL, get(Opc)).add(Cond[1]).addMBB(TBB);
+    for (unsigned I = 2, E = Cond.size(); I != E; ++I)
+      MIB.add(Cond[I]);
+    ++Count;
+
+    if (FBB) {
+      BuildMI(&MBB, DL, get(LVX::GOTO)).addMBB(FBB);
+      ++Count;
+    }
+  }
+
+  // Every LVX branch is one 32-bit syllable; there is no MCCodeEmitter yet,
+  // so this is only consulted by size-estimating passes.
+  if (BytesAdded)
+    *BytesAdded = Count * 4;
+  return Count;
+}
+
+unsigned LVXInstrInfo::removeBranch(MachineBasicBlock &MBB,
+                                    int *BytesRemoved) const {
+  unsigned Count = 0;
+  MachineBasicBlock::iterator I = MBB.end();
+
+  while (I != MBB.begin()) {
+    --I;
+    if (I->isDebugInstr())
+      continue;
+    if (I->getOpcode() != LVX::GOTO && !isCondBranchOpcode(I->getOpcode()))
+      break;
+    I->eraseFromParent();
+    I = MBB.end();
+    ++Count;
+  }
+
+  if (BytesRemoved)
+    *BytesRemoved = Count * 4;
+  return Count;
+}
+
+bool LVXInstrInfo::reverseBranchCondition(
+    SmallVectorImpl<MachineOperand> &Cond) const {
+  assert(Cond.size() >= 2 && "malformed LVX branch condition");
+
+  // Both condition encodings are laid out in complementary pairs, so the
+  // inverse is a single bit flip in every case. Per lvx-refs Modifier.table:
+  //   bcucond  (CB):  .DLTZ/.DGEZ 0/1, .DLEZ/.DGTZ 2/3, .DEQZ/.DNEZ 4/5,
+  //                   .ODD/.EVEN 6/7, and the same four pairs again for the
+  //                   word forms at 8..13.
+  //   ccbcomp (CCB):  .DLT/.DGE 0/1, .DLTU/.DGEU 2/3, .DEQ/.DNE 4/5,
+  //                   .DANY/.DNONE 6/7, and the word forms at 8..15.
+  // In both tables the two members of a pair differ only in bit 0, and each
+  // pair is a genuine logical complement (ANY/NONE included), so XOR 1
+  // inverts the branch without needing a per-opcode lookup table.
+  Cond[1].setImm(Cond[1].getImm() ^ 1);
+  return false;
+}

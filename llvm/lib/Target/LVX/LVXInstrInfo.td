@@ -127,6 +127,19 @@ def ADJCALLSTACKUP : LVXPseudo<(outs), (ins i64imm:$amt1, i64imm:$amt2),
                                "# ADJCALLSTACKUP $amt1, $amt2",
                                [(callseq_end timm:$amt1, timm:$amt2)]>;
 
+// LVX has no conditional-move / hardware select instruction (CMOVED/CMOVEQ
+// were never implemented -- see the original Phase 5 scope notes), so
+// ISD::SELECT is expanded post-isel into a two-block diamond CFG using CB
+// (the same .dnez compare-vs-zero-and-branch this backend already uses for
+// BRCOND) by LVXInstrInfo::EmitInstrWithCustomInserter, matching the classic
+// cmov-less-RISC pattern. This pseudo is the anchor SelectionDAGISel selects
+// (sig,cmp)  the real ISD::SELECT node to; it is expanded to real control flow
+// during MI-level custom insertion, never emitted as-is.
+let usesCustomInserter = 1 in
+def Select_GPR : LVXPseudo<(outs GPR:$dst), (ins GPR:$cond, GPR:$T, GPR:$F),
+                           "# Select_GPR $dst = $cond ? $T : $F",
+                           [(set GPR:$dst, (select GPR:$cond, GPR:$T, GPR:$F))]>;
+
 //===----------------------------------------------------------------------===//
 // Scheduling classes (itinerary stubs — filled in during Phase 5)
 //===----------------------------------------------------------------------===//
@@ -201,8 +214,14 @@ def uimm6 : Operand<i64> {
 }
 def uimm6imm : ImmLeaf<i64, [{ return isUInt<6>(Imm); }]>;
 
-def uimm11 : Operand<i64>;   // sysnumber (SCALL) — not yet used in a pattern
-def uimm2  : Operand<i64>;   // brknumb, misc 2-bit fields — not yet used in a pattern
+// sysnumber (SCALL) is 12 bits wide, not 11: lvx-refs Immediate.table gives
+// "sysnumber" width=12 (extend=Unsigned), and BCU_SCI's encoding leaves a
+// 12-bit field. Still unused by any pattern -- SCALL has no def yet and the
+// only caller is hand-written asm (validation/lib/crt.S) -- but naming it
+// uimm11 would have silently capped syscall numbers at 2047 once one is
+// wired up. brknumber really is 2 bits (Immediate.table, width=2).
+def uimm12 : Operand<i64>;   // sysnumber (SCALL) — not yet used in a pattern
+def uimm2  : Operand<i64>;   // brknumber — not yet used in a pattern
 
 // Bitfield operands — stopbit is a 6-bit logical field split across two
 // physical locations in the encoding (2 low bits at [25:24], 4 high bits
@@ -1200,7 +1219,19 @@ class ALU_FDFMA_Inst<bits<3> subop, bits<2> fp_sub, bit half,
                      InstrItinClass itin = ALU_LITE>
     : LVXInst<(outs GPR:$rW), (ins fnegate:$fne, floatmode:$fm,
                                    GPR:$rY, GPR:$rZ),
-              !strconcat(mnemonic, "${fne}${fm} $rW = $rY, $rZ"),
+              // Source order is "$rZ, $rY", matching ALU_FDADD_Inst above and
+              // every other two-source ALU format: the ISA syntax for
+              // ALU_FDFMA/ALU_FDMUL is "%0%5%4 %1 = %2, %3" over
+              // operands [registerW, registerZ, registerY, floatmode,
+              // fnegate] -- i.e. registerZ is printed first. This matters
+              // for the non-commutative members: FDIVD is "%2 divided by
+              // %3" (rZ / rY) and FFMSD subtracts the product from the
+              // accumulator, so printing "$rY, $rZ" here would have made
+              // the assembler swap the two source fields back on reparse.
+              // Confirmed against lvx-refs BE/GBU LVX_OPCODE_FLAG_MODE64.s
+              // ("fdivd.rm $r46r47.hi = $r44r45r46r47.t, $r48", tagged
+              // ..._registerW_registerZ_registerY_simple).
+              !strconcat(mnemonic, "${fne}${fm} $rW = $rZ, $rY"),
               pattern, itin> {
   bits<1> fne;
   bits<3> fm;
@@ -1790,9 +1821,29 @@ def GOTO  : BCU_UB_Inst<0b10, "goto",  [(br bb:$target)], BCU_XFER> {
 // (indirect call, register) depends on the callee's DAG node kind, which
 // is exactly the kind of selection logic that belongs in
 // LVXISelDAGToDAG::Select (Phase 3) rather than a TableGen pattern.
+// Defs must list EVERY caller-saved (non-CSR_LVX, non-reserved) GPR on top of
+// RA. Per lvx-refs Convention.table that is the whole "caller=" set:
+//   R0-R11 (arguments/results), R15 (struct), R16-R17 (veneer), and R32-R63.
+// The complement is "callee=" -- R14 plus R18-R31 -- which is what CSR_LVX in
+// LVXCallingConv.td lists; between them the two sets must cover every
+// allocatable GPR exactly once.
+//
+// Without a register here the allocator has no idea a call clobbers it and
+// will happily park a cross-call-live value there, which the callee then
+// destroys. This list originally stopped after R17, omitting all of
+// R32-R63 -- and since those sort first in GPR's allocation order among the
+// caller-saved scratch registers, they are precisely the ones a function
+// picks first. A plain recursive fib() at -O2 kept `n` in $r32 and the
+// accumulator in $r33 across "call fib", the recursive callee reused both,
+// and the loop never terminated.
 def CALL  : BCU_UB_Inst<0b11, "call",  [], BCU_XFER> {
   let isCall = 1;
-  let Defs   = [RA];
+  let Defs   = [RA, R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11,
+               R15, R16, R17,
+               R32, R33, R34, R35, R36, R37, R38, R39,
+               R40, R41, R42, R43, R44, R45, R46, R47,
+               R48, R49, R50, R51, R52, R53, R54, R55,
+               R56, R57, R58, R59, R60, R61, R62, R63];
 }
 def CCB   : BCU_CCB_Inst<"ccb", []> {
   let isBranch     = 1;
@@ -1831,9 +1882,16 @@ def IGOTO : BCU_IBC_Inst<0b10110, "igoto", [], BCU_XFER_BRRP> {
   let isTerminator     = 1;
   let isBarrier        = 1;
 }
+// Same caller-saved clobber set as CALL above -- see that comment. An
+// indirect call clobbers exactly what a direct one does.
 def ICALL : BCU_IBC_Inst<0b10111, "icall", [], BCU_XFER_BRRP> {
   let isCall = 1;
-  let Defs   = [RA];
+  let Defs   = [RA, R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11,
+               R15, R16, R17,
+               R32, R33, R34, R35, R36, R37, R38, R39,
+               R40, R41, R42, R43, R44, R45, R46, R47,
+               R48, R49, R50, R51, R52, R53, R54, R55,
+               R56, R57, R58, R59, R60, R61, R62, R63];
 }
 
 // ---- BCU: System ----------------------------------------------------------
@@ -1977,6 +2035,36 @@ def IORND  : ALU_DWRR0_Inst<0b1111, "iornd",  []>;
 def COMPD  : ALU_DCWRR_Inst<"compd",  []>;
 def CMOVED : ALU_DCMWRR_Inst<"cmoved", []>;
 
+// SETCC -> COMPD (Phase 5.5): the fallback for a boolean comparison that
+// doesn't fuse directly into a branch (BR_CC/CCB above) -- e.g. when the
+// compared value has another use in the same block, blocking
+// SelectionDAGBuilder's icmp+br fusion heuristic (confirmed by a real
+// crash compiling libmin.c's memset: the loop counter is used by both
+// the decrement and the exit test, producing a standalone SETCC).
+// Unlike ccbcomp, COMPD's intcomp condition set has all 10 relations
+// directly (LE/GT/ULE/UGT included, values 8-11 per LVXModifiers.h's
+// IntcompSuffixes), so -- unlike LowerBR_CC -- no operand-swap
+// canonicalization is needed: every condition maps straight through.
+// $lhs binds to COMPD's $rZ (Left/primary, per the same
+// Description.yml-confirmed roles as CCB) and $rhs to $rY (Right).
+def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETEQ)),  (COMPD 4,  GPR:$rhs, GPR:$lhs)>;
+def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETNE)),  (COMPD 5,  GPR:$rhs, GPR:$lhs)>;
+def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETLT)),  (COMPD 0,  GPR:$rhs, GPR:$lhs)>;
+def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETGE)),  (COMPD 1,  GPR:$rhs, GPR:$lhs)>;
+def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETLE)),  (COMPD 8,  GPR:$rhs, GPR:$lhs)>;
+def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETGT)),  (COMPD 9,  GPR:$rhs, GPR:$lhs)>;
+def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETULT)), (COMPD 2,  GPR:$rhs, GPR:$lhs)>;
+def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETUGE)), (COMPD 3,  GPR:$rhs, GPR:$lhs)>;
+def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETULE)), (COMPD 10, GPR:$rhs, GPR:$lhs)>;
+def : Pat<(i64 (setcc GPR:$lhs, GPR:$rhs, SETUGT)), (COMPD 11, GPR:$rhs, GPR:$lhs)>;
+
+// BRCOND -> CB (Phase 5.5): branch on a computed boolean register (the
+// counterpart to the SETCC fallback above) via CB's "not equal to zero"
+// condition (bcucond value 5, .dnez, per LVXModifiers.h's
+// BcucondSuffixes) -- single-operand-vs-implicit-zero, so there is no
+// Left/Right ambiguity to resolve here.
+def : Pat<(brcond GPR:$cond, bb:$target), (CB 5, bb:$target, GPR:$cond)>;
+
 // ---- ALU_DBMWRRR / ALU_DBMWRR: Byte matrix reg ---------------------------
 
 def SBMM8EORD  : ALU_DWRR0_Inst<0b1100, "sbmm8eord",  []>;
@@ -2091,6 +2179,29 @@ def MULND : ALU_DMWRR_Inst<0b01, "mulnd", []>;
 def MADDD : ALU_DMWRR_Inst<0b10, "maddd", []>;
 def MSBFD : ALU_DMWRR_Inst<0b11, "msbfd", []>;
 
+// MUL -> MULD with highmult=3. Per Description.yml's MULD execution, the
+// LOW half is selected by highmult == 3 specifically --
+//   "if (highmult == 3) result1 = product.64[0]; else result1 = product.64[1];"
+// -- and 3 is also the member that prints with no suffix (Modifier.table
+// ".H .HU .HSU ." over "0 1 2 3"), i.e. plain "muld". This is inverted
+// relative to KVX, where 0 is the low multiply; these patterns previously
+// used the KVX convention, so ISD::MUL selected highmult=0 and every
+// plain 64-bit "a * b" compiled to a HIGH signed multiply ("muld.h"),
+// returning the top 64 bits of the product instead of the bottom.
+// Low bits of a two's-complement product are sign-independent, so one
+// pattern covers signed and unsigned MUL alike. Standalone Pat (not
+// embedded in MULD's own def) since the $hm operand needs a fixed literal
+// the pattern doesn't otherwise reference. No Left/Right operand-role
+// concern here (multiply is commutative), unlike SBFD.
+def : Pat<(mul GPR:$lhs, GPR:$rhs), (MULD 3, GPR:$rhs, GPR:$lhs)>;
+
+// The high-multiply variants, all selecting product.64[1]:
+//   highmult=0 (".h")   signed x signed     -> ISD::mulhs
+//   highmult=1 (".hu")  unsigned x unsigned -> ISD::mulhu
+//   highmult=2 (".hsu") signed x unsigned has no 2-operand ISD node.
+def : Pat<(mulhu GPR:$lhs, GPR:$rhs), (MULD 1, GPR:$rhs, GPR:$lhs)>;
+def : Pat<(mulhs GPR:$lhs, GPR:$rhs), (MULD 0, GPR:$rhs, GPR:$lhs)>;
+
 // ---- ALU_DMEWRR / ALU_DMEWRRR: Widening multiply, widemult modifier -------
 
 def MULWD  : ALU_DMEWRR_Inst<0b00, "mulwd",  []>;
@@ -2189,6 +2300,11 @@ def SLUSW_i : ALU_WSWRI_Inst<1, 0b101, "slusw", [], ALU_LITE>;
 def ROLW_i  : ALU_WSWRI_Inst<1, 0b110, "rolw",  []>;
 def RORW_i  : ALU_WSWRI_Inst<1, 0b111, "rorw",  []>;
 
+// sign_extend_inreg i64->i32->i64: shift-left-word by 0 with the signextw
+// (.sx) modifier set. A single real instruction, matching the hardware's
+// native 32-bit-op sign-extension mechanism instead of a shift-pair emulation.
+def : Pat<(sext_inreg GPR:$rZ, i32), (SLLW_i 1, 0, GPR:$rZ)>;
+
 // ---- ALU_WWRR1: 32-bit word scaled-add / saturating add, signextw --------
 
 def ADDX2W  : ALU_WWRR1_Inst<0b0000, "addx2w",  []>;
@@ -2244,8 +2360,17 @@ def FABSD    : ALU_FDMO1_Inst<0b0011, 0b00, 0, "fabsd",    []>;
 def FSRECD   : ALU_FDMO1_Inst<0b0100, 0b00, 0, "fsrecd",   []>;
 def FSRSRD   : ALU_FDMO1_Inst<0b0101, 0b00, 0, "fsrsrd",   []>;
 def FCLASSD  : ALU_FDMO1_Inst<0b0110, 0b00, 0, "fclassd",  []>;
-def FWIDENWDL: ALU_FDWIDEN_Inst<0b00, 0, "fwidenwdl", []>;  // mos=0
-def FWIDENWDM: ALU_FDWIDEN_Inst<0b00, 0, "fwidenwdm", []>;  // mos=1 (alias)
+// LVX spells this as ONE mnemonic carrying the mostsig modifier
+// ("fwidenwd" / "fwidenwd.m"), not KVX's two separate fwidenlwd/fwidenmwd
+// mnemonics. The two defs that used to live here ("fwidenwdl"/"fwidenwdm")
+// named opcodes that do not exist in the LVX ISA at all -- and, having been
+// handed identical <0b00, 0> encoding arguments, were also duplicate
+// encodings of each other. ALU_FDWIDEN_Inst already supplies the
+// mostsig:$mos operand and appends "${mos}", so a single def is both
+// correct and complete. Confirmed against lvx-refs Opcode.table
+// (mnemonic="fwidenwd", syntax "%0%1 %2 = %3") and BE/GBU
+// LVX_OPCODE_FLAG_MODE64.s ("fwidenwd.m $r51 = $r50r51.hi").
+def FWIDENWD : ALU_FDWIDEN_Inst<0b00, 0, "fwidenwd", []>;
 def FLOATD   : ALU_FDCVT_Inst<0b0000, 0b00, 0, "floatd",   []>;
 def FLOATUD  : ALU_FDCVT_Inst<0b0001, 0b00, 0, "floatud",  []>;
 def FLOATWD  : ALU_FDCVT_Inst<0b0010, 0b00, 0, "floatwd",  []>;

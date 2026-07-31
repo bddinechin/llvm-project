@@ -123,7 +123,20 @@ def GPR : RegisterClass<"LVX", [i64], 64, (add
   R56, R57, R58, R59, R60, R61, R62, R63,
   // callee-saved (R14 = FP, allocatable when no frame pointer is needed)
   R14, R18, R19, R20, R21, R22, R23,
-  R24, R25, R26, R27, R28, R29, R30, R31
+  R24, R25, R26, R27, R28, R29, R30, R31,
+  // R12 (SP) and R13 (TLS/local) are MEMBERS of this class but never
+  // allocated -- getReservedRegs() marks them reserved, and the register
+  // allocator filters reserved registers out of the allocation order, so
+  // listing them last here costs nothing. They have to be in *some* i64
+  // register class: SelectionDAG's CopyFromReg/CopyToReg on a physical
+  // register calls getMinimalPhysRegClass(), which asserts "Couldn't find
+  // the register class" for a register that belongs to none. LowerCall
+  // does exactly that -- getCopyFromReg(..., LVX::R12, ...) to form the
+  // base address for outgoing stack arguments -- so any call with more
+  // than twelve 64-bit argument slots used to crash llc outright.
+  // (The block comment above already described them as kept-in-class; the
+  // class body just didn't match it.)
+  R12, R13
 )>;
 
 //===----------------------------------------------------------------------===//
