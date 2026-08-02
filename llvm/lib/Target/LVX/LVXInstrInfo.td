@@ -304,7 +304,7 @@ class ALU_DWI_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
 // Widened forms of ALU_DWI (so far only MAKE has one): word 0 (first in
 // memory) carries the same recognizable bits 30-16 as the simple form
 // plus registerW, confirmed bit-for-bit against opcodes/lvx-opc.c's
-// "make" wordcount=2/3 table entries (.opcode=0xe0000000/.mask=0xff030000
+// "maked" wordcount=2/3 table entries (.opcode=0xe0000000/.mask=0xff030000
 // for word 0 of both -- an exact superset-match of simple MAKE's own
 // .opcode=0x60000000/.mask pattern over bits 30-16, with bit 31
 // additionally forced to 1). Bit 31 is 1 on every syllable except the
@@ -329,11 +329,11 @@ class ALU_DWI_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
 // LVXInst64/LVXInst96 comment above for why that's fine for now.
 //
 // AsmString uses the PLAIN mnemonic, no ".x"/".y" suffix: confirmed
-// against both the real GNU Binutils port (opcodes/lvx-opc.c's "make"
-// wordcount=1/2/3 entries all share the literal as_op string "make", no
-// dotted variant) and lvx-mds/refs's regression-test corpus
-// (BE/GBU/lvx/lvx_v1/LVX_OPCODE_FLAG_MODE64.s: "make $r43 = -549755813888"
-// for a double-width encoding, same "make" mnemonic as the simple form).
+// against both the real GNU Binutils port (opcodes/lvx-opc.c's "maked"
+// wordcount=1/2/3 entries all share the literal as_op string "maked", no
+// dotted variant) and lvx-mds/lvx-refs's regression-test corpus
+// (BE/GBU/lvx/lvx_v1/LVX_OPCODE_FLAG_MODE64.s: "maked $r43 = -549755813888"
+// for a double-width encoding, same "maked" mnemonic as the simple form).
 // The real assembler disambiguates width purely by which operand class
 // (immediate magnitude) matches, not by mnemonic spelling.
 class ALU_DWI_X_Inst<bits<4> opc, string mnemonic, list<dag> pattern>
@@ -1832,15 +1832,15 @@ def GETRA : BCU_GETRA_Inst<"get", []>;
 
 // ---- ALU_DWI: Load immediate / PC-relative --------------------------------
 
-def MAKE  : ALU_DWI_Inst<0b0000, "make",  []>;
+def MAKE  : ALU_DWI_Inst<0b0000, "maked", []>;
 def PCREL : ALU_DWI_Inst<0b0001, "pcrel", []>;
 
 // Wide-immediate MAKE (Phase 5.1): same operation, 43-bit / 64-bit
 // immediate. Selected explicitly by LVXInstrInfo::loadImmediate based on
 // how many bits the immediate needs -- not reachable via a DAG pattern
 // (nothing generates SelectionDAG immediates this wide yet).
-def MAKE_X : ALU_DWI_X_Inst<0b0000, "make", []>;
-def MAKE_Y : ALU_DWI_Y_Inst<0b0000, "make", []>;
+def MAKE_X : ALU_DWI_X_Inst<0b0000, "maked", []>;
+def MAKE_Y : ALU_DWI_Y_Inst<0b0000, "maked", []>;
 
 // ---- ALU_DWRI: Integer immediate binary -----------------------------------
 
@@ -2042,10 +2042,14 @@ def MSBFD : ALU_DMWRR_Inst<0b11, "msbfd", []>;
 
 // ---- ALU_DMEWRR / ALU_DMEWRRR: Widening multiply, widemult modifier -------
 
-def MULWD  : ALU_DMEWRR_Inst<0b00, "mulwd",  []>;
-def MULNWD : ALU_DMEWRR_Inst<0b01, "mulnwd", []>;
-def MADDWD : ALU_DMEWRR_Inst<0b10, "maddwd", []>;
-def MSBFWD : ALU_DMEWRR_Inst<0b11, "msbfwd", []>;
+// The widening forms carry an "x" infix ("mulxwd", not "mulwd") -- the plain
+// spellings were renamed out of the ISA description; see the MAKE comment
+// above for the general point about mnemonics being checked against
+// opcodes/lvx-opc.c's .as_op strings.
+def MULWD  : ALU_DMEWRR_Inst<0b00, "mulxwd",  []>;
+def MULNWD : ALU_DMEWRR_Inst<0b01, "mulnxwd", []>;
+def MADDWD : ALU_DMEWRR_Inst<0b10, "maddxwd", []>;
+def MSBFWD : ALU_DMEWRR_Inst<0b11, "msbfxwd", []>;
 
 // ---- ALU_QWRR0: 128-bit quad binary ---------------------------------------
 
@@ -2193,8 +2197,11 @@ def FABSD    : ALU_FDMO1_Inst<0b0011, 0b00, 0, "fabsd",    []>;
 def FSRECD   : ALU_FDMO1_Inst<0b0100, 0b00, 0, "fsrecd",   []>;
 def FSRSRD   : ALU_FDMO1_Inst<0b0101, 0b00, 0, "fsrsrd",   []>;
 def FCLASSD  : ALU_FDMO1_Inst<0b0110, 0b00, 0, "fclassd",  []>;
-def FWIDENWDL: ALU_FDWIDEN_Inst<0b00, 0, "fwidenwdl", []>;  // mos=0
-def FWIDENWDM: ALU_FDWIDEN_Inst<0b00, 0, "fwidenwdm", []>;  // mos=1 (alias)
+// One def, not two: least-vs-most-significant is the mostsig modifier operand
+// ("" / ".m", printed by ALU_FDWIDEN_Inst's ${mos}), not part of the mnemonic.
+// "fwidenwdl"/"fwidenwdm" were never real -- opcodes/lvx-opc.c has only
+// "fwidenwd", with a lvx_v1_mostsig_opnd leading its .format array.
+def FWIDENWD : ALU_FDWIDEN_Inst<0b00, 0, "fwidenwd", []>;
 def FLOATD   : ALU_FDCVT_Inst<0b0000, 0b00, 0, "floatd",   []>;
 def FLOATUD  : ALU_FDCVT_Inst<0b0001, 0b00, 0, "floatud",  []>;
 def FLOATWD  : ALU_FDCVT_Inst<0b0010, 0b00, 0, "floatwd",  []>;
