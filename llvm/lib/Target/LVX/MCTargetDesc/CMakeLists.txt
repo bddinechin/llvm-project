@@ -1,11 +1,10 @@
-add_llvm_component_library(LVXDesc
+add_llvm_component_library(LLVMLVXDesc
   LVXInstPrinter.cpp
   LVXMCTargetDesc.cpp
   LINK_COMPONENTS
+    LVXInfo
     MC
     Support
-  LINK_LIBS
-    LVXInfo
   ADD_TO_COMPONENT
     LVX
 )

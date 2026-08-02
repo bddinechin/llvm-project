@@ -34,15 +34,14 @@ add_llvm_target(LVXCodeGen
     CodeGen
     CodeGenTypes
     Core
+    LVXDesc
+    LVXInfo
     MC
     SelectionDAG
     Support
     Target
     TargetParser
     TransformUtils
-  LINK_LIBS
-    LVXDesc
-    LVXInfo
   ADD_TO_COMPONENT
     LVX
 )
