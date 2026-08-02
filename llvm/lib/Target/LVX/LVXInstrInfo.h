@@ -17,11 +17,11 @@
 #include "LVXRegisterInfo.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 
-// GET_INSTRINFO_ENUM (the LVX::RET / LVX::ADDD / ... opcode enum) must be
+// GET_INSTRINFO_ENUM (the LVX::RET_RTS / LVX::ADDD_DWRR0 / ... opcode enum) must be
 // defined alongside GET_INSTRINFO_HEADER -- confirmed via the same
 // independent-guarded-sections pattern found in LVXGenRegisterInfo.inc
 // (see the comment in LVXRegisterInfo.h). LVXInstrInfo.cpp references
-// LVX::RET directly, so this is needed for that translation unit too,
+// LVX::RET_RTS directly, so this is needed for that translation unit too,
 // since it includes this header first.
 #define GET_INSTRINFO_ENUM
 #define GET_INSTRINFO_HEADER
@@ -75,14 +75,74 @@ public:
                             MachineInstr::MIFlag Flags =
                                 MachineInstr::NoFlags) const override;
 
-  // Emits the narrowest of MAKE/MAKE_X/MAKE_Y that can materialize Imm
-  // into DestReg (Phase 5.1: wide-immediate MAKE.X/.Y). Every int64_t
-  // value fits MAKE_Y (64-bit), so this never fails. Shared by
-  // LVXFrameLowering (stack-size/frame-marker offsets beyond simm10) and
-  // LVXRegisterInfo::eliminateFrameIndex (large frame-index offsets).
+  // Emits the narrowest of maked/maked.x/maked.y that can materialize Imm
+  // into DestReg. Every int64_t value fits the 64-bit form, so this never
+  // fails.
   void loadImmediate(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
                      const DebugLoc &DL, Register DestReg,
                      int64_t Imm) const;
+
+  //===--------------------------------------------------------------------===//
+  // Branch analysis
+  //
+  // Without these, every conditional branch is followed by an unconditional
+  // one to the fall-through block, because BranchFolding cannot see what the
+  // terminators do and so cannot delete the redundant jump. They are also
+  // what lets a branch be inverted, and what the relaxation pass below reads.
+  //
+  // The condition is represented as:
+  //   Cond[0] = the branch opcode (CB_CB or CCB_CCB, and their widened forms)
+  //   Cond[1] = the bcucond/ccbcomp modifier code
+  //   Cond[2] = the tested register ($rZ)
+  //   Cond[3] = the second compared register ($rY), CCB only
+  //===--------------------------------------------------------------------===//
+
+  bool analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
+                     MachineBasicBlock *&FBB,
+                     SmallVectorImpl<MachineOperand> &Cond,
+                     bool AllowModify) const override;
+
+  unsigned removeBranch(MachineBasicBlock &MBB,
+                        int *BytesRemoved = nullptr) const override;
+
+  unsigned insertBranch(MachineBasicBlock &MBB, MachineBasicBlock *TBB,
+                        MachineBasicBlock *FBB,
+                        ArrayRef<MachineOperand> Cond, const DebugLoc &DL,
+                        int *BytesAdded = nullptr) const override;
+
+  bool
+  reverseBranchCondition(SmallVectorImpl<MachineOperand> &Cond) const override;
+
+  // The encoded size of an instruction. The widened forms are 8 and 12 bytes
+  // where the base form is 4, so this cannot be a constant -- and the branch
+  // relaxation pass depends on it being right.
+  unsigned getInstSizeInBytes(const MachineInstr &MI) const override;
+
+  // True when a branch of this opcode can reach BrOffset bytes away.
+  bool isBranchOffsetInRange(unsigned BranchOpc,
+                             int64_t BrOffset) const override;
+
+  // The branch's target block, for any LVX branch that has one.
+  MachineBasicBlock *getBranchDestBlock(const MachineInstr &MI) const override;
+
+  // The narrowest encoding of Opc's instruction that can hold Imm in its
+  // immediate operand. Opc may be any form of that instruction, not just the
+  // narrow one, so a caller re-deciding the width of an instruction it did
+  // not select itself does not have to know which form it has.
+  //
+  // An LVX instruction with an immediate usually has widened forms that
+  // spend an extra syllable or two on immediate bits and are otherwise the
+  // same instruction with the same operands: "addd $rW = $rZ, imm" holds 10
+  // bits in 4 bytes, 37 in 8, 64 in 12. Selecting one of those is a plain
+  // opcode substitution, which is what lets a large stack offset stay a
+  // single instruction instead of becoming maked + addd through a scratch
+  // register. The chains come from LVXImmediateExtensions.inc, generated
+  // from the machine description.
+  //
+  // Returns 0 when no encoding of NarrowOpc can hold Imm -- including when it
+  // has no widened forms at all, so a caller can use the result as "this
+  // instruction can take Imm directly" without a separate range check.
+  static unsigned getFormForImmediate(unsigned Opc, int64_t Imm);
 };
 
 } // end namespace llvm

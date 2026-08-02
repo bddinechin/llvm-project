@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "LVXTargetMachine.h"
+#include "llvm/InitializePasses.h"
 #include "LVXISelDAGToDAG.h"
 #include "TargetInfo/LVXTargetInfo.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
@@ -26,6 +27,8 @@ static Reloc::Model getEffectiveRelocModel(std::optional<Reloc::Model> RM) {
 }
 
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeLVXTarget() {
+  // So the pass can be named on llc's command line (-run-pass, -stop-after).
+  initializeLVXBranchRelaxationPass(*PassRegistry::getPassRegistry());
   RegisterTargetMachine<LVXTargetMachine> X(getTheLVXTarget());
 }
 
@@ -58,6 +61,14 @@ public:
   bool addInstSelector() override {
     addPass(createLVXISelDag(getLVXTargetMachine(), getOptLevel()));
     return false;
+  }
+
+  // Branch relaxation has to see the final instruction widths, which are only
+  // settled once the frame code is in and every out-of-range frame access has
+  // been widened -- so it runs at the very end of the machine passes, after
+  // prologue/epilogue insertion and block placement.
+  void addPreEmitPass() override {
+    addPass(createLVXBranchRelaxationPass());
   }
 };
 } // end anonymous namespace

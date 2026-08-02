@@ -36,26 +36,37 @@
 
 using namespace llvm;
 
-// Every Frame Marker access below (caller-FP save/restore, $ra
-// save/restore) and the FP-set add share the same "large offset" problem as
-// the stack (de)allocation in emitPrologue/emitEpilogue: the immediate is
-// bounded by simm10 ([-512,511]), but with big outgoing-call-argument areas
-// OutgoingArgSize (and therefore FPOffset/RAOffset) can exceed that. This
-// materializes Base+Offset into scratch register R16 via
-// LVXInstrInfo::loadImmediate (MAKE/MAKE_X/MAKE_Y, Phase 5.1) + ADDD when
-// needed, returning the register/immediate pair callers should use in
-// place of (Base, Offset).
-static std::pair<Register, int64_t>
-materializeOffset(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
-                  const DebugLoc &DL, const LVXInstrInfo *TII, Register Base,
-                  int64_t Offset) {
-  if (isInt<10>(Offset))
-    return {Base, Offset};
-  TII->loadImmediate(MBB, MBBI, DL, LVX::R16, Offset);
-  BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD), LVX::R16)
-      .addReg(LVX::R16)
-      .addReg(Base);
-  return {Register(LVX::R16), 0};
+// "Dest = Src + Offset" for an arbitrary int64_t Offset, in ONE instruction.
+//
+// The immediate of "addd $rW = $rZ, imm" is only simm10 ([-512,511]), which a
+// frame of any size overruns, but the instruction has widened forms that hold
+// 37 and 64 immediate bits in two and three syllables (ALU_DWRI.X/.Y) -- the
+// same instruction, just longer. LVXInstrInfo::getFormForImmediate picks the
+// narrowest that holds Offset, from the chains the machine description
+// generates into LVXImmediateExtensions.inc. Every int64_t fits the 64-bit
+// form, so this never needs a scratch register or a second instruction.
+static void emitAddImm(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
+                       const DebugLoc &DL, const LVXInstrInfo *TII,
+                       Register Dest, Register Src, int64_t Offset) {
+  unsigned Opc = LVXInstrInfo::getFormForImmediate(LVX::ADDD_DWRI, Offset);
+  assert(Opc && "every int64_t fits addd's 64-bit widened form");
+  BuildMI(MBB, MBBI, DL, TII->get(Opc), Dest).addReg(Src).addImm(Offset);
+}
+
+// The opcode to use for a Frame Marker access at Offset from Base.
+//
+// Same story as emitAddImm: with a big outgoing-call-argument area the frame
+// marker sits further from SP than the simm10 offset field of "sd off[$rZ]"
+// reaches, and the instruction's widened forms (LSU_SSBO.X/.Y, LSU_LSBO.X/.Y)
+// hold 37 and 64 bits of offset in the same operand. Widening in place keeps
+// each save and restore a single instruction, where materializing the address
+// into a scratch register first would cost two more -- and would need a
+// scratch register free at a point in the prologue where that is awkward to
+// guarantee.
+static unsigned frameAccessOpcode(unsigned NarrowOpc, int64_t Offset) {
+  unsigned Opc = LVXInstrInfo::getFormForImmediate(NarrowOpc, Offset);
+  assert(Opc && "every int64_t fits the 64-bit widened load/store offset");
+  return Opc;
 }
 
 bool LVXFrameLowering::hasFPImpl(const MachineFunction &MF) const {
@@ -88,26 +99,10 @@ void LVXFrameLowering::emitPrologue(MachineFunction &MF,
   if (StackSize == 0 && !MFI.adjustsStack() && !hasFP(MF))
     return;
 
-  // Step 1: Allocate the stack frame.
-  // "addd $r12 = -FrameSize, $r12" when it fits ADDD_i's simm10 immediate
-  // ([-512,511]); otherwise materialize -FrameSize into a scratch register
-  // via LVXInstrInfo::loadImmediate (MAKE/MAKE_X/MAKE_Y, Phase 5.1 -- any
-  // int64_t fits) and add it with the register-register ADDD. R16 ($r16,
-  // one of the "veneer / long-branch temporary" scratch registers per
-  // LVXRegisterInfo.td) is free here since nothing is live yet at
-  // function entry.
-  if (StackSize > 0) {
-    if (isInt<10>(-(int64_t)StackSize)) {
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD_i), LVX::R12)
-          .addImm(-(int64_t)StackSize)
-          .addReg(LVX::R12);
-    } else {
-      TII->loadImmediate(MBB, MBBI, DL, LVX::R16, -(int64_t)StackSize);
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD), LVX::R12)
-          .addReg(LVX::R12)
-          .addReg(LVX::R16);
-    }
-  }
+  // Step 1: Allocate the stack frame -- "addd $r12 = $r12, -FrameSize", in
+  // whichever width of that instruction holds -FrameSize (see emitAddImm).
+  if (StackSize > 0)
+    emitAddImm(MBB, MBBI, DL, TII, LVX::R12, LVX::R12, -(int64_t)StackSize);
 
   // Step 2: Save the Frame Marker ($ra, caller FP) when a frame pointer
   // is needed or when the function calls other functions (adjustsStack).
@@ -126,11 +121,11 @@ void LVXFrameLowering::emitPrologue(MachineFunction &MF,
 
     // Save caller FP.
     {
-      auto [Base, Off] = materializeOffset(MBB, MBBI, DL, TII, LVX::R12, FPOffset);
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::SD))
-          .addReg(LVX::R14) // rT = caller FP
-          .addImm(Off)
-          .addReg(Base);
+      BuildMI(MBB, MBBI, DL,
+              TII->get(frameAccessOpcode(LVX::SD_SSBO, FPOffset)))
+          .addImm(FPOffset)
+          .addReg(LVX::R12)
+          .addReg(LVX::R14); // rT = caller FP
     }
 
     // Save return address. $ra is a control register, not a GPR -- SD's
@@ -139,26 +134,17 @@ void LVXFrameLowering::emitPrologue(MachineFunction &MF,
     // GETRA (Phase 5.2) moves it into scratch GPR R16 first, matching
     // the real ISA's GET/SET register-transfer convention.
     {
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::GETRA), LVX::R16).addReg(LVX::RA);
-      auto [Base, Off] = materializeOffset(MBB, MBBI, DL, TII, LVX::R12, RAOffset);
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::SD))
-          .addReg(LVX::R16) // rT = $ra (via GETRA)
-          .addImm(Off)
-          .addReg(Base);
+      BuildMI(MBB, MBBI, DL, TII->get(LVX::GET_GSR), LVX::R16).addReg(LVX::RA);
+      BuildMI(MBB, MBBI, DL,
+              TII->get(frameAccessOpcode(LVX::SD_SSBO, RAOffset)))
+          .addImm(RAOffset)
+          .addReg(LVX::R12)
+          .addReg(LVX::R16); // rT = $ra (via GET)
     }
 
     // Set frame pointer: FP = SP + FrameSize (points to Frame Marker).
-    // "addd $r14 = FrameSize, $r12"
-    if (isInt<10>((int64_t)StackSize)) {
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD_i), LVX::R14)
-          .addImm((int64_t)StackSize)
-          .addReg(LVX::R12);
-    } else {
-      TII->loadImmediate(MBB, MBBI, DL, LVX::R14, (int64_t)StackSize);
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD), LVX::R14)
-          .addReg(LVX::R14)
-          .addReg(LVX::R12);
-    }
+    // "addd $r14 = $r12, FrameSize"
+    emitAddImm(MBB, MBBI, DL, TII, LVX::R14, LVX::R12, (int64_t)StackSize);
   }
 
   // Step 3: Emit callee-saved register spills (generated by
@@ -193,40 +179,34 @@ void LVXFrameLowering::emitEpilogue(MachineFunction &MF,
     // GETRA save above), so load into scratch R16 first, then SETRA it
     // back into the actual $ra control register.
     {
-      auto [Base, Off] = materializeOffset(MBB, MBBI, DL, TII, LVX::R12, RAOffset);
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::LD), LVX::R16)
-          .addImm(0) // variant = 0
-          .addImm(Off)
-          .addReg(Base);
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::SETRA)).addReg(LVX::RA).addReg(LVX::R16);
+      BuildMI(MBB, MBBI, DL,
+              TII->get(frameAccessOpcode(LVX::LD_LSBO, RAOffset)), LVX::R16)
+          .addImm(RAOffset)
+          .addReg(LVX::R12)
+          .addImm(0); // variant = 0 (cached, non-speculative)
+      // "set $ra = $r16". The machine description makes $ra a tied
+      // read-modify-write destination here -- the write is conditional on
+      // privilege -- so $ra appears as both the def and the tied use.
+      BuildMI(MBB, MBBI, DL, TII->get(LVX::SET_SETRA), LVX::RA)
+          .addReg(LVX::RA)
+          .addReg(LVX::R16);
     }
 
     // Restore caller FP.
     {
-      auto [Base, Off] = materializeOffset(MBB, MBBI, DL, TII, LVX::R12, FPOffset);
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::LD), LVX::R14)
-          .addImm(0) // variant = 0
-          .addImm(Off)
-          .addReg(Base);
+      BuildMI(MBB, MBBI, DL,
+              TII->get(frameAccessOpcode(LVX::LD_LSBO, FPOffset)), LVX::R14)
+          .addImm(FPOffset)
+          .addReg(LVX::R12)
+          .addImm(0); // variant = 0 (cached, non-speculative)
     }
   }
 
-  // Step 2: Deallocate the stack frame.
-  // "addd $r12 = FrameSize, $r12" when it fits simm10; otherwise MAKE/
-  // MAKE_X/MAKE_Y + ADDD via scratch R16, same fallback as emitPrologue's
-  // allocation step.
-  if (StackSize > 0) {
-    if (isInt<10>((int64_t)StackSize)) {
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD_i), LVX::R12)
-          .addImm((int64_t)StackSize)
-          .addReg(LVX::R12);
-    } else {
-      TII->loadImmediate(MBB, MBBI, DL, LVX::R16, (int64_t)StackSize);
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::ADDD), LVX::R12)
-          .addReg(LVX::R12)
-          .addReg(LVX::R16);
-    }
-  }
+  // Step 2: Deallocate the stack frame -- "addd $r12 = $r12, FrameSize", in
+  // whichever width of that instruction holds FrameSize, mirroring the
+  // allocation in emitPrologue.
+  if (StackSize > 0)
+    emitAddImm(MBB, MBBI, DL, TII, LVX::R12, LVX::R12, (int64_t)StackSize);
 }
 
 MachineBasicBlock::iterator LVXFrameLowering::eliminateCallFramePseudoInstr(

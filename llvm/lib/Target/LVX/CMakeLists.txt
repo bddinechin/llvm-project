@@ -19,6 +19,7 @@ add_public_tablegen_target(LVXCommonTableGen)
 # InstPrinter/MCInstLower piece).
 add_llvm_target(LVXCodeGen
   LVXAsmPrinter.cpp
+  LVXBranchRelaxation.cpp
   LVXFrameLowering.cpp
   LVXInstrInfo.cpp
   LVXISelDAGToDAG.cpp

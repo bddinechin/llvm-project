@@ -33,10 +33,13 @@ char LVXDAGToDAGISel::ID = 0;
 // eliminateFrameIndex on the resulting MachineInstr, since the target frame
 // index becomes a real operand rather than falling through unselected.
 static bool selectAddr(SelectionDAG *CurDAG, const SDLoc &DL, SDValue Addr,
-                       SDValue &Base, SDValue &Offset) {
+                       SDValue &Base, SDValue &Offset, bool &IsFrameIndex) {
+  IsFrameIndex = false;
+
   if (auto *FIN = dyn_cast<FrameIndexSDNode>(Addr)) {
     Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), Addr.getValueType());
     Offset = CurDAG->getTargetConstant(0, DL, MVT::i64);
+    IsFrameIndex = true;
     return true;
   }
 
@@ -55,13 +58,16 @@ static bool selectAddr(SelectionDAG *CurDAG, const SDLoc &DL, SDValue Addr,
       // FrameIndex + an offset that alone may already exceed simm10).
       Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), Lhs.getValueType());
       Offset = CurDAG->getTargetConstant(Off, DL, MVT::i64);
+      IsFrameIndex = true;
       return true;
     }
 
-    // A genuine runtime register base has no later fixup pass, so the
-    // offset must already fit simm10.
-    if (!isInt<10>(Off))
-      return false;
+    // A genuine runtime register base gets no later fixup, so the encoding
+    // has to hold this displacement as it stands -- but "as it stands" is not
+    // limited to simm10: the widened forms of the same load or store take 37
+    // and 64 bits of offset, and selectLoadStoreOpcode below picks whichever
+    // is narrowest for Off. Only a displacement no encoding can hold is
+    // rejected here, which for a 64-bit form means none.
     Base = Lhs;
     Offset = CurDAG->getTargetConstant(Off, DL, MVT::i64);
     return true;
@@ -72,19 +78,206 @@ static bool selectAddr(SelectionDAG *CurDAG, const SDLoc &DL, SDValue Addr,
   return true;
 }
 
+// The encoding of a base+offset load or store to use for displacement Off.
+//
+// A FrameIndex keeps the narrow form: its real displacement is not known
+// until PEI runs, and LVXRegisterInfo::eliminateFrameIndex widens the
+// instruction then, against the final value. Widening here on the residual
+// constant would be guesswork, and would leave PEI a widened opcode to
+// re-widen.
+//
+// A runtime base is final now, so this picks the narrowest form that holds
+// Off -- the same widened encodings the frame code uses, reached from the
+// other direction.
+static unsigned selectLoadStoreOpcode(unsigned NarrowOpc, SDValue Offset,
+                                      bool IsFrameIndex) {
+  if (IsFrameIndex)
+    return NarrowOpc;
+  int64_t Off = cast<ConstantSDNode>(Offset)->getSExtValue();
+  if (isInt<10>(Off))
+    return NarrowOpc;
+  return LVXInstrInfo::getFormForImmediate(NarrowOpc, Off);
+}
+
+// ---- Conditional branches --------------------------------------------------
+//
+// LVX branches on a comparison directly, so a BR_CC becomes ONE instruction:
+//
+//   cb.<bcucond>  $rZ ? target          BCU_CB,  a test of one register
+//                                       against zero, 17-bit displacement
+//   ccb.<ccbcomp> $rZ, $rY ? target     BCU_CCB, a comparison of two
+//                                       registers, 11-bit displacement
+//
+// Both compare in printed order -- "ccb.dlt $rZ, $rY" branches when
+// rZ < rY -- confirmed against the machine description's ccbcomp/bcucond
+// helper semantics.
+
+// The bcucond code for "$rZ <CC> 0", or -1 when CB cannot express it.
+static int getBcucondForZero(ISD::CondCode CC) {
+  switch (CC) {
+  case ISD::SETLT:  return 0;  // .dltz
+  case ISD::SETGE:  return 1;  // .dgez
+  case ISD::SETLE:  return 2;  // .dlez
+  case ISD::SETGT:  return 3;  // .dgtz
+  case ISD::SETEQ:  return 4;  // .deqz
+  case ISD::SETNE:  return 5;  // .dnez
+  // Unsigned against zero degenerates: x >u 0 is x != 0, x <=u 0 is x == 0.
+  // (x <u 0 and x >=u 0 are constants and never reach here.)
+  case ISD::SETUGT: return 5;  // .dnez
+  case ISD::SETULE: return 4;  // .deqz
+  default:          return -1;
+  }
+}
+
+// The ccbcomp code for "$rZ <CC> $rY", or -1. ccbcomp's 64-bit half has only
+// lt/ge/ltu/geu/eq/ne (codes 0-7 also cover the bitwise any/none tests), so
+// the four remaining relations are reached by swapping the operands -- which
+// is what Swap reports.
+static int getCcbcompCode(ISD::CondCode CC, bool &Swap) {
+  Swap = false;
+  switch (CC) {
+  case ISD::SETLT:  return 0;  // .dlt
+  case ISD::SETGE:  return 1;  // .dge
+  case ISD::SETULT: return 2;  // .dltu
+  case ISD::SETUGE: return 3;  // .dgeu
+  case ISD::SETEQ:  return 4;  // .deq
+  case ISD::SETNE:  return 5;  // .dne
+  // a > b is b < a, a <= b is b >= a, and likewise unsigned.
+  case ISD::SETGT:  Swap = true; return 0;
+  case ISD::SETLE:  Swap = true; return 1;
+  case ISD::SETUGT: Swap = true; return 2;
+  case ISD::SETULE: Swap = true; return 3;
+  default:          return -1;
+  }
+}
+
+// The intcomp code for "$rZ <CC> $rY". Unlike ccbcomp, intcomp has all twelve
+// relations, so COMPD never needs its operands swapped.
+static int getIntcompCode(ISD::CondCode CC) {
+  switch (CC) {
+  case ISD::SETLT:  return 0;   // .lt
+  case ISD::SETGE:  return 1;   // .ge
+  case ISD::SETULT: return 2;   // .ltu
+  case ISD::SETUGE: return 3;   // .geu
+  case ISD::SETEQ:  return 4;   // .eq
+  case ISD::SETNE:  return 5;   // .ne
+  case ISD::SETLE:  return 8;   // .le
+  case ISD::SETGT:  return 9;   // .gt
+  case ISD::SETULE: return 10;  // .leu
+  case ISD::SETUGT: return 11;  // .gtu
+  default:          return -1;
+  }
+}
+
+static bool isNullConstant(SDValue V) {
+  auto *C = dyn_cast<ConstantSDNode>(V);
+  return C && C->isZero();
+}
+
 void LVXDAGToDAGISel::Select(SDNode *N) {
   SDLoc DL(N);
+
+  // ISD::BR_CC → cb (against zero) or ccb (register against register).
+  // Operands are (Chain, CondCode, LHS, RHS, Dest).
+  if (N->getOpcode() == ISD::BR_CC) {
+    ISD::CondCode CC = cast<CondCodeSDNode>(N->getOperand(1))->get();
+    SDValue LHS = N->getOperand(2);
+    SDValue RHS = N->getOperand(3);
+    SDValue Dest = N->getOperand(4);
+    SDValue Chain = N->getOperand(0);
+
+    // Against a zero on either side, the one-register test is enough. When
+    // the zero is on the left the relation has to be mirrored first, since
+    // cb always tests its register: "0 < x" is "x > 0".
+    SDValue Tested;
+    ISD::CondCode ZeroCC = CC;
+    if (isNullConstant(RHS)) {
+      Tested = LHS;
+    } else if (isNullConstant(LHS)) {
+      Tested = RHS;
+      ZeroCC = ISD::getSetCCSwappedOperands(CC);
+    } else if (auto *C = dyn_cast<ConstantSDNode>(RHS)) {
+      // DAGCombine canonicalizes a strict comparison against zero into a
+      // non-strict one against the adjacent constant -- "x > 0" arrives as
+      // "x < 1", "x < 0" as "x > -1". Undoing that is what keeps those, the
+      // two most common loop and sign tests, on the one-register cb rather
+      // than costing a maked to build the constant for a ccb.
+      if (CC == ISD::SETLT && C->getSExtValue() == 1) {
+        Tested = LHS;
+        ZeroCC = ISD::SETLE;                     // x < 1  is  x <= 0
+      } else if (CC == ISD::SETGT && C->getSExtValue() == -1) {
+        Tested = LHS;
+        ZeroCC = ISD::SETGE;                     // x > -1  is  x >= 0
+      }
+    }
+
+    if (Tested) {
+      if (int Cond = getBcucondForZero(ZeroCC), Ok = Cond >= 0; Ok) {
+        SDValue Ops[] = {CurDAG->getTargetConstant(Cond, DL, MVT::i32), Tested,
+                         Dest, Chain};
+        ReplaceNode(N, CurDAG->getMachineNode(LVX::CB_CB, DL, MVT::Other, Ops));
+        return;
+      }
+    }
+
+    bool Swap;
+    if (int Cmp = getCcbcompCode(CC, Swap); Cmp >= 0) {
+      SDValue Ops[] = {CurDAG->getTargetConstant(Cmp, DL, MVT::i32),
+                       Swap ? RHS : LHS, Swap ? LHS : RHS, Dest, Chain};
+      ReplaceNode(N, CurDAG->getMachineNode(LVX::CCB_CCB, DL, MVT::Other, Ops));
+      return;
+    }
+  }
+
+  // ISD::BRCOND → "cb.dnez $cond ? target". This is the branch on a value
+  // that is not itself a comparison (a loaded bool, a phi of i1); a BRCOND
+  // whose condition IS a comparison is folded into BR_CC before selection.
+  if (N->getOpcode() == ISD::BRCOND) {
+    SDValue Ops[] = {CurDAG->getTargetConstant(5, DL, MVT::i32), // .dnez
+                     N->getOperand(1), N->getOperand(2), N->getOperand(0)};
+    ReplaceNode(N, CurDAG->getMachineNode(LVX::CB_CB, DL, MVT::Other, Ops));
+    return;
+  }
+
+  // ISD::SETCC → "compd.<intcomp> $rW = $rZ, $rY", producing 0 or 1 in a
+  // register. This is the comparison used as a value rather than branched on.
+  if (N->getOpcode() == ISD::SETCC) {
+    ISD::CondCode CC = cast<CondCodeSDNode>(N->getOperand(2))->get();
+    if (int Cmp = getIntcompCode(CC); Cmp >= 0) {
+      SDValue Cmp32 = CurDAG->getTargetConstant(Cmp, DL, MVT::i32);
+
+      // A constant right-hand side goes straight into compd's widened form
+      // (ALU_DCWRR.W, which replaces the register operand with a 32-bit
+      // immediate) rather than being materialized with a maked first. Same
+      // total size, one instruction instead of two.
+      if (auto *C = dyn_cast<ConstantSDNode>(N->getOperand(1));
+          C && isInt<32>(C->getSExtValue())) {
+        SDValue Imm =
+            CurDAG->getTargetConstant(C->getSExtValue(), DL, MVT::i64);
+        SDValue Ops[] = {N->getOperand(0), Imm, Cmp32};
+        ReplaceNode(N, CurDAG->getMachineNode(LVX::COMPD_DCWRR_W, DL,
+                                              MVT::i64, Ops));
+        return;
+      }
+
+      SDValue Ops[] = {N->getOperand(0), N->getOperand(1), Cmp32};
+      ReplaceNode(N, CurDAG->getMachineNode(LVX::COMPD_DCWRR, DL, MVT::i64,
+                                            Ops));
+      return;
+    }
+  }
 
   // ISD::BUILD_PAIR (i128 from two i64 halves) → CATDQ.
   // LowerFormalArguments produces BUILD_PAIR when reassembling an i128
   // argument from its two i64 CC slots. CATDQ is the single LVX instruction
   // that assembles an aligned GPR128 pair from two arbitrary GPR sources:
-  // "catdq $rM = $rY, $rZ" where $rY is the low 64 bits and $rZ the high.
+  // "catdq $rM = $rZ, $rY", where the first source ($rZ) is the low 64 bits
+  // and the second ($rY) the high -- see emitCatDQ in LVXInstrInfo.cpp.
   if (N->getOpcode() == ISD::BUILD_PAIR &&
       N->getValueType(0) == MVT::i128) {
-    SDValue Lo = N->getOperand(0); // low 64 bits (rY)
-    SDValue Hi = N->getOperand(1); // high 64 bits (rZ)
-    SDNode *Res = CurDAG->getMachineNode(LVX::CATDQ, DL, MVT::i128, Lo, Hi);
+    SDValue Lo = N->getOperand(0); // low 64 bits  (rZ)
+    SDValue Hi = N->getOperand(1); // high 64 bits (rY)
+    SDNode *Res = CurDAG->getMachineNode(LVX::CATDQ_CATDQ, DL, MVT::i128, Lo, Hi);
     ReplaceNode(N, Res);
     return;
   }
@@ -96,13 +289,13 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
   //   sub_pair_lo (offset 128, architectural high) = elements [2] (low64), [3] (high64)
   if (N->getOpcode() == ISD::BUILD_VECTOR &&
       N->getValueType(0) == MVT::v4i64) {
-    SDValue E0 = N->getOperand(0); // sub_pair_hi low64  (rY of first  CATDQ)
-    SDValue E1 = N->getOperand(1); // sub_pair_hi high64 (rZ of first  CATDQ)
-    SDValue E2 = N->getOperand(2); // sub_pair_lo low64  (rY of second CATDQ)
-    SDValue E3 = N->getOperand(3); // sub_pair_lo high64 (rZ of second CATDQ)
+    SDValue E0 = N->getOperand(0); // sub_pair_hi low64  (rZ of first  CATDQ)
+    SDValue E1 = N->getOperand(1); // sub_pair_hi high64 (rY of first  CATDQ)
+    SDValue E2 = N->getOperand(2); // sub_pair_lo low64  (rZ of second CATDQ)
+    SDValue E3 = N->getOperand(3); // sub_pair_lo high64 (rY of second CATDQ)
 
-    SDNode *LoPair = CurDAG->getMachineNode(LVX::CATDQ, DL, MVT::i128, E0, E1);
-    SDNode *HiPair = CurDAG->getMachineNode(LVX::CATDQ, DL, MVT::i128, E2, E3);
+    SDNode *LoPair = CurDAG->getMachineNode(LVX::CATDQ_CATDQ, DL, MVT::i128, E0, E1);
+    SDNode *HiPair = CurDAG->getMachineNode(LVX::CATDQ_CATDQ, DL, MVT::i128, E2, E3);
 
     // Assemble the two GPR128 halves into a GPR256 via REG_SEQUENCE.
     // REG_SEQUENCE takes: RegClass, val0, subreg0, val1, subreg1, ...
@@ -125,22 +318,26 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
   if (N->getOpcode() == ISD::LOAD) {
     auto *LD = cast<LoadSDNode>(N);
     SDValue Base, Offset;
+    bool IsFrameIndex;
 
-    if (selectAddr(CurDAG, DL, LD->getBasePtr(), Base, Offset)) {
+    if (selectAddr(CurDAG, DL, LD->getBasePtr(), Base, Offset, IsFrameIndex)) {
       ISD::LoadExtType Ext = LD->getExtensionType();
       EVT MemVT = LD->getMemoryVT();
       unsigned Opc = 0;
-      if      (MemVT == MVT::i64)                             Opc = LVX::LD;
-      else if (MemVT == MVT::i32 && Ext != ISD::SEXTLOAD)    Opc = LVX::LWZ;
-      else if (MemVT == MVT::i32 && Ext == ISD::SEXTLOAD)    Opc = LVX::LWS;
-      else if (MemVT == MVT::i16 && Ext != ISD::SEXTLOAD)    Opc = LVX::LHZ;
-      else if (MemVT == MVT::i16 && Ext == ISD::SEXTLOAD)    Opc = LVX::LHS;
-      else if (MemVT == MVT::i8  && Ext != ISD::SEXTLOAD)    Opc = LVX::LBZ;
-      else if (MemVT == MVT::i8  && Ext == ISD::SEXTLOAD)    Opc = LVX::LBS;
+      if      (MemVT == MVT::i64)                             Opc = LVX::LD_LSBO;
+      else if (MemVT == MVT::i32 && Ext != ISD::SEXTLOAD)    Opc = LVX::LWZ_LSBO;
+      else if (MemVT == MVT::i32 && Ext == ISD::SEXTLOAD)    Opc = LVX::LWS_LSBO;
+      else if (MemVT == MVT::i16 && Ext != ISD::SEXTLOAD)    Opc = LVX::LHZ_LSBO;
+      else if (MemVT == MVT::i16 && Ext == ISD::SEXTLOAD)    Opc = LVX::LHS_LSBO;
+      else if (MemVT == MVT::i8  && Ext != ISD::SEXTLOAD)    Opc = LVX::LBZ_LSBO;
+      else if (MemVT == MVT::i8  && Ext == ISD::SEXTLOAD)    Opc = LVX::LBS_LSBO;
+
+      Opc = Opc ? selectLoadStoreOpcode(Opc, Offset, IsFrameIndex) : 0;
 
       if (Opc) {
+        // Generated LSU_LSBO_Inst operand order: off, base, variant.
         SDValue Var  = CurDAG->getTargetConstant(0, DL, MVT::i32); // variant=0
-        SDValue Ops[] = {Var, Offset, Base, LD->getChain()};
+        SDValue Ops[] = {Offset, Base, Var, LD->getChain()};
         SDNode *Res = CurDAG->getMachineNode(Opc, DL, MVT::i64, MVT::Other, Ops);
         CurDAG->setNodeMemRefs(cast<MachineSDNode>(Res), {LD->getMemOperand()});
         ReplaceNode(N, Res);
@@ -157,17 +354,21 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
   if (N->getOpcode() == ISD::STORE) {
     auto *ST = cast<StoreSDNode>(N);
     SDValue Base, Offset;
+    bool IsFrameIndex;
 
-    if (selectAddr(CurDAG, DL, ST->getBasePtr(), Base, Offset)) {
+    if (selectAddr(CurDAG, DL, ST->getBasePtr(), Base, Offset, IsFrameIndex)) {
       EVT MemVT = ST->getMemoryVT();
       unsigned Opc = 0;
-      if      (MemVT == MVT::i64) Opc = LVX::SD;
-      else if (MemVT == MVT::i32) Opc = LVX::SW;
-      else if (MemVT == MVT::i16) Opc = LVX::SH;
-      else if (MemVT == MVT::i8)  Opc = LVX::SB;
+      if      (MemVT == MVT::i64) Opc = LVX::SD_SSBO;
+      else if (MemVT == MVT::i32) Opc = LVX::SW_SSBO;
+      else if (MemVT == MVT::i16) Opc = LVX::SH_SSBO;
+      else if (MemVT == MVT::i8)  Opc = LVX::SB_SSBO;
+
+      Opc = Opc ? selectLoadStoreOpcode(Opc, Offset, IsFrameIndex) : 0;
 
       if (Opc) {
-        SDValue Ops[] = {ST->getValue(), Offset, Base, ST->getChain()};
+        // Generated LSU_SSBO_Inst operand order: off, base, stored value.
+        SDValue Ops[] = {Offset, Base, ST->getValue(), ST->getChain()};
         SDNode *Res = CurDAG->getMachineNode(Opc, DL, MVT::Other, Ops);
         CurDAG->setNodeMemRefs(cast<MachineSDNode>(Res), {ST->getMemOperand()});
         ReplaceNode(N, Res);
@@ -197,14 +398,14 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     if (auto *GA = dyn_cast<GlobalAddressSDNode>(Callee)) {
       Ops.push_back(CurDAG->getTargetGlobalAddress(
           GA->getGlobal(), DL, MVT::i64, GA->getOffset()));
-      Opc = LVX::CALL;
+      Opc = LVX::CALL_UB;
     } else if (auto *ES = dyn_cast<ExternalSymbolSDNode>(Callee)) {
       Ops.push_back(
           CurDAG->getTargetExternalSymbol(ES->getSymbol(), MVT::i64));
-      Opc = LVX::CALL;
+      Opc = LVX::CALL_UB;
     } else {
       Ops.push_back(Callee);
-      Opc = LVX::ICALL;
+      Opc = LVX::ICALL_IBC;
     }
 
     for (unsigned i = 2, e = NumOps - (HasGlue ? 1 : 0); i != e; ++i)

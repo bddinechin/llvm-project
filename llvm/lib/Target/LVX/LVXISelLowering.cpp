@@ -131,9 +131,18 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::SREM, MVT::i64, Expand);
   setOperationAction(ISD::UREM, MVT::i64, Expand);
 
-  // No branch-on-condition-code DAG combine / SELECT_CC lowering yet;
-  // let LegalizeDAG expand select/select_cc through the generic path
-  // until LVX-specific patterns for CMOVED/CMOVEQ are wired up (Phase 5).
+  // COMPD writes the comparison result zero-extended to a full double word
+  // ("The boolean result extended to double word is stored into the %1"), so
+  // a boolean really is 0 or 1 here. Saying so lets the generic combines use
+  // a comparison result as an arithmetic value without re-masking it.
+  setBooleanContents(ZeroOrOneBooleanContent);
+
+  // SELECT_CC stays expanded into SETCC + SELECT: CMOVED is a conditional
+  // move on a bcucond test of one register, so the two-step form is what it
+  // actually matches. BR_CC and BRCOND are left Legal and selected directly
+  // in LVXISelDAGToDAG -- LVX branches on the comparison itself (cb/ccb), so
+  // routing them through SETCC would cost an extra instruction on every
+  // conditional branch.
   setOperationAction(ISD::SELECT_CC, MVT::i64, Expand);
 
   setMinFunctionAlignment(Align(4));
@@ -188,6 +197,48 @@ LVXTargetLowering::getSingleConstraintMatchWeight(
 //===----------------------------------------------------------------------===//
 // Calling Convention Implementation
 //===----------------------------------------------------------------------===//
+
+// The calling convention promotes every integer narrower than a slot to i64
+// (CCPromoteToType in LVXCallingConv.td), so a value's type on the wire is
+// not always the type the IR gave it. These two put a value into, and take it
+// back out of, its 64-bit slot.
+//
+// Which way an integer was widened matters to the callee only when it reads
+// the high bits, which the sext/zext argument flags are exactly there to
+// promise; without a flag, any-extend is what the convention allows.
+static SDValue extendToSlot(SelectionDAG &DAG, const SDLoc &DL, SDValue Val,
+                            MVT LocVT, ISD::ArgFlagsTy Flags) {
+  EVT VT = Val.getValueType();
+  if (VT == LocVT)
+    return Val;
+
+  // A narrower floating-point value cannot be extended directly; reinterpret
+  // it as an integer of its own width first, then widen that.
+  if (VT.isFloatingPoint() && VT.getSizeInBits() < LocVT.getSizeInBits()) {
+    Val = DAG.getNode(ISD::BITCAST, DL,
+                      MVT::getIntegerVT(VT.getSizeInBits()), Val);
+    VT = Val.getValueType();
+  }
+
+  if (VT.isInteger() && LocVT.isInteger() && VT.bitsLT(LocVT)) {
+    unsigned Opc = Flags.isSExt()   ? ISD::SIGN_EXTEND
+                   : Flags.isZExt() ? ISD::ZERO_EXTEND
+                                    : ISD::ANY_EXTEND;
+    return DAG.getNode(Opc, DL, LocVT, Val);
+  }
+
+  // Same width, different type (f64 in an i64 slot): a reinterpretation.
+  return DAG.getNode(ISD::BITCAST, DL, LocVT, Val);
+}
+
+static SDValue truncateFromSlot(SelectionDAG &DAG, const SDLoc &DL,
+                                SDValue Val, EVT VT) {
+  if (VT == MVT::i64)
+    return Val;
+  if (VT.bitsLT(MVT::i64))
+    return DAG.getNode(ISD::TRUNCATE, DL, VT, Val);
+  return DAG.getNode(ISD::BITCAST, DL, VT, Val);
+}
 
 SDValue LVXTargetLowering::LowerFormalArguments(
     SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
@@ -247,9 +298,11 @@ SDValue LVXTargetLowering::LowerFormalArguments(
     EVT ArgVT = Ins[ValNo].ArgVT;
     SDValue ArgValue;
     if (Pieces.size() == 1) {
-      ArgValue = Pieces[0];
-      if (ArgVT != MVT::i64)
-        ArgValue = DAG.getNode(ISD::BITCAST, DL, ArgVT, ArgValue);
+      // Narrower than a slot means the convention promoted it on the way in,
+      // so getting it back is a truncation; a same-width type (f64) is a
+      // bitcast. Doing this unconditionally as a bitcast asserts on any
+      // i1/i8/i16/i32 argument.
+      ArgValue = truncateFromSlot(DAG, DL, Pieces[0], ArgVT);
     } else if (Pieces.size() == 2) {
       // i128: a genuine wide integer split across two i64 halves.
       // BUILD_PAIR is the standard node for this (low half first, per
@@ -298,7 +351,14 @@ SDValue LVXTargetLowering::LowerReturn(
     CCValAssign &VA = RVLocs[i];
     assert(VA.isRegLoc() &&
            "Return values must be in registers per CC_LVXRet");
-    Chain = DAG.getCopyToReg(Chain, DL, VA.getLocReg(), OutVals[i], Glue);
+    // Same promotion as an outgoing argument: a return value narrower than
+    // its assigned location is extended into it. The location is not always a
+    // single 64-bit slot -- an i128 return goes in a GPR128 pair, where
+    // LocVT is i128 and nothing needs doing -- so this asks the CCValAssign
+    // rather than assuming.
+    SDValue RetVal =
+        extendToSlot(DAG, DL, OutVals[i], VA.getLocVT(), Outs[i].Flags);
+    Chain = DAG.getCopyToReg(Chain, DL, VA.getLocReg(), RetVal, Glue);
     Glue = Chain.getValue(1);
     RetOps.push_back(DAG.getRegister(VA.getLocReg(), VA.getLocVT()));
   }
@@ -350,6 +410,11 @@ LVXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   while (Idx < ArgLocs.size()) {
     unsigned ValNo = ArgLocs[Idx].getValNo();
     SDValue Val = OutVals[ValNo];
+    // Widen a sub-slot integer before splitting, so the piece loop below only
+    // ever deals in whole 64-bit slots.
+    if (Val.getValueType() != MVT::i64 && !Val.getValueType().isVector() &&
+        Val.getValueType().getSizeInBits() < 64)
+      Val = extendToSlot(DAG, DL, Val, MVT::i64, Outs[ValNo].Flags);
     EVT ValVT = Val.getValueType();
 
     // Split the (possibly wide) outgoing value into the same number of

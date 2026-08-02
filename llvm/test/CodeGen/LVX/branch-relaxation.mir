@@ -1,0 +1,70 @@
+# RUN: llc -mtriple=lvx-mbr -run-pass=lvx-branch-relaxation %s -o - | FileCheck %s
+
+# A branch whose target is out of reach of its displacement field is widened to
+# the long form of the same branch: ccb carries an 11-bit count of instruction
+# words (+-4 KiB), ccbx carries 38. The substitution is in place -- same
+# operands in the same order, one extra syllable of encoding -- so nothing has
+# to be split and no scratch register is needed.
+#
+# The distance here comes from a block alignment rather than thousands of
+# instructions, which keeps the test small while exercising the same offset
+# computation: an aligned block starts further along, and that is what the
+# range check sees.
+
+--- |
+  define i64 @out_of_range(i64 %a, i64 %b) { ret i64 0 }
+  define i64 @in_range(i64 %a, i64 %b) { ret i64 0 }
+...
+---
+name:            out_of_range
+alignment:       4
+tracksRegLiveness: true
+body:             |
+  ; CHECK-LABEL: name: out_of_range
+  ; CHECK: CCBX_CCB_X 1, killed $r0, killed $r1, %bb.2
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1, $ra
+
+    CCB_CCB 1, killed $r0, killed $r1, %bb.2
+
+  bb.1:
+    liveins: $ra
+
+    $r0 = MAKED_DWI 1
+    RET_RTS implicit killed $ra, implicit $r0
+
+  bb.2 (align 8192):
+    liveins: $ra
+
+    $r0 = MAKED_DWI 2
+    RET_RTS implicit killed $ra, implicit $r0
+...
+---
+name:            in_range
+alignment:       4
+tracksRegLiveness: true
+body:             |
+  ; The same branch, with its target a few instructions away, keeps the short
+  ; encoding -- widening is only for what does not fit.
+  ; CHECK-LABEL: name: in_range
+  ; CHECK: CCB_CCB 1, killed $r0, killed $r1, %bb.2
+  ; CHECK-NOT: CCBX_CCB_X
+  bb.0:
+    successors: %bb.1, %bb.2
+    liveins: $r0, $r1, $ra
+
+    CCB_CCB 1, killed $r0, killed $r1, %bb.2
+
+  bb.1:
+    liveins: $ra
+
+    $r0 = MAKED_DWI 1
+    RET_RTS implicit killed $ra, implicit $r0
+
+  bb.2:
+    liveins: $ra
+
+    $r0 = MAKED_DWI 2
+    RET_RTS implicit killed $ra, implicit $r0
+...

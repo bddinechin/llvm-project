@@ -74,12 +74,11 @@ bool LVXRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
   int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
 
-  // Every LVX base+offset load/store format places the simm10 offset
-  // immediately BEFORE the base-register operand (LD: rW, var, off, rZ;
-  // SD/SQ/SO: rT/rU/rV, off, rZ; LQ/LO: rM/rN, var, off, rZ) -- opposite of
-  // Lanai's ADD_I_LO-derived layout where the immediate follows the
-  // register. FIOperandNum is the base-register (rZ) operand here, so the
-  // offset is at FIOperandNum - 1.
+  // Every LVX base+offset load/store format places the offset immediately
+  // BEFORE the base-register operand (SD/SQ/SO: off, rZ, rT/rU/rV; LD/LQ/LO:
+  // rW/rM/rN, off, rZ, variant) -- opposite of Lanai's ADD_I_LO-derived
+  // layout where the immediate follows the register. FIOperandNum is the
+  // base-register (rZ) operand here, so the offset is at FIOperandNum - 1.
   MachineOperand &OffsetOp = MI.getOperand(FIOperandNum - 1);
   int64_t Offset = MFI.getObjectOffset(FrameIndex) + OffsetOp.getImm();
 
@@ -98,23 +97,35 @@ bool LVXRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
   Register FrameReg = HasFP ? getFrameRegister(MF) : Register(LVX::R12);
 
-  if (isInt<10>(Offset)) {
+  // An offset too big for the instruction's current offset field does not
+  // need a scratch register: the widened forms of the same load or store
+  // (LSU_LSBO.X/.Y, LSU_SSBO.X/.Y and the pair/quad equivalents) hold 37 and
+  // 64 bits of offset in the same operand position, so the fix is to swap the
+  // opcode for a longer encoding of the same instruction and write the offset
+  // straight in. LVXInstrInfo::getFormForImmediate picks the narrowest form
+  // that holds Offset, from the chains the machine description generates into
+  // LVXImmediateExtensions.inc.
+  //
+  // This is what the immediate extensions buy here: what used to be a
+  // scavenged register plus maked + addd ahead of every out-of-range frame
+  // access is now the access itself, four or eight bytes longer.
+  if (unsigned Widened =
+          LVXInstrInfo::getFormForImmediate(MI.getOpcode(), Offset)) {
+    MI.setDesc(TII->get(Widened));
     MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, /*isDef=*/false);
     OffsetOp.ChangeToImmediate(Offset);
     return false;
   }
 
-  // Offset out of simm10 range: scavenge a scratch register, materialize
-  // FrameReg + Offset into it via LVXInstrInfo::loadImmediate
-  // (MAKE/MAKE_X/MAKE_Y, Phase 5.1 -- any int64_t offset fits) + ADDD
-  // (register-register form), then rewrite the instruction to address
-  // through that scratch register at offset 0.
+  // No encoding of this instruction reaches Offset (it has no widened form at
+  // all): fall back to materializing FrameReg + Offset in a scratch register
+  // and addressing through it at offset 0.
   assert(RS && "Register scavenging must be enabled for large frame offsets");
   Register Scratch = RS->scavengeRegisterBackwards(
       LVX::GPRRegClass, II, /*RestoreAfter=*/false, SPAdj);
 
   TII->loadImmediate(*MI.getParent(), II, DL, Scratch, Offset);
-  BuildMI(*MI.getParent(), II, DL, TII->get(LVX::ADDD), Scratch)
+  BuildMI(*MI.getParent(), II, DL, TII->get(LVX::ADDD_DWRR0), Scratch)
       .addReg(Scratch)
       .addReg(FrameReg);
 
