@@ -290,9 +290,9 @@ private:
             return failure();
           Attribute value = li.getValue();
           if (auto intAttr = dyn_cast<IntegerAttr>(value))
-            os << "\tmake " << *rd << " = " << intAttr.getValue() << "\n\t;;\n";
+            os << "\tmaked " << *rd << " = " << intAttr.getValue() << "\n\t;;\n";
           else
-            os << "\tmake " << *rd << " = "
+            os << "\tmaked " << *rd << " = "
                << cast<FloatAttr>(value).getValue().bitcastToAPInt()
                << "\n\t;;\n";
           return success();

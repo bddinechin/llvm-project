@@ -5,12 +5,12 @@
 // every function emitted here was hand-assembled with the real
 // `lvx-mbr-as` and round-tripped through `lvx-mbr-objdump` before these
 // CHECK lines were written, and the RUN line below re-assembles the same
-// output on every test run. If `/home/guembu/bd3/lvx-csw` ever moves,
+// output on every test run. If `/home/bd3/lvx-csw` ever moves,
 // update the path here rather than deleting the check.
 //
-// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-rewrite-divmod),any(lvx-scf-to-cf),lvx-emit-asm)' -o /dev/null 2>/dev/null | /home/guembu/bd3/lvx-csw/lvx-toolchain/bin/lvx-mbr-as - -o %t.o
+// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-rewrite-divmod),any(lvx-scf-to-cf),lvx-emit-asm)' -o /dev/null 2>/dev/null | /home/bd3/lvx-csw/lvx-toolchain/bin/lvx-mbr-as - -o %t.o
 
-// Straight-line code: `lvx.mv`/`lvx.li` lower to real `copyd`/`make`
+// Straight-line code: `lvx.mv`/`lvx.li` lower to real `copyd`/`maked`
 // opcodes, and every op gets its own `;;`-terminated bundle.
 // CHECK-LABEL: straight:
 // CHECK-NEXT: copyd $r2 = $r0
@@ -125,13 +125,13 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // CHECK-LABEL: loop:
 // CHECK-NEXT: copyd $r1 = $r0
 // CHECK-NEXT: ;;
-// CHECK-NEXT: make $r0 = 0
+// CHECK-NEXT: maked $r0 = 0
 // CHECK-NEXT: ;;
-// CHECK-NEXT: make $r2 = 10
+// CHECK-NEXT: maked $r2 = 10
 // CHECK-NEXT: ;;
-// CHECK-NEXT: make $r3 = 1
+// CHECK-NEXT: maked $r3 = 1
 // CHECK-NEXT: ;;
-// CHECK-NEXT: make $r4 = 0
+// CHECK-NEXT: maked $r4 = 0
 // CHECK-NEXT: ;;
 // CHECK-NEXT: sbfd $r29 = $r0, $r2
 // CHECK-NEXT: ;;
