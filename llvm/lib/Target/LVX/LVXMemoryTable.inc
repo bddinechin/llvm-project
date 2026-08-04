@@ -1,6 +1,6 @@
-//===-- LVXLoadTable.inc - -*- C++ -*- ===//
+//===-- LVXMemoryTable.inc - -*- C++ -*- ===//
 //
-// Load instructions by access width and extension.
+// Load and store instructions by access width.
 //
 // Generated from the LVX Machine Description System by MDS/BE/LLVM,
 // for core lvx_v1.  DO NOT EDIT -- your changes will be overwritten by
@@ -37,6 +37,34 @@ LVX_LOAD( 128, NONE, GPR128, LQ_LQBO     , LQ_LQBO_X     , LQ_LQBO_Y     , LQ_LQ
 LVX_LOAD( 256, NONE, GPR256, LO_LOBO     , LO_LOBO_X     , LO_LOBO_Y     , LO_LOBI     )   // lo
 #undef LVX_LOAD
 #endif
+
+//===----------------------------------------------------------------------===//
+// Stores, by how many bits of memory they write.
+//
+// LVX_STORE(bits, class, base+offset, +37-bit, +64-bit, indexed)
+//
+// There is no extension column: a store truncates its value to the width it
+// writes, so unlike a load there is nothing to say about the bits above it.
+// The width comes from the byte mask the Behavior hands MEM_store.
+//
+// Getting one of these wrong does not produce a wrong value, it produces a
+// wrong-SIZED write -- SH where SW was meant leaves two bytes of whatever was
+// there before, and SW where SH was meant destroys two bytes that belonged to
+// something else.
+//===----------------------------------------------------------------------===//
+
+#ifdef LVX_STORE
+LVX_STORE(   8, GPR   , SB_SSBO     , SB_SSBO_X     , SB_SSBO_Y     , SB_SSBI     )   // sb
+LVX_STORE(  16, GPR   , SH_SSBO     , SH_SSBO_X     , SH_SSBO_Y     , SH_SSBI     )   // sh
+LVX_STORE(  32, GPR   , SW_SSBO     , SW_SSBO_X     , SW_SSBO_Y     , SW_SSBI     )   // sw
+LVX_STORE(  64, GPR   , SD_SSBO     , SD_SSBO_X     , SD_SSBO_Y     , SD_SSBI     )   // sd
+LVX_STORE( 128, GPR128, SQ_SQBO     , SQ_SQBO_X     , SQ_SQBO_Y     , SQ_SQBI     )   // sq
+#undef LVX_STORE
+#endif
+
+// NOT COVERED by the rows above:
+//   writes a span whose width is not constant:
+//     so
 
 //===----------------------------------------------------------------------===//
 // The `variant` modifier's values.

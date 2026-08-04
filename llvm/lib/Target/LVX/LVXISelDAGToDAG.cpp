@@ -57,7 +57,7 @@ struct LoadRow {
 const LoadRow LoadRows[] = {
 #define LVX_LOAD(BITS, EXT, CLASS, BO, BOX, BOY, BI)                           \
   {BITS, EXT_##EXT, LVX::BO, LVX::BI},
-#include "LVXLoadTable.inc"
+#include "LVXMemoryTable.inc"
 };
 
 // The widened forms (BOX/BOY above) are deliberately not carried here:
@@ -72,6 +72,25 @@ unsigned narrowLoadOpcode(unsigned Bits, bool IsSigned) {
   LoadExtension Want = Bits >= 64 ? EXT_NONE : IsSigned ? EXT_SEXT : EXT_ZEXT;
   for (const LoadRow &Row : LoadRows)
     if (Row.Bits == Bits && Row.Ext == Want)
+      return Row.Narrow;
+  return 0;
+}
+
+// Stores have no extension column: a store truncates to the width it writes.
+struct StoreRow {
+  unsigned Bits;
+  unsigned Narrow;
+  unsigned Indexed;
+};
+
+const StoreRow StoreRows[] = {
+#define LVX_STORE(BITS, CLASS, BO, BOX, BOY, BI) {BITS, LVX::BO, LVX::BI},
+#include "LVXMemoryTable.inc"
+};
+
+unsigned narrowStoreOpcode(unsigned Bits) {
+  for (const StoreRow &Row : StoreRows)
+    if (Row.Bits == Bits)
       return Row.Narrow;
   return 0;
 }
@@ -94,7 +113,7 @@ struct VariantRow {
 constexpr VariantRow VariantRows[] = {
 #define LVX_LOAD_VARIANT(VALUE, SUFFIX, DISMISSIBLE, LEVEL)                    \
   {VALUE, DISMISSIBLE != 0, LEVEL},
-#include "LVXLoadTable.inc"
+#include "LVXMemoryTable.inc"
 };
 
 constexpr const VariantRow *variantRow(unsigned Value) {
@@ -603,11 +622,13 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     if (selectAddr(CurDAG, DL, ST->getBasePtr(), Base, Offset, IsFrameIndex)) {
       EVT MemVT = ST->getMemoryVT();
       unsigned Opc = 0;
-      if      (MemVT == MVT::i64 || MemVT == MVT::f64) Opc = LVX::SD_SSBO;
-      else if (MemVT == MVT::f32) Opc = LVX::SW_SSBO;
-      else if (MemVT == MVT::i32) Opc = LVX::SW_SSBO;
-      else if (MemVT == MVT::i16) Opc = LVX::SH_SSBO;
-      else if (MemVT == MVT::i8)  Opc = LVX::SB_SSBO;
+      // Same table, same reasoning as the load above, minus the extension: a
+      // store truncates to the width it writes, so the width alone picks it.
+      // As with loads, only the scalar widths are selected here -- SQ is in
+      // the table but nothing lowers an ISD::STORE to it yet.
+      if (MemVT == MVT::i64 || MemVT == MVT::f64 || MemVT == MVT::f32 ||
+          MemVT == MVT::i32 || MemVT == MVT::i16 || MemVT == MVT::i8)
+        Opc = narrowStoreOpcode(MemVT.getSizeInBits());
 
       Opc = Opc ? selectLoadStoreOpcode(Opc, Offset, IsFrameIndex) : 0;
 
