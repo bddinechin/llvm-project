@@ -188,6 +188,27 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
                         ISD::FTRUNC, ISD::FROUND, ISD::FNEARBYINT})
       setOperationAction(Op, VT, Expand);
 
+    // There IS hardware for these, and until now nothing said so. LVX has both
+    // IEEE min/max families, which is why the description has two helpers per
+    // direction and why they must not be conflated:
+    //
+    //   f*_minNum  (FMINN)  754-2008 minNum  -- returns the non-NaN operand
+    //   f*_min     (FMIN)   754-2019 minimum -- propagates the NaN
+    //
+    // the same split RISC-V spells FMIN/FMAX against Zfa's FMINM/FMAXM. Left
+    // to Expand, FMINIMUM turned into a setcc/select chain that then failed to
+    // select outright, so llvm.minimum.f64 did not compile at all; FMINNUM
+    // asked for a libcall that does not exist. The patterns for all four are
+    // generated from those helper names, so declaring them Legal is what
+    // connects the two.
+    //
+    // FRINT rounds by the current mode, which is exactly what FRINTD does with
+    // floatmode=7. FNEARBYINT stays Expand above: it differs precisely in not
+    // raising inexact, and nothing here suppresses that flag.
+    for (unsigned Op : {ISD::FMINNUM, ISD::FMAXNUM, ISD::FMINIMUM,
+                        ISD::FMAXIMUM, ISD::FRINT})
+      setOperationAction(Op, VT, Legal);
+
     // FMA is Legal: FFMAD/FFMAW accumulate INTO their destination register
     // ("f64_mulAdd(RM, argument3, argument2^fsign, argument1^fsign)", where
     // argument1 is registerW), and the generated encodings already model that

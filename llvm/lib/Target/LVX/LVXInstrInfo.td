@@ -377,19 +377,15 @@ def : Pat<(store i64:$rT, (add i64:$rZ, simm10imm:$off)),
 // the source. FDIVD is f64_div(RM, argument2, argument3) = rZ / rY, so "a / b"
 // keeps them in source order. Getting either backwards is invisible in the
 // assembly and only shows up as a wrong value.
-def : Pat<(fadd f64:$a, f64:$b), (FADDD_FDADD f64:$a, f64:$b, 7)>;
-def : Pat<(fsub f64:$a, f64:$b), (FSBFD_FDADD f64:$b, f64:$a, 7)>;
-def : Pat<(fmul f64:$a, f64:$b), (FMULD_FDMUL f64:$a, f64:$b, 7, 0)>;
-def : Pat<(fdiv f64:$a, f64:$b), (FDIVD_FDMUL f64:$a, f64:$b, 7, 0)>;
-def : Pat<(fsqrt f64:$a),        (FSQRTD_FDMO0 f64:$a, 7)>;
+// fadd/fsub/fmul/fdiv/fsqrt are GENERATED into LVXInstrPatterns.td now: their
+// bodies hand the work to a SoftFloat helper and BIND its result, so the ISD
+// node is a matter of reading the helper's name, and the generator derives the
+// operand order described above rather than being told it. It reproduced the
+// FSBFD swap exactly. What stays here is the pair that has no helper at all --
+// FNEGD and FABSD manipulate the sign bit directly, so there is no BIND to
+// read and nothing to derive.
 def : Pat<(fneg f64:$a),         (FNEGD_FDMO1 f64:$a)>;
 def : Pat<(fabs f64:$a),         (FABSD_FDMO1 f64:$a)>;
-
-def : Pat<(fadd f32:$a, f32:$b), (FADDW_FWADD f32:$a, f32:$b, 7)>;
-def : Pat<(fsub f32:$a, f32:$b), (FSBFW_FWADD f32:$b, f32:$a, 7)>;
-def : Pat<(fmul f32:$a, f32:$b), (FMULW_FWMUL f32:$a, f32:$b, 7, 0)>;
-def : Pat<(fdiv f32:$a, f32:$b), (FDIVW_FWMUL f32:$a, f32:$b, 7, 0)>;
-def : Pat<(fsqrt f32:$a),        (FSQRTW_FWMO0 f32:$a, 7)>;
 def : Pat<(fneg f32:$a),         (FNEGW_FWMO1 f32:$a)>;
 def : Pat<(fabs f32:$a),         (FABSW_FWMO1 f32:$a)>;
 
@@ -400,18 +396,15 @@ def : Pat<(fabs f32:$a),         (FABSW_FWMO1 f32:$a)>;
 // ISD::FMA's third operand (the addend) binds to $rWsrc and the two
 // multiplicands to $rZ/$rY; the product is commutative so their order is
 // free. fnegate=0 leaves both negatable operands alone.
-def : Pat<(fma f64:$a, f64:$b, f64:$c),
-          (FFMAD_FDFMA f64:$c, f64:$a, f64:$b, 7, 0)>;
-def : Pat<(fma f32:$a, f32:$b, f32:$c),
-          (FFMAW_FWFMA f32:$c, f32:$a, f32:$b, 7, 0)>;
+// Both FMA pairs are generated now. The generator reaches the same place from
+// the helper names -- f*_mulAdd is fma, f*_mulnAdd negates the product -- and
+// it works out the tied accumulator from the format's directions rather than
+// from this comment.
 
 // FFMSD subtracts the product from the accumulator ("the product is
 // subtracted from the %1"), which is c - a*b -- exactly fma(-a, b, c). Worth
 // a pattern of its own: without it that shape costs a separate negate.
-def : Pat<(fma (fneg f64:$a), f64:$b, f64:$c),
-          (FFMSD_FDFMA f64:$c, f64:$a, f64:$b, 7, 0)>;
-def : Pat<(fma (fneg f32:$a), f32:$b, f32:$c),
-          (FFMSW_FWFMA f32:$c, f32:$a, f32:$b, 7, 0)>;
+
 
 // Sign transfer. FSIGND is "(argument2 & 0x7FFF…) | (argument3 & 0x8000…)"
 // -- magnitude from $rZ, sign from $rY -- which is exactly ISD::FCOPYSIGN's

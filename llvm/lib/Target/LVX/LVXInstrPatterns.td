@@ -77,9 +77,57 @@ def : Pat<(xor GPR:$rZ, simm37imm:$imm),
            (EORD_DWRI_X GPR:$rZ, simm37imm:$imm)>;
 def : Pat<(xor GPR:$rZ, wimm64imm:$imm),
            (EORD_DWRI_Y GPR:$rZ, wimm64imm:$imm)>;
+def : Pat<(fminimum f64:$rZ, f64:$rY),
+           (FMIND_FDMMWR f64:$rZ, f64:$rY)>;   // min
+def : Pat<(fminimum f32:$rZ, f32:$rY),
+           (FMINW_FWMMWR f32:$rZ, f32:$rY)>;   // min
+def : Pat<(fminnum f64:$rZ, f64:$rY),
+           (FMINND_FDMMWR f64:$rZ, f64:$rY)>;   // minNum
+def : Pat<(fminnum f32:$rZ, f32:$rY),
+           (FMINNW_FWMMWR f32:$rZ, f32:$rY)>;   // minNum
+def : Pat<(fmaximum f64:$rZ, f64:$rY),
+           (FMAXD_FDMMWR f64:$rZ, f64:$rY)>;   // max
+def : Pat<(fmaximum f32:$rZ, f32:$rY),
+           (FMAXW_FWMMWR f32:$rZ, f32:$rY)>;   // max
+def : Pat<(fmaxnum f64:$rZ, f64:$rY),
+           (FMAXND_FDMMWR f64:$rZ, f64:$rY)>;   // maxNum
+def : Pat<(fmaxnum f32:$rZ, f32:$rY),
+           (FMAXNW_FWMMWR f32:$rZ, f32:$rY)>;   // maxNum
+def : Pat<(frint f64:$rZ),
+           (FRINTD_FDMO0 f64:$rZ, 7)>;   // rint
+def : Pat<(frint f32:$rZ),
+           (FRINTW_FWMO0 f32:$rZ, 7)>;   // rint
+def : Pat<(fsqrt f64:$rZ),
+           (FSQRTD_FDMO0 f64:$rZ, 7)>;   // sqrt
+def : Pat<(fsqrt f32:$rZ),
+           (FSQRTW_FWMO0 f32:$rZ, 7)>;   // sqrt
 def : Pat<(mulhs GPR:$rZ, GPR:$rY),
            (MULD_DMWRR GPR:$rZ, GPR:$rY, 0)>;
 def : Pat<(mulhu GPR:$rZ, GPR:$rY),
            (MULD_DMWRR GPR:$rZ, GPR:$rY, 1)>;
 def : Pat<(mul GPR:$rZ, GPR:$rY),
            (MULD_DMWRR GPR:$rZ, GPR:$rY, 3)>;
+def : Pat<(fadd f64:$rZ, f64:$rY),
+           (FADDD_FDADD f64:$rZ, f64:$rY, 7)>;   // add
+def : Pat<(fadd f32:$rZ, f32:$rY),
+           (FADDW_FWADD f32:$rZ, f32:$rY, 7)>;   // add
+def : Pat<(fsub f64:$rY, f64:$rZ),
+           (FSBFD_FDADD f64:$rZ, f64:$rY, 7)>;   // sub
+def : Pat<(fsub f32:$rY, f32:$rZ),
+           (FSBFW_FWADD f32:$rZ, f32:$rY, 7)>;   // sub
+def : Pat<(fmul f64:$rZ, f64:$rY),
+           (FMULD_FDMUL f64:$rZ, f64:$rY, 7, 0)>;   // mul
+def : Pat<(fmul f32:$rZ, f32:$rY),
+           (FMULW_FWMUL f32:$rZ, f32:$rY, 7, 0)>;   // mul
+def : Pat<(fdiv f64:$rZ, f64:$rY),
+           (FDIVD_FDMUL f64:$rZ, f64:$rY, 7, 0)>;   // div
+def : Pat<(fdiv f32:$rZ, f32:$rY),
+           (FDIVW_FWMUL f32:$rZ, f32:$rY, 7, 0)>;   // div
+def : Pat<(fma f64:$rY, f64:$rZ, f64:$rW),
+           (FFMAD_FDFMA f64:$rW, f64:$rZ, f64:$rY, 7, 0)>;   // mulAdd
+def : Pat<(fma f32:$rY, f32:$rZ, f32:$rW),
+           (FFMAW_FWFMA f32:$rW, f32:$rZ, f32:$rY, 7, 0)>;   // mulAdd
+def : Pat<(fma (fneg f64:$rY), f64:$rZ, f64:$rW),
+           (FFMSD_FDFMA f64:$rW, f64:$rZ, f64:$rY, 7, 0)>;   // mulnAdd
+def : Pat<(fma (fneg f32:$rY), f32:$rZ, f32:$rW),
+           (FFMSW_FWFMA f32:$rW, f32:$rZ, f32:$rY, 7, 0)>;   // mulnAdd
