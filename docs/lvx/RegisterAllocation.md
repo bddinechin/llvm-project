@@ -11,7 +11,7 @@ Register allocation for the `lvx`/`lvx_cf`/`lvx_scf`/`lvx_func` dialect
 family (see the top-level `CLAUDE.md`), based on:
 
 > Massimiliano Poletto and Vivek Sarkar, "Linear Scan Register Allocation,"
-> ACM TOPLAS 21(5), 1999. (`/home/guembu/Downloads/Poletto_1999_TOPLAS.pdf`)
+> ACM TOPLAS 21(5), 1999. (`~/Downloads/Poletto_1999_TOPLAS.pdf`)
 
 Implementation is planned in three steps:
 
@@ -214,8 +214,8 @@ needs a frame.
 ### Allocation order
 
 Mirror the *separate* LVX LLVM backend's stated preference
-(`LVXRegisterInfo.td`, in `/home/guembu/bd3/LLVM/llvm-project`) for
-consistency: argument/result registers `R0-R11` first, then other
+(`LVXRegisterInfo.td`, in the sibling `lvx-llvm` repo:
+`../lvx-llvm/llvm-project/llvm/lib/Target/LVX/`) for consistency: argument/result registers `R0-R11` first, then other
 caller-saved scratch (`R15-R17`, `R32-R63`), then callee-saved (`R14`,
 `R18-R31`) last — using a callee-saved register forces prologue/epilogue
 save/restore code we don't emit yet.

@@ -5,10 +5,17 @@
 // every function emitted here was hand-assembled with the real
 // `lvx-mbr-as` and round-tripped through `lvx-mbr-objdump` before these
 // CHECK lines were written, and the RUN line below re-assembles the same
-// output on every test run. If `/home/bd3/lvx-csw` ever moves,
-// update the path here rather than deleting the check.
+// output on every test run.
 //
-// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-rewrite-divmod),any(lvx-scf-to-cf),lvx-emit-asm)' -o /dev/null 2>/dev/null | /home/bd3/lvx-csw/lvx-toolchain/bin/lvx-mbr-as - -o %t.o
+// `%lvx_mbr_as` and the `lvx-mbr-as` feature come from this directory's
+// `lit.local.cfg`, which locates the installed toolchain (this checkout sits
+// at a different absolute path on each machine, so never hardcode one here).
+// The `%if` is what keeps the CHECK run above alive where the toolchain is
+// absent; a file-scoped requires-directive would skip that run too.  (Don't
+// spell that directive out here, even in prose -- lit scans every line of the
+// file for it and would take the mention as the real thing.)
+//
+// RUN: %if lvx-mbr-as %{ mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-rewrite-divmod),any(lvx-scf-to-cf),lvx-emit-asm)' -o /dev/null 2>/dev/null | %lvx_mbr_as - -o %t.o %} %else %{ true %}
 
 // Straight-line code: `lvx.mv`/`lvx.li` lower to real `copyd`/`maked`
 // opcodes, and every op gets its own `;;`-terminated bundle.

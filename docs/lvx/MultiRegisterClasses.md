@@ -14,11 +14,11 @@ progress now.
 
 > Michael D. Smith, Norman Ramsey, and Glenn Holloway, "A Generalized
 > Algorithm for Graph-Coloring Register Allocation," PLDI 2004
-> (`/home/guembu/Downloads/Smith_2004_PLDI.pdf`).
+> (`~/Downloads/Smith_2004_PLDI.pdf`).
 
 > Jonathan K. Lee, Jens Palsberg, and Fernando Magno Quintão Pereira,
 > "Aliased Register Allocation for Straight-line Programs is NP-complete,"
-> ICALP 2007 (`/home/guembu/Downloads/Lee_2007_ICALP.pdf`).
+> ICALP 2007 (`~/Downloads/Lee_2007_ICALP.pdf`).
 
 Not part of the linear-scan lineage discussed in
 `docs/lvx/LinearScanComparison.md` -- this is Chaitin-style graph-coloring
