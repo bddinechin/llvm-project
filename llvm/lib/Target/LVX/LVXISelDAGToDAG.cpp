@@ -10,6 +10,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "LVXISelDAGToDAG.h"
+#include "LVXAddressSpaces.h"
 #include "LVXInstrInfo.h"
 #include "LVXRegisterInfo.h"
 #include "LVXSubtarget.h"
@@ -455,8 +456,29 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
       Opc = Opc ? selectLoadStoreOpcode(Opc, Offset, IsFrameIndex) : 0;
 
       if (Opc) {
+        // The `variant` modifier is NOT a codegen choice -- it is read off the
+        // pointer's address space, which the user declared ("__bypass int *p").
+        // Hardcoding 0 here silently compiled a __bypass load as an ordinary
+        // CACHED load, which is wrong in exactly the case address spaces exist
+        // for (MMIO, coherency), and made LVX disagree with lvx-gcc on the
+        // same source. See LVXAddressSpaces.h for the mapping and why the
+        // numbering is ABI rather than a private choice.
+        unsigned Variant =
+            LVXAS::variantForAddressSpace(LD->getAddressSpace());
+        if (Variant == ~0u) {
+          // __convert/__syscall are pointer-qualifier machinery, not load
+          // variants, and there is no encoding for a load in them. Diagnose
+          // rather than fall back to 0, which would be the silent
+          // wrong-cacheing bug again.
+          // GenCrashDiag=false: this is a user error (they wrote a load
+          // through a __convert-qualified pointer), not an internal failure,
+          // so it should not print "PLEASE submit a bug report" or abort.
+          report_fatal_error("LVX: load from unsupported address space " +
+                                 Twine(LD->getAddressSpace()),
+                             /*GenCrashDiag=*/false);
+        }
         // Generated LSU_LSBO_Inst operand order: off, base, variant.
-        SDValue Var  = CurDAG->getTargetConstant(0, DL, MVT::i32); // variant=0
+        SDValue Var  = CurDAG->getTargetConstant(Variant, DL, MVT::i32);
         SDValue Ops[] = {Offset, Base, Var, LD->getChain()};
         // Result type from the node, not a hardcoded i64: an f32/f64 load
         // produces an f32/f64 value, and replacing it with an i64-typed

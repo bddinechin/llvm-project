@@ -216,21 +216,14 @@ def : Pat<(wimm64imm:$imm), (MAKED_DWI_Y wimm64imm:$imm)>;
 
 // ---- Integer arithmetic and logic, register-register ----------------------
 
-def : Pat<(add  GPR:$rY, GPR:$rZ), (ADDD_DWRR0  GPR:$rZ, GPR:$rY)>;
-// SBFD is "subtract FROM": result1 = argument3 - argument2, i.e. rY - rZ, so
-// the MINUEND goes in rY and the SUBTRAHEND in rZ. With ALU_DWRR0_Inst taking
-// (ins GPR:$rZ, GPR:$rY), that means the output operands are (subtrahend,
-// minuend) -- the reverse of the DAG's (minuend, subtrahend), and the same
-// (rZ, rY) ordering every commutative neighbour above uses. Written the other
-// way round this computed b - a for "a - b": 100 - 7 evaluated to -93.
-def : Pat<(sub  GPR:$rY, GPR:$rZ), (SBFD_DWRR0  GPR:$rZ, GPR:$rY)>;
+// add/sub and the bitwise register-register forms are GENERATED from the
+// machine description now -- see LVXInstrPatterns.td.  They were the ones
+// whose operand placement is invisible in the assembly syntax, and the
+// hand-written "sub" here had it backwards (100 - 7 evaluated to -93).
 def : Pat<(smin GPR:$rY, GPR:$rZ), (MIND_DWRR0  GPR:$rZ, GPR:$rY)>;
 def : Pat<(smax GPR:$rY, GPR:$rZ), (MAXD_DWRR0  GPR:$rZ, GPR:$rY)>;
 def : Pat<(umin GPR:$rY, GPR:$rZ), (MINUD_DWRR0 GPR:$rZ, GPR:$rY)>;
 def : Pat<(umax GPR:$rY, GPR:$rZ), (MAXUD_DWRR0 GPR:$rZ, GPR:$rY)>;
-def : Pat<(and  GPR:$rY, GPR:$rZ), (ANDD_DWRR0  GPR:$rZ, GPR:$rY)>;
-def : Pat<(or   GPR:$rY, GPR:$rZ), (IORD_DWRR0  GPR:$rZ, GPR:$rY)>;
-def : Pat<(xor  GPR:$rY, GPR:$rZ), (EORD_DWRR0  GPR:$rZ, GPR:$rY)>;
 
 // ---- Multiply -------------------------------------------------------------
 //
@@ -397,6 +390,26 @@ def : Pat<(fsqrt f32:$a),        (FSQRTW_FWMO0 f32:$a, 7)>;
 def : Pat<(fneg f32:$a),         (FNEGW_FWMO1 f32:$a)>;
 def : Pat<(fabs f32:$a),         (FABSW_FWMO1 f32:$a)>;
 
+// Fused multiply-add. FFMAD computes
+//   result1 = f64_mulAdd(RM, argument3, argument2^fsign, argument1^fsign)
+// i.e. rY * rZ + rW, accumulating into its own destination -- which the
+// generated ALU_FDFMA_Inst models with a $rWsrc input tied to $rW. So
+// ISD::FMA's third operand (the addend) binds to $rWsrc and the two
+// multiplicands to $rZ/$rY; the product is commutative so their order is
+// free. fnegate=0 leaves both negatable operands alone.
+def : Pat<(fma f64:$a, f64:$b, f64:$c),
+          (FFMAD_FDFMA f64:$c, f64:$a, f64:$b, 7, 0)>;
+def : Pat<(fma f32:$a, f32:$b, f32:$c),
+          (FFMAW_FWFMA f32:$c, f32:$a, f32:$b, 7, 0)>;
+
+// FFMSD subtracts the product from the accumulator ("the product is
+// subtracted from the %1"), which is c - a*b -- exactly fma(-a, b, c). Worth
+// a pattern of its own: without it that shape costs a separate negate.
+def : Pat<(fma (fneg f64:$a), f64:$b, f64:$c),
+          (FFMSD_FDFMA f64:$c, f64:$a, f64:$b, 7, 0)>;
+def : Pat<(fma (fneg f32:$a), f32:$b, f32:$c),
+          (FFMSW_FWFMA f32:$c, f32:$a, f32:$b, 7, 0)>;
+
 // Sign transfer. FSIGND is "(argument2 & 0x7FFF…) | (argument3 & 0x8000…)"
 // -- magnitude from $rZ, sign from $rY -- which is exactly ISD::FCOPYSIGN's
 // (magnitude, sign) operand order, so this maps directly.
@@ -462,6 +475,9 @@ def : Pat<(f64 (bitconvert i64:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
 def : Pat<(i64 (bitconvert f64:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
 def : Pat<(i64 (LVXf32tobits f32:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
 def : Pat<(f32 (LVXbitstof32 i64:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
+
+// Patterns generated from the machine description (BE/LLVM llvm-patterns.pl).
+include "LVXInstrPatterns.td"
 
 //===----------------------------------------------------------------------===//
 // Mandatory pointer-register-class override (LLVM requires every target to

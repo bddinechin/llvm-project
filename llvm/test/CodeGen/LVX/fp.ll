@@ -151,6 +151,44 @@ define float @copysign32(float %mag, float %sgn) {
   ret float %r
 }
 
+; Fused multiply-add. FFMAD accumulates into its own destination, which the
+; generated encoding models with a $rWsrc input tied to $rW -- so the addend
+; binds to the tied operand and the whole thing is one instruction.
+;
+; Two things have to hold for "a*b + c" to reach it: ISD::FMA must be Legal,
+; and isFMAFasterThanFMulAndFAdd must say fusing is worthwhile -- llvm.fmuladd
+; is only turned into an FMA node when the target answers yes, and the base
+; class answers no. With that missing this still compiled, just as a separate
+; fmuld and faddd, which is why CHECK-NOT is here.
+; CHECK-LABEL: fmuladd64:
+; CHECK: ffmad $r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
+; CHECK-NOT: fmuld
+define double @fmuladd64(double %a, double %b, double %c) {
+  %r = call double @llvm.fmuladd.f64(double %a, double %b, double %c)
+  ret double %r
+}
+
+; CHECK-LABEL: fmuladd32:
+; CHECK: ffmaw $r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
+; CHECK-NOT: fmulw
+define float @fmuladd32(float %a, float %b, float %c) {
+  %r = call float @llvm.fmuladd.f32(float %a, float %b, float %c)
+  ret float %r
+}
+
+; The explicit intrinsic, which must not become a libcall.
+; CHECK-LABEL: fma64:
+; CHECK: ffmad $r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
+; CHECK-NOT: call
+define double @fma64(double %a, double %b, double %c) {
+  %r = call double @llvm.fma.f64(double %a, double %b, double %c)
+  ret double %r
+}
+
 declare double @llvm.sqrt.f64(double)
+declare double @llvm.fma.f64(double, double, double)
+declare float @llvm.fma.f32(float, float, float)
+declare double @llvm.fmuladd.f64(double, double, double)
+declare float @llvm.fmuladd.f32(float, float, float)
 declare double @llvm.copysign.f64(double, double)
 declare float @llvm.copysign.f32(float, float)

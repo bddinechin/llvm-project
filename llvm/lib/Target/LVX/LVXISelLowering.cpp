@@ -188,13 +188,12 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
                         ISD::FTRUNC, ISD::FROUND, ISD::FNEARBYINT})
       setOperationAction(Op, VT, Expand);
 
-    // FFMAD/FFMAW accumulate INTO their destination register
-    // (Description.yml: "f64_mulAdd(RM, argument3, argument2^fsign,
-    // argument1^fsign)" -- argument1 is registerW, the destination), so they
-    // need a tied-operand form that ISD::FMA's separate-destination shape
-    // does not have. Expanding to a separate multiply and add is correct,
-    // just not fused.
-    setOperationAction(ISD::FMA, VT, Expand);
+    // FMA is Legal: FFMAD/FFMAW accumulate INTO their destination register
+    // ("f64_mulAdd(RM, argument3, argument2^fsign, argument1^fsign)", where
+    // argument1 is registerW), and the generated encodings already model that
+    // -- ALU_FDFMA_Inst carries a $rWsrc input tied to $rW via
+    // "let Constraints". So the accumulator simply binds to that tied
+    // operand and no pseudo or custom inserter is needed.
 
     // No FP compare-and-branch and no FP conditional move: go through an
     // explicit FCOMPD/FCOMPW producing a 0/1 GPR, then an integer branch.
@@ -231,6 +230,21 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
 
   setMinFunctionAlignment(Align(4));
   setPrefFunctionAlignment(Align(4));
+}
+
+bool LVXTargetLowering::isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
+                                                   EVT VT) const {
+  if (!VT.isSimple())
+    return false;
+  // One instruction instead of two, and more accurate: the ISA fuses with a
+  // single rounding ("f64_mulAdd").
+  switch (VT.getSimpleVT().SimpleTy) {
+  case MVT::f32:
+  case MVT::f64:
+    return true;
+  default:
+    return false;
+  }
 }
 
 SDValue LVXTargetLowering::LowerOperation(SDValue Op,

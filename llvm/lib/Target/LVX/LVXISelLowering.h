@@ -36,6 +36,15 @@ public:
   // lowering beyond what setOperationAction + TableGen patterns handle.
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
+  // LVX has real fused multiply-add hardware (FFMAD/FFMAW), so llvm.fmuladd
+  // should become a single ISD::FMA rather than a separate multiply and add.
+  // The base class answers false, which is why "a*b + c" was still coming out
+  // as fmuld+faddd even with FMA declared Legal and patterns in place: the
+  // fmuladd intrinsic is only turned into an FMA node when the target says
+  // fusing is profitable.
+  bool isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
+                                  EVT VT) const override;
+
   bool CanLowerReturn(CallingConv::ID CallConv, MachineFunction &MF,
                       bool IsVarArg,
                       const SmallVectorImpl<ISD::OutputArg> &Outs,
