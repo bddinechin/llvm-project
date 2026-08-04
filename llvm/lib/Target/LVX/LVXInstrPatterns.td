@@ -77,6 +77,10 @@ def : Pat<(xor GPR:$rZ, simm37imm:$imm),
            (EORD_DWRI_X GPR:$rZ, simm37imm:$imm)>;
 def : Pat<(xor GPR:$rZ, wimm64imm:$imm),
            (EORD_DWRI_Y GPR:$rZ, wimm64imm:$imm)>;
+def : Pat<(f64 (fpextend f32:$rZ)),
+           (FWIDENWD_FDWIDEN f32:$rZ, 0)>;   // to_f64
+def : Pat<(f32 (fpround f64:$rZ)),
+           (FNARROWDW_FWWR f64:$rZ, 7)>;   // to_f32
 def : Pat<(fminimum f64:$rZ, f64:$rY),
            (FMIND_FDMMWR f64:$rZ, f64:$rY)>;   // min
 def : Pat<(fminimum f32:$rZ, f32:$rY),
@@ -93,6 +97,22 @@ def : Pat<(fmaxnum f64:$rZ, f64:$rY),
            (FMAXND_FDMMWR f64:$rZ, f64:$rY)>;   // maxNum
 def : Pat<(fmaxnum f32:$rZ, f32:$rY),
            (FMAXNW_FWMMWR f32:$rZ, f32:$rY)>;   // maxNum
+def : Pat<(f64 (sint_to_fp i64:$rZ)),
+           (FLOATD_FDFLOAT i64:$rZ, 7)>;   // to_f64
+def : Pat<(f64 (uint_to_fp i64:$rZ)),
+           (FLOATUD_FDFLOAT i64:$rZ, 7)>;   // to_f64
+def : Pat<(f32 (sint_to_fp i64:$rZ)),
+           (FLOATDW_FWFLOAT i64:$rZ, 7)>;   // to_f32
+def : Pat<(f32 (uint_to_fp i64:$rZ)),
+           (FLOATUDW_FWFLOAT i64:$rZ, 7)>;   // to_f32
+def : Pat<(i64 (fp_to_sint f64:$rZ)),
+           (FIXEDD_FDFIXED f64:$rZ, 1)>;   // to_i64
+def : Pat<(i64 (fp_to_uint f64:$rZ)),
+           (FIXEDUD_FDFIXED f64:$rZ, 1)>;   // to_ui64
+def : Pat<(i64 (fp_to_sint f32:$rZ)),
+           (FIXEDWD_FDFIXED f32:$rZ, 1)>;   // to_i64
+def : Pat<(i64 (fp_to_uint f32:$rZ)),
+           (FIXEDUWD_FDFIXED f32:$rZ, 1)>;   // to_ui64
 def : Pat<(frint f64:$rZ),
            (FRINTD_FDMO0 f64:$rZ, 7)>;   // rint
 def : Pat<(frint f32:$rZ),

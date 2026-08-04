@@ -448,22 +448,22 @@ multiclass FCmpPat<ValueType vt, Instruction cmp> {
 defm : FCmpPat<f64, FCOMPD_FDCWRR>;
 defm : FCmpPat<f32, FCOMPW_FWCWRR>;
 
-// Conversions. i64 is the only legal integer type, so the narrower FIXED*/
-// FLOAT* forms are never selected directly -- the type legalizer promotes i32
-// conversions to these and truncates/extends around them.
-def : Pat<(i64 (fp_to_sint f64:$a)), (FIXEDD_FDFIXED   f64:$a, 1)>;
-def : Pat<(i64 (fp_to_uint f64:$a)), (FIXEDUD_FDFIXED  f64:$a, 1)>;
-def : Pat<(i64 (fp_to_sint f32:$a)), (FIXEDWD_FDFIXED  f32:$a, 1)>;
-def : Pat<(i64 (fp_to_uint f32:$a)), (FIXEDUWD_FDFIXED f32:$a, 1)>;
-def : Pat<(f64 (sint_to_fp i64:$a)), (FLOATD_FDFLOAT   i64:$a, 7)>;
-def : Pat<(f64 (uint_to_fp i64:$a)), (FLOATUD_FDFLOAT  i64:$a, 7)>;
-def : Pat<(f32 (sint_to_fp i64:$a)), (FLOATDW_FWFLOAT  i64:$a, 7)>;
-def : Pat<(f32 (uint_to_fp i64:$a)), (FLOATUDW_FWFLOAT i64:$a, 7)>;
-
-// f32 <-> f64. FWIDENWD reads the f32 from the low half of its source when
-// mostsig=0, which is where f32 values live here.
-def : Pat<(f64 (fpextend f32:$a)), (FWIDENWD_FDWIDEN f32:$a, 0)>;
-def : Pat<(f32 (fpround f64:$a)),  (FNARROWDW_FWWR   f64:$a, 7)>;
+// All ten conversions are GENERATED now, from the "<from>_to_<to>" helper each
+// one calls. i64 stays the only legal integer type, so the narrower FIXED*/
+// FLOAT* forms are still never selected directly -- the generator skips any
+// conversion whose either end has no register class here, which is the same
+// rule stated as a property of the target rather than of this comment.
+//
+// The rounding mode is where they differ from the arithmetic, and where the
+// generator has to know something the description does not say: every other FP
+// instruction takes floatmode's unsuffixed member (7, "use $cs.RM"), but a
+// float-to-integer conversion pins .rz, because truncation toward zero is what
+// ISD::FP_TO_SINT and C both mean regardless of the current mode. That comes
+// out of the ISD node, not the machine description.
+//
+// FWIDENWD's modifier is not floatmode at all -- widening f32 to f64 is exact,
+// so it rounds nothing; its unsuffixed member is 0, and the generator reaches
+// that by the same rule it uses everywhere else.
 
 // Reinterpretations: FP and integer share the GPR file, so all of these are
 // register-to-register.
