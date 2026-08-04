@@ -199,6 +199,36 @@ def : Pat<(and  GPR:$rY, GPR:$rZ), (ANDD_DWRR0  GPR:$rZ, GPR:$rY)>;
 def : Pat<(or   GPR:$rY, GPR:$rZ), (IORD_DWRR0  GPR:$rZ, GPR:$rY)>;
 def : Pat<(xor  GPR:$rY, GPR:$rZ), (EORD_DWRR0  GPR:$rZ, GPR:$rY)>;
 
+// ---- Multiply -------------------------------------------------------------
+//
+// One instruction, MULD, covers the low and all three high multiplies; which
+// one you get is the `highmult` modifier. Its encoding is NOT the KVX one and
+// is the opposite of the obvious guess -- lvx-refs Modifier.table gives
+//
+//   members = ".H .HU .HSU ."   over   values = "0 1 2 3"
+//
+// so **3 is the plain low multiply** (printing bare "muld") and 0/1/2 are the
+// high forms. Instruction.yml's MULD execution is explicit:
+//
+//   if (highmult == 3) result1 = product.64[0];   // low half
+//   else               result1 = product.64[1];   // high half
+//
+// with the operand extension chosen alongside it: case 1 is ZX*ZX, case 2 is
+// SX*ZX, and the default (0, and 3) is SX*SX.
+//
+// Getting this backwards is silent wrong code, not a build failure: under the
+// KVX convention ISD::MUL would select highmult=0 and every plain "a * b"
+// would compile to a signed HIGH multiply.
+//
+// The low half is bit-identical for signed and unsigned operands, so one
+// pattern covers signed and unsigned MUL alike. MULD is commutative, so the
+// $rZ/$rY order carries no meaning here (unlike SBFD).
+def : Pat<(mul   GPR:$rZ, GPR:$rY), (MULD_DMWRR GPR:$rZ, GPR:$rY, 3 /* low   */)>;
+def : Pat<(mulhs GPR:$rZ, GPR:$rY), (MULD_DMWRR GPR:$rZ, GPR:$rY, 0 /* .h    */)>;
+def : Pat<(mulhu GPR:$rZ, GPR:$rY), (MULD_DMWRR GPR:$rZ, GPR:$rY, 1 /* .hu   */)>;
+// highmult=2 (".hsu", signed x unsigned) has no two-operand ISD node, so it
+// gets no pattern.
+
 // ---- Integer arithmetic and logic, register-immediate ---------------------
 //
 // Three widths per operation, tried widest-last: the 10-bit form fits in one

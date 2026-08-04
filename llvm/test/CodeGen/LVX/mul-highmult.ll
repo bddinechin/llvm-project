@@ -1,6 +1,4 @@
 ; RUN: llc -mtriple=lvx < %s | FileCheck %s
-; XFAIL: *
-; NOT YET PORTED: i64 mul has no selection pattern yet ("Cannot select: mul").
 ; Ported from the pre-MDS backend as the spec for that work; drop this XFAIL
 ; when it lands.
 

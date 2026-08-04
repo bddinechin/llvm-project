@@ -1,6 +1,4 @@
 ; RUN: llc -mtriple=lvx < %s | FileCheck %s
-; XFAIL: *
-; NOT YET PORTED: mulhu has no selection pattern yet -- the high-multiply
 ; forms of MULD.
 ; forms of MULD. Ported from the pre-MDS backend as the spec for that work;
 ; drop this XFAIL when it lands.
