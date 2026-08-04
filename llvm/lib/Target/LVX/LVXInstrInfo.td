@@ -274,14 +274,15 @@ multiclass BinOpImm<SDPatternOperator node, Instruction i10, Instruction i37,
   def : Pat<(node GPR:$rZ, wimm64imm:$imm), (i64 GPR:$rZ, wimm64imm:$imm)>;
 }
 
-defm : BinOpImm<add,  ADDD_DWRI,  ADDD_DWRI_X,  ADDD_DWRI_Y>;
+// add/and/or/xor are NOT here: BE/LLVM generates all three widths of each into
+// LVXInstrPatterns.td, read off the Behavior, and two sources for one mapping
+// is the thing generating them was meant to remove. The four below stay because
+// the integer min/max have no ISD node the generator maps, so nothing produces
+// them yet.
 defm : BinOpImm<smin, MIND_DWRI,  MIND_DWRI_X,  MIND_DWRI_Y>;
 defm : BinOpImm<smax, MAXD_DWRI,  MAXD_DWRI_X,  MAXD_DWRI_Y>;
 defm : BinOpImm<umin, MINUD_DWRI, MINUD_DWRI_X, MINUD_DWRI_Y>;
 defm : BinOpImm<umax, MAXUD_DWRI, MAXUD_DWRI_X, MAXUD_DWRI_Y>;
-defm : BinOpImm<and,  ANDD_DWRI,  ANDD_DWRI_X,  ANDD_DWRI_Y>;
-defm : BinOpImm<or,   IORD_DWRI,  IORD_DWRI_X,  IORD_DWRI_Y>;
-defm : BinOpImm<xor,  EORD_DWRI,  EORD_DWRI_X,  EORD_DWRI_Y>;
 
 // ---- Shifts and rotates ---------------------------------------------------
 
