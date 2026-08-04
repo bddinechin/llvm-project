@@ -120,16 +120,23 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
 
   setStackPointerRegisterToSaveRestore(LVX::R12);
 
-  // Have all idivs/irems expanded to libcalls for now (Phase 3 minimal
-  // bring-up); LVX does have DIVMODD/DIVMODUD/DIVMODW/DIVMODUW
-  // instructions (Phase 2), but wiring SelectionDAG's sdiv/srem/udiv/urem
-  // nodes to them via setOperationAction + a real pattern or custom
-  // lowering is deferred until basic call/return lowering is verified
-  // working end-to-end.
+  // Divide and modulus. DIVMODD/DIVMODUD compute BOTH results in one
+  // instruction, packed into a 128-bit register pair, which maps exactly onto
+  // ISD::SDIVREM/UDIVREM -- so those are the nodes made Legal, and they are
+  // selected by hand in LVXISelDAGToDAG (one instruction feeding two
+  // independent 64-bit values is a shape TableGen patterns express poorly).
+  //
+  // SDIV/UDIV/SREM/UREM stay Expand on purpose: the generic expansion turns
+  // an Expand-ed one into the corresponding SDIVREM/UDIVREM whenever that is
+  // legal-or-custom, so each still becomes a single divmod, and an adjacent
+  // "a / b" and "a % b" on the same operands collapse to one instruction
+  // rather than two. Making them Legal instead would lose that sharing.
   setOperationAction(ISD::SDIV, MVT::i64, Expand);
   setOperationAction(ISD::UDIV, MVT::i64, Expand);
   setOperationAction(ISD::SREM, MVT::i64, Expand);
   setOperationAction(ISD::UREM, MVT::i64, Expand);
+  setOperationAction(ISD::SDIVREM, MVT::i64, Legal);
+  setOperationAction(ISD::UDIVREM, MVT::i64, Legal);
 
   // COMPD writes the comparison result zero-extended to a full double word
   // ("The boolean result extended to double word is stored into the %1"), so

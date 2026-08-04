@@ -312,6 +312,51 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     return;
   }
 
+  // ISD::SDIVREM / UDIVREM -> DIVMODD / DIVMODUD plus two subregister reads.
+  //
+  // Declared Legal in LVXTargetLowering rather than Custom/Expand, and
+  // selected here by hand: one instruction produces a single 128-bit paired
+  // result feeding two independent 64-bit values, a shape TableGen patterns
+  // express poorly.
+  //
+  // Result layout, per Instruction.yml's DIVMODD/DIVMODUD execution:
+  //   result1.64[0] = quotient    result1.64[1] = remainder
+  // and .64[0] is the architecturally LOW half of the pair, which in this
+  // target's (confusingly named) subregister indices is sub_hi -- the one
+  // declared at bit offset 0, SubRegIndex<64, 0>, i.e. the even/lower-
+  // numbered GPR of the pair. So quotient = sub_hi, remainder = sub_lo;
+  // swapping them silently exchanges "/" and "%".
+  //
+  // Operand order needs equal care, and is NOT what the pre-MDS back end
+  // used. The generated ALU_DDMWRR_Inst is
+  //     (outs GPR128:$rM), (ins GPR:$rZ, GPR:$rY)    "$rM = $rZ, $rY"
+  // and the ISA makes $rZ (%2, argument2) the dividend and $rY (%3,
+  // argument3) the divisor -- so the machine node takes (dividend, divisor),
+  // the order the assembly reads. The hand-written description this was
+  // recovered from declared (ins GPR:$rY, GPR:$rZ), the reverse, and passed
+  // (divisor, dividend) to match it; replaying that verbatim here would
+  // silently compute b/a for every division.
+  if (N->getOpcode() == ISD::SDIVREM || N->getOpcode() == ISD::UDIVREM) {
+    bool IsSigned = N->getOpcode() == ISD::SDIVREM;
+    unsigned Opc = IsSigned ? LVX::DIVMODD_DDMWRR : LVX::DIVMODUD_DDMWRR;
+    SDValue Dividend = N->getOperand(0);
+    SDValue Divisor = N->getOperand(1);
+
+    SDNode *Pair =
+        CurDAG->getMachineNode(Opc, DL, MVT::i128, Dividend, Divisor);
+    SDValue PairVal(Pair, 0);
+
+    SDValue Quo =
+        CurDAG->getTargetExtractSubreg(sub_hi, DL, MVT::i64, PairVal);
+    SDValue Rem =
+        CurDAG->getTargetExtractSubreg(sub_lo, DL, MVT::i64, PairVal);
+
+    ReplaceUses(SDValue(N, 0), Quo);
+    ReplaceUses(SDValue(N, 1), Rem);
+    CurDAG->RemoveDeadNode(N);
+    return;
+  }
+
   // ISD::JumpTable -> MAKED_DWI_Y of the table's base address. The table
   // symbol is a link-time address whose value is unknown at compile time, so
   // the widest MAKE form is used unconditionally -- the same reasoning as the

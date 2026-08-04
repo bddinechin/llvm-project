@@ -1,6 +1,4 @@
 ; RUN: llc -mtriple=lvx < %s | FileCheck %s
-; XFAIL: *
-; NOT YET PORTED: sdivrem/udivrem are not selectable yet (needs the DIVMODD/DIVMODUD
 ; selection + subregister reads). Ported from the pre-MDS backend as the spec
 ; for that work; drop this XFAIL when it lands.
 
