@@ -8,16 +8,16 @@ actually implemented.
 
 > Hanspeter Mössenböck and Michael Pfeiffer, "Linear Scan Register
 > Allocation in the Context of SSA Form and Register Constraints," CC 2002
-> (`/home/guembu/Downloads/Mossenbock_2002_CC.pdf`).
+> (`~/Downloads/Mossenbock_2002_CC.pdf`).
 
 > Christian Wimmer and Michael Franz, "Linear Scan Register Allocation on
-> SSA Form," CGO 2010 (`/home/guembu/Downloads/Wimmer_2010_CGO.pdf`).
+> SSA Form," CGO 2010 (`~/Downloads/Wimmer_2010_CGO.pdf`).
 
 > Fernando Magno Quintão Pereira and Jens Palsberg, "SSA Elimination after
-> Register Allocation," CC 2009 (`/home/guembu/Downloads/Pereira_2009_CC.pdf`).
+> Register Allocation," CC 2009 (`~/Downloads/Pereira_2009_CC.pdf`).
 
 > Sebastian Hack, Daniel Grund, and Gerhard Goos, "Register Allocation for
-> Programs in SSA-Form," CC 2006 (`/home/guembu/Downloads/Hack_2006_CC.pdf`).
+> Programs in SSA-Form," CC 2006 (`~/Downloads/Hack_2006_CC.pdf`).
 
 Compared against what's implemented here (`docs/lvx/RegisterAllocation.md`,
 Poletto & Sarkar 1999) and against Poletto & Sarkar itself. The two papers
