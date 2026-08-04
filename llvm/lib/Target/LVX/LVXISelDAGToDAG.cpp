@@ -17,6 +17,7 @@
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/Support/MathExtras.h"
+#include <iterator>
 
 using namespace llvm;
 
@@ -24,6 +25,101 @@ char LVXDAGToDAGISel::ID = 0;
 
 #define GET_DAGISEL_BODY LVXDAGToDAGISel
 #include "LVXGenDAGISel.inc"
+
+// ---- The load table -------------------------------------------------------
+//
+// Which load instruction implements a given access is ISA, not policy, and it
+// comes from lvx-mds BE/LLVM, which reads it out of each opcode's Behavior:
+// the access width is the width of the MEM_load helper call and the extension
+// is whichever of SX/ZX wraps it.
+//
+//   lbs:  (SX.8  (APPLY.8.MEM_load  (READ.address) ...))
+//   lwz:  (ZX.32 (APPLY.32.MEM_load (READ.address) ...))
+//
+// This used to be eight hand-written lines here. They were right, but nothing
+// checked them: LWS and LWZ both exist, both assemble, and they differ only in
+// the top 32 bits of a value that is usually small, so a swap is silent.
+//
+// What is NOT in the table is which addressing form to use for a given
+// displacement, and the rule that a FrameIndex keeps the narrow form for PEI
+// to widen later. That is LLVM plumbing, the same on any target with widened
+// encodings, and it stays in selectLoadStoreOpcode below.
+namespace {
+enum LoadExtension { EXT_SEXT, EXT_ZEXT, EXT_NONE };
+
+struct LoadRow {
+  unsigned Bits;
+  LoadExtension Ext;
+  unsigned Narrow;      // base+offset, the narrowest displacement
+  unsigned Indexed;     // base+index register
+};
+
+const LoadRow LoadRows[] = {
+#define LVX_LOAD(BITS, EXT, CLASS, BO, BOX, BOY, BI)                           \
+  {BITS, EXT_##EXT, LVX::BO, LVX::BI},
+#include "LVXLoadTable.inc"
+};
+
+// The widened forms (BOX/BOY above) are deliberately not carried here:
+// selectLoadStoreOpcode reaches them through
+// LVXInstrInfo::getFormForImmediate, which walks the same generated widening
+// chain the frame code uses, so there is one route to them rather than two.
+
+// The narrow base+offset load for an access of Bits bits, or 0 if the ISA has
+// none. Extension is only meaningful below the register width; at 64 bits and
+// above the value fills the register and the table says NONE.
+unsigned narrowLoadOpcode(unsigned Bits, bool IsSigned) {
+  LoadExtension Want = Bits >= 64 ? EXT_NONE : IsSigned ? EXT_SEXT : EXT_ZEXT;
+  for (const LoadRow &Row : LoadRows)
+    if (Row.Bits == Bits && Row.Ext == Want)
+      return Row.Narrow;
+  return 0;
+}
+
+// The `variant` values, with the properties the description gives them.
+//
+// The address-space NUMBERING in LVXAddressSpaces.h cannot be derived from the
+// machine description -- it is ABI, chosen to match lvx-gcc's
+// c_register_addr_space calls -- but what each variant MEANS can be, and the
+// assertions below tie the two together. If the description ever renumbers the
+// variants or moves Dismissible/MemoryLevel between them, this stops compiling
+// instead of silently emitting a cached load where an uncached one was asked
+// for, which is the exact bug LVXAddressSpaces.h was written to fix.
+struct VariantRow {
+  unsigned Value;
+  bool Dismissible;   // a no-fault speculative load
+  unsigned Level;     // 2 bypasses the L1
+};
+
+constexpr VariantRow VariantRows[] = {
+#define LVX_LOAD_VARIANT(VALUE, SUFFIX, DISMISSIBLE, LEVEL)                    \
+  {VALUE, DISMISSIBLE != 0, LEVEL},
+#include "LVXLoadTable.inc"
+};
+
+constexpr const VariantRow *variantRow(unsigned Value) {
+  for (const VariantRow &Row : VariantRows)
+    if (Row.Value == Value)
+      return &Row;
+  return nullptr;
+}
+constexpr bool dismissible(unsigned AS) {
+  return variantRow(LVXAS::variantForAddressSpace(AS))->Dismissible;
+}
+constexpr unsigned level(unsigned AS) {
+  return variantRow(LVXAS::variantForAddressSpace(AS))->Level;
+}
+
+static_assert(std::size(VariantRows) == 4, "the variant modifier has 4 values");
+static_assert(!dismissible(LVXAS::Generic) && level(LVXAS::Generic) == 1,
+              "a generic load is cached and may fault");
+static_assert(dismissible(LVXAS::Speculate) && level(LVXAS::Speculate) == 1,
+              "__speculate is the dismissible load");
+static_assert(!dismissible(LVXAS::Bypass) && level(LVXAS::Bypass) == 2,
+              "__bypass bypasses the cache");
+static_assert(dismissible(LVXAS::Preload) && level(LVXAS::Preload) == 2,
+              "__preload is both -- .us, not .u");
+} // end anonymous namespace
 
 // Recognizes the addressing modes every LSU_*BO_Inst base+offset operand
 // pair accepts: a bare FrameIndex (treated as FrameIndex+0), a FrameIndex
@@ -444,14 +540,15 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
       // restricted to non-extending loads: an f32->f64 EXTLOAD needs a real
       // FWIDENWD after the load and is declared Expand in LVXTargetLowering,
       // so matching it here as a bare LWZ would silently drop the conversion.
-      if      (MemVT == MVT::i64 || MemVT == MVT::f64)        Opc = LVX::LD_LSBO;
-      else if (MemVT == MVT::f32 && Ext == ISD::NON_EXTLOAD)  Opc = LVX::LWZ_LSBO;
-      else if (MemVT == MVT::i32 && Ext != ISD::SEXTLOAD)    Opc = LVX::LWZ_LSBO;
-      else if (MemVT == MVT::i32 && Ext == ISD::SEXTLOAD)    Opc = LVX::LWS_LSBO;
-      else if (MemVT == MVT::i16 && Ext != ISD::SEXTLOAD)    Opc = LVX::LHZ_LSBO;
-      else if (MemVT == MVT::i16 && Ext == ISD::SEXTLOAD)    Opc = LVX::LHS_LSBO;
-      else if (MemVT == MVT::i8  && Ext != ISD::SEXTLOAD)    Opc = LVX::LBZ_LSBO;
-      else if (MemVT == MVT::i8  && Ext == ISD::SEXTLOAD)    Opc = LVX::LBS_LSBO;
+      //
+      // Only the scalar widths are selected here, which is what the widths
+      // listed below amount to: the table also has the 128- and 256-bit loads
+      // (LQ/LO), but nothing lowers an ISD::LOAD to them yet, and quietly
+      // enabling them here would change codegen rather than describe it.
+      if (MemVT == MVT::i64 || MemVT == MVT::f64 || MemVT == MVT::i32 ||
+          MemVT == MVT::i16 || MemVT == MVT::i8 ||
+          (MemVT == MVT::f32 && Ext == ISD::NON_EXTLOAD))
+        Opc = narrowLoadOpcode(MemVT.getSizeInBits(), Ext == ISD::SEXTLOAD);
 
       Opc = Opc ? selectLoadStoreOpcode(Opc, Offset, IsFrameIndex) : 0;
 

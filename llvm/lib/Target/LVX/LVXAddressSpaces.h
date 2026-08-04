@@ -49,7 +49,11 @@ enum : unsigned {
 
 // The `variant` modifier value a load in this address space must carry, or
 // ~0u when the address space is not one a load may be issued in.
-inline unsigned variantForAddressSpace(unsigned AS) {
+// constexpr so LVXISelDAGToDAG.cpp can static_assert this mapping against the
+// generated LVXLoadTable.inc: the numbering here cannot be derived from the
+// machine description (it is ABI, shared with lvx-gcc), but what each variant
+// MEANS can be, and the two must agree.
+constexpr unsigned variantForAddressSpace(unsigned AS) {
   switch (AS) {
   case Generic:   return 0;   // no suffix
   case Speculate: return 1;   // .s
