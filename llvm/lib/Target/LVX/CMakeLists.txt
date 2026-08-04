@@ -24,6 +24,7 @@ add_llvm_target(LVXCodeGen
   LVXInstrInfo.cpp
   LVXISelDAGToDAG.cpp
   LVXISelLowering.cpp
+  LVXMachineFunctionInfo.cpp
   LVXMCInstLower.cpp
   LVXRegisterInfo.cpp
   LVXSelectionDAGInfo.cpp

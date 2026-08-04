@@ -35,13 +35,32 @@ LVXRegisterInfo::getCalleeSavedRegs(const MachineFunction * /*MF*/) const {
   return CSR_LVX_SaveList;
 }
 
+const uint32_t *
+LVXRegisterInfo::getCallPreservedMask(const MachineFunction & /*MF*/,
+                                      CallingConv::ID /*CC*/) const {
+  // CSR_LVX_RegMask is generated from CSR_LVX in LVXCallingConv.td, so this
+  // stays in step with getCalleeSavedRegs above by construction: everything
+  // not listed there is caller-saved and is reported clobbered.
+  return CSR_LVX_RegMask;
+}
+
 BitVector LVXRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
 
   // R12 = stack pointer, R13 = thread-local/local pointer — always
   // reserved, per lvx_Convention.yml "stack"/"local".
-  Reserved.set(LVX::R12);
-  Reserved.set(LVX::R13);
+  //
+  // markSuperRegs, NOT a plain Reserved.set: reserving a register does not
+  // implicitly reserve the register TUPLES that contain it. RegisterClassInfo
+  // builds each class's allocation order by testing the candidate register
+  // itself against this bitvector, so setting only R12/R13 leaves the GPR128
+  // pair R12R13 (and the GPR256 quad R12R13R14R15) fully allocatable. The
+  // allocator can then hand out $r12r13 as a DIVMODD/DIVMODUD destination and
+  // write a quotient and remainder straight over the stack pointer and TLS
+  // pointer. GPR128 had no real consumer until the divide instructions were
+  // wired up, which is what makes this reachable now.
+  markSuperRegs(Reserved, LVX::R12);
+  markSuperRegs(Reserved, LVX::R13);
 
   // R14 = frame pointer. Per the user's explicit instruction earlier in
   // this conversation ("do what LLVM normally does: if the function
@@ -49,12 +68,14 @@ BitVector LVXRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   // reserved when this function actually needs a frame pointer.
   const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
   if (TFI->hasFP(MF))
-    Reserved.set(LVX::R14);
+    markSuperRegs(Reserved, LVX::R14);
 
   // Control registers ($ra, $pc, $ps, $cs, $ls, $le, $lc) are not members
   // of the GPR class at all, so they don't need reserving here — they're
   // already excluded from GPR's allocation order in LVXRegisterInfo.td.
 
+  assert(checkAllSuperRegsMarked(Reserved) &&
+         "super-registers of a reserved register must also be reserved");
   return Reserved;
 }
 
@@ -74,12 +95,22 @@ bool LVXRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
   int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
 
-  // Every LVX base+offset load/store format places the offset immediately
-  // BEFORE the base-register operand (SD/SQ/SO: off, rZ, rT/rU/rV; LD/LQ/LO:
-  // rW/rM/rN, off, rZ, variant) -- opposite of Lanai's ADD_I_LO-derived
-  // layout where the immediate follows the register. FIOperandNum is the
-  // base-register (rZ) operand here, so the offset is at FIOperandNum - 1.
-  MachineOperand &OffsetOp = MI.getOperand(FIOperandNum - 1);
+  // The offset operand sits next to the base-register operand, but on which
+  // side depends on the format. Every base+offset load/store places it
+  // BEFORE (SD/SQ/SO: off, rZ, rT/rU/rV; LD/LQ/LO: rW/rM/rN, off, rZ,
+  // variant), whereas the register-immediate ALU formats place it AFTER
+  // (ALU_DWRI: rW, rZ, imm) -- and the latter is what a FrameIndex used as a
+  // plain VALUE selects to, via ADDD_DWRI. Assuming FIOperandNum - 1
+  // unconditionally would read the destination register as if it were the
+  // offset. Look on both sides instead and take whichever is the immediate.
+  unsigned OffsetOpNum = FIOperandNum - 1;
+  if (!MI.getOperand(OffsetOpNum).isImm()) {
+    assert(FIOperandNum + 1 < MI.getNumOperands() &&
+           MI.getOperand(FIOperandNum + 1).isImm() &&
+           "frame-index operand has no adjacent immediate offset");
+    OffsetOpNum = FIOperandNum + 1;
+  }
+  MachineOperand &OffsetOp = MI.getOperand(OffsetOpNum);
   int64_t Offset = MFI.getObjectOffset(FrameIndex) + OffsetOp.getImm();
 
   // MFI.getObjectOffset() returns an offset relative to R14 (FP): per

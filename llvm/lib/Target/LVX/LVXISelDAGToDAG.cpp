@@ -179,6 +179,26 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
 
   // ISD::BR_CC → cb (against zero) or ccb (register against register).
   // Operands are (Chain, CondCode, LHS, RHS, Dest).
+  // ISD::ConstantFP -> a MAKE of the value's raw bit pattern. There is no FP
+  // immediate form and no constant pool in use here; since FP shares the GPR
+  // file, loading the bits IS loading the value. Integer constants are
+  // handled declaratively in LVXInstrInfo.td, but an FP one cannot be: the
+  // pattern would have to match an arbitrary 64-bit encoding.
+  if (N->getOpcode() == ISD::ConstantFP) {
+    auto *CFP = cast<ConstantFPSDNode>(N);
+    EVT VT = N->getValueType(0);
+    APInt Bits = CFP->getValueAPF().bitcastToAPInt();
+    int64_t Val = VT == MVT::f32 ? (int64_t)Bits.getZExtValue()
+                                 : (int64_t)Bits.getSExtValue();
+    unsigned Opc = isInt<16>(Val) ? LVX::MAKED_DWI
+                 : isInt<43>(Val) ? LVX::MAKED_DWI_X
+                                  : LVX::MAKED_DWI_Y;
+    SDValue Imm = CurDAG->getTargetConstant(Val, DL, MVT::i64);
+    SDNode *Res = CurDAG->getMachineNode(Opc, DL, VT, Imm);
+    ReplaceNode(N, Res);
+    return;
+  }
+
   if (N->getOpcode() == ISD::BR_CC) {
     ISD::CondCode CC = cast<CondCodeSDNode>(N->getOperand(1))->get();
     SDValue LHS = N->getOperand(2);
@@ -312,6 +332,39 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     return;
   }
 
+  // ISD::FrameIndex used as a plain VALUE -- taking a local's address, or
+  // passing an array to a function -- rather than as a load/store base (that
+  // case is folded into the addressing mode by selectAddr and never reaches
+  // here). ADDD_DWRI computes "$rW = $rZ + imm", so the frame index fills the
+  // $rZ slot with offset 0; PEI later rewrites that operand to the real frame
+  // register and the 0 to the true offset (widening the encoding if it does
+  // not fit simm10), turning this into a real address computation.
+  if (N->getOpcode() == ISD::FrameIndex) {
+    int FI = cast<FrameIndexSDNode>(N)->getIndex();
+    SDValue TFI = CurDAG->getTargetFrameIndex(FI, N->getValueType(0));
+    SDValue Zero = CurDAG->getTargetConstant(0, DL, MVT::i64);
+    SDNode *Res =
+        CurDAG->getMachineNode(LVX::ADDD_DWRI, DL, MVT::i64, TFI, Zero);
+    ReplaceNode(N, Res);
+    return;
+  }
+
+  // ISD::GlobalAddress used as a plain VALUE -- any &global reference that is
+  // not a direct CALL callee (that case is handled in the LVXISD::CALL block
+  // below). MAKED_DWI_Y unconditionally, not the narrower MAKED_DWI/_X: a
+  // link-time symbol's address is not known at compile time and so cannot be
+  // range-checked into the shorter forms the way a literal constant can.
+  // LVXMCInstLower's MO_GlobalAddress case turns it into a real symbol
+  // reference in the assembly.
+  if (N->getOpcode() == ISD::GlobalAddress) {
+    auto *GA = cast<GlobalAddressSDNode>(N);
+    SDValue Sym = CurDAG->getTargetGlobalAddress(GA->getGlobal(), DL, MVT::i64,
+                                                 GA->getOffset());
+    SDNode *Res = CurDAG->getMachineNode(LVX::MAKED_DWI_Y, DL, MVT::i64, Sym);
+    ReplaceNode(N, Res);
+    return;
+  }
+
   // ISD::SDIVREM / UDIVREM -> DIVMODD / DIVMODUD plus two subregister reads.
   //
   // Declared Legal in LVXTargetLowering rather than Custom/Expand, and
@@ -385,7 +438,13 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
       ISD::LoadExtType Ext = LD->getExtensionType();
       EVT MemVT = LD->getMemoryVT();
       unsigned Opc = 0;
-      if      (MemVT == MVT::i64)                             Opc = LVX::LD_LSBO;
+      // f64/f32 live in GPRs, so an FP load is the same LD/LWZ as the integer
+      // one of the same width -- only the value type differs. The f32 case is
+      // restricted to non-extending loads: an f32->f64 EXTLOAD needs a real
+      // FWIDENWD after the load and is declared Expand in LVXTargetLowering,
+      // so matching it here as a bare LWZ would silently drop the conversion.
+      if      (MemVT == MVT::i64 || MemVT == MVT::f64)        Opc = LVX::LD_LSBO;
+      else if (MemVT == MVT::f32 && Ext == ISD::NON_EXTLOAD)  Opc = LVX::LWZ_LSBO;
       else if (MemVT == MVT::i32 && Ext != ISD::SEXTLOAD)    Opc = LVX::LWZ_LSBO;
       else if (MemVT == MVT::i32 && Ext == ISD::SEXTLOAD)    Opc = LVX::LWS_LSBO;
       else if (MemVT == MVT::i16 && Ext != ISD::SEXTLOAD)    Opc = LVX::LHZ_LSBO;
@@ -399,7 +458,12 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
         // Generated LSU_LSBO_Inst operand order: off, base, variant.
         SDValue Var  = CurDAG->getTargetConstant(0, DL, MVT::i32); // variant=0
         SDValue Ops[] = {Offset, Base, Var, LD->getChain()};
-        SDNode *Res = CurDAG->getMachineNode(Opc, DL, MVT::i64, MVT::Other, Ops);
+        // Result type from the node, not a hardcoded i64: an f32/f64 load
+        // produces an f32/f64 value, and replacing it with an i64-typed
+        // machine node trips ReplaceAllUsesWith's "Cannot use this version"
+        // assertion. Extending integer loads already have node type i64.
+        SDNode *Res = CurDAG->getMachineNode(Opc, DL, N->getValueType(0),
+                                             MVT::Other, Ops);
         CurDAG->setNodeMemRefs(cast<MachineSDNode>(Res), {LD->getMemOperand()});
         ReplaceNode(N, Res);
         return;
@@ -420,7 +484,8 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     if (selectAddr(CurDAG, DL, ST->getBasePtr(), Base, Offset, IsFrameIndex)) {
       EVT MemVT = ST->getMemoryVT();
       unsigned Opc = 0;
-      if      (MemVT == MVT::i64) Opc = LVX::SD_SSBO;
+      if      (MemVT == MVT::i64 || MemVT == MVT::f64) Opc = LVX::SD_SSBO;
+      else if (MemVT == MVT::f32) Opc = LVX::SW_SSBO;
       else if (MemVT == MVT::i32) Opc = LVX::SW_SSBO;
       else if (MemVT == MVT::i16) Opc = LVX::SH_SSBO;
       else if (MemVT == MVT::i8)  Opc = LVX::SB_SSBO;

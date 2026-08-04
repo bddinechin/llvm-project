@@ -44,6 +44,15 @@
 //===----------------------------------------------------------------------===//
 
 def CC_LVX : CallingConv<[
+  // f16/f32 travel in the low bits of a 64-bit slot, sharing the same
+  // GPR/stack slot sequence as integers. Reinterpret them as the SAME-SIZED
+  // integer here, then let the promotion rule below widen that to the slot.
+  // Converting straight to i64 is not a reinterpretation at all -- f32 is 32
+  // bits -- and asserts "Cannot BITCAST between types of different sizes" on
+  // the first float argument compiled.
+  CCIfType<[f16], CCBitConvertToType<i16>>,
+  CCIfType<[f32], CCBitConvertToType<i32>>,
+
   // Promote small integer types to i64 — every argument slot is 64 bits
   // wide and integral scalars are placed in the low bits of the slot.
   CCIfType<[i1, i8, i16, i32], CCPromoteToType<i64>>,
@@ -54,8 +63,6 @@ def CC_LVX : CallingConv<[
   // They share the same GPR/stack slot sequence as integers, so they are
   // bitcast to i64-sized container types by the frontend; CC just assigns
   // the slot.
-  CCIfType<[f16, f32], CCBitConvertToType<i64>>,
-
   // ---- 64/128/256-bit arguments: shared slot counter via CCCustom -----
   // CC_LVX_Custom (LVXISelLowering.cpp) handles i64, f64, i128, and
   // v4i64 uniformly, allocating 1/1/2/4 8-byte slots respectively from
@@ -78,8 +85,9 @@ def CC_LVX : CallingConv<[
 //===----------------------------------------------------------------------===//
 
 def CC_LVXRet : CallingConv<[
+  CCIfType<[f16], CCBitConvertToType<i16>>,
+  CCIfType<[f32], CCBitConvertToType<i32>>,
   CCIfType<[i1, i8, i16, i32], CCPromoteToType<i64>>,
-  CCIfType<[f16, f32], CCBitConvertToType<i64>>,
 
   CCIfType<[i64, f64],  CCAssignToReg<[R0, R1, R2, R3]>>,
   CCIfType<[i128],      CCAssignToReg<[R0R1, R2R3]>>,

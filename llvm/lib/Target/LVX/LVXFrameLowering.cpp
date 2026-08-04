@@ -24,6 +24,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "LVXFrameLowering.h"
+#include "LVXMachineFunctionInfo.h"
 #include "LVXInstrInfo.h"
 #include "LVXRegisterInfo.h"
 #include "LVXSubtarget.h"
@@ -78,6 +79,18 @@ bool LVXFrameLowering::hasFPImpl(const MachineFunction &MF) const {
   return MFI.hasVarSizedObjects() || MF.getFrameInfo().isFrameAddressTaken();
 }
 
+
+// SP-relative offset of the Frame Marker slot PEI assigned. Frame-object
+// offsets are relative to the frame base (the incoming SP, which is where FP
+// points), and are negative for locals; the prologue addresses through SP, so
+// convert the same way LVXRegisterInfo::eliminateFrameIndex does.
+static int64_t frameMarkerSPOffset(const MachineFunction &MF) {
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  const auto *FI = MF.getInfo<LVXMachineFunctionInfo>();
+  assert(FI->hasFrameMarker() && "no Frame Marker was reserved");
+  return MFI.getObjectOffset(FI->getFrameMarkerFI()) + (int64_t)MFI.getStackSize();
+}
+
 void LVXFrameLowering::emitPrologue(MachineFunction &MF,
                                     MachineBasicBlock &MBB) const {
   const LVXSubtarget &STI  = MF.getSubtarget<LVXSubtarget>();
@@ -112,12 +125,11 @@ void LVXFrameLowering::emitPrologue(MachineFunction &MF,
   //   SP+OutgoingArgSize+8  = $ra        (8 bytes)
   // Per ABI: FP points to the caller-FP slot (= SP+OutgoingArgSize).
   if (hasFP(MF) || MFI.adjustsStack()) {
-    unsigned OutgoingArgSize = MFI.getMaxCallFrameSize();
-    // Align to 8 bytes.
-    OutgoingArgSize = alignTo(OutgoingArgSize, 8);
-
-    int64_t FPOffset = (int64_t)OutgoingArgSize;     // caller FP slot
-    int64_t RAOffset = (int64_t)OutgoingArgSize + 8; // $ra slot
+    // Both slots come from the reserved Frame Marker object (see
+    // determineCalleeSaves), NOT from a hand-computed position in the frame.
+    int64_t MarkerOffset = frameMarkerSPOffset(MF);
+    int64_t FPOffset = MarkerOffset;     // caller FP slot
+    int64_t RAOffset = MarkerOffset + 8; // $ra slot
 
     // Save caller FP.
     {
@@ -169,11 +181,10 @@ void LVXFrameLowering::emitEpilogue(MachineFunction &MF,
 
   // Step 1: Restore Frame Marker ($ra, caller FP).
   if (hasFP(MF) || MFI.adjustsStack()) {
-    unsigned OutgoingArgSize = MFI.getMaxCallFrameSize();
-    OutgoingArgSize = alignTo(OutgoingArgSize, 8);
-
-    int64_t FPOffset = (int64_t)OutgoingArgSize;
-    int64_t RAOffset = (int64_t)OutgoingArgSize + 8;
+    // Same reserved slot the prologue used.
+    int64_t MarkerOffset = frameMarkerSPOffset(MF);
+    int64_t FPOffset = MarkerOffset;
+    int64_t RAOffset = MarkerOffset + 8;
 
     // Restore $ra. LD's destination is GPR-typed (same reason as the
     // GETRA save above), so load into scratch R16 first, then SETRA it
@@ -225,6 +236,24 @@ void LVXFrameLowering::determineCalleeSaves(MachineFunction &MF,
                                             BitVector &SavedRegs,
                                             RegScavenger *RS) const {
   TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
+
+  // Reserve the Frame Marker ({caller FP, $ra}) as a real stack object, so
+  // that PEI accounts for it: it is included in MFI.getStackSize() and no
+  // local is ever placed on top of it. Doing this by hand instead -- picking
+  // an offset in emitPrologue -- is what produced two separate corruptions:
+  // the marker landed on the two locals nearest the frame base, and in a
+  // non-leaf function with no locals StackSize was 0, so nothing was
+  // allocated and the marker was written below SP for the callee to destroy.
+  //
+  // Must run here rather than in emitPrologue: determineCalleeSaves is called
+  // before PEI assigns frame-object offsets, which is the only point at which
+  // a new object can still influence the layout.
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  if (hasFP(MF) || MFI.adjustsStack()) {
+    auto *FI = MF.getInfo<LVXMachineFunctionInfo>();
+    FI->setFrameMarkerFI(
+        MFI.CreateStackObject(16, Align(8), /*isSpillSlot=*/true));
+  }
 
   // Reserve a scavenging spill slot for LVXRegisterInfo::eliminateFrameIndex's
   // MAKE+ADDD fallback, which needs a scratch GPR whenever a frame-index

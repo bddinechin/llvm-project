@@ -113,6 +113,13 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // intact as a single legal type.
   addRegisterClass(MVT::v4i64, &LVX::GPR256RegClass);
 
+  // Floating point lives in the SAME general-purpose registers as integers --
+  // LVX has no separate FP register file, and every FPU instruction in the
+  // generated encodings takes GPR operands. f32 values occupy the low 32 bits
+  // of their GPR (the ISA's f32 operations zero-extend their result).
+  addRegisterClass(MVT::f64, &LVX::GPRRegClass);
+  addRegisterClass(MVT::f32, &LVX::GPRRegClass);
+
   // Compute derived properties from the register classes we just declared
   // (mirrors the standard boilerplate every target's constructor performs
   // right after addRegisterClass calls).
@@ -161,6 +168,66 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // higher -O levels the optimizer often rewrites the switch into a compare
   // chain, which bypasses the table path entirely.
   setOperationAction(ISD::BR_JT, MVT::Other, Expand);
+
+  //===--------------------------------------------------------------------===//
+  // Floating point
+  //
+  // Rounding: the arithmetic patterns in LVXInstrInfo.td pass floatmode=7,
+  // the "no suffix" member, which per the generated LVXModifiers.h means "Use
+  // CS rounding" -- i.e. dynamic, from $cs.RM. That matches RISC-V, whose
+  // rm=111 is DYN and is what its assembler defaults to for "fadd.d"; the
+  // floatmode table lines up member-for-member with RISC-V's. Conversions to
+  // integer instead pin floatmode=1 (.rz), because C truncates toward zero
+  // regardless of $cs.
+  //===--------------------------------------------------------------------===//
+  for (MVT VT : {MVT::f32, MVT::f64}) {
+    // No hardware for these; they are libm calls in C anyway.
+    for (unsigned Op : {ISD::FREM, ISD::FSIN, ISD::FCOS, ISD::FSINCOS,
+                        ISD::FPOW, ISD::FEXP, ISD::FEXP2, ISD::FLOG,
+                        ISD::FLOG2, ISD::FLOG10, ISD::FCEIL, ISD::FFLOOR,
+                        ISD::FTRUNC, ISD::FROUND, ISD::FNEARBYINT})
+      setOperationAction(Op, VT, Expand);
+
+    // FFMAD/FFMAW accumulate INTO their destination register
+    // (Description.yml: "f64_mulAdd(RM, argument3, argument2^fsign,
+    // argument1^fsign)" -- argument1 is registerW, the destination), so they
+    // need a tied-operand form that ISD::FMA's separate-destination shape
+    // does not have. Expanding to a separate multiply and add is correct,
+    // just not fused.
+    setOperationAction(ISD::FMA, VT, Expand);
+
+    // No FP compare-and-branch and no FP conditional move: go through an
+    // explicit FCOMPD/FCOMPW producing a 0/1 GPR, then an integer branch.
+    setOperationAction(ISD::BR_CC, VT, Expand);
+    setOperationAction(ISD::SELECT_CC, VT, Expand);
+
+    // floatcomp has eight members covering four complementary pairs --
+    // ONE/UEQ, OEQ/UNE, OLT/UGE, OGE/ULT. GT/LE forms are reached by swapping
+    // the compared operands, which the patterns do. Ordered/unordered as a
+    // standalone predicate has no single encoding, so let the legalizer
+    // synthesize those two.
+    setCondCodeAction(ISD::SETO, VT, Expand);
+    setCondCodeAction(ISD::SETUO, VT, Expand);
+  }
+
+  // There is no extending FP load and no truncating FP store: widening and
+  // narrowing are separate instructions (FWIDENWD / FNARROWDW). Without these,
+  // DAGCombiner folds "fpextend (load f32)" into a single f32->f64 EXTLOAD and
+  // "store (fpround f64)" into an f64->f32 TRUNCSTORE, and the conversion is
+  // then silently dropped -- the bits get moved but never converted.
+  setLoadExtAction(ISD::EXTLOAD, MVT::f64, MVT::f32, Expand);
+  setTruncStoreAction(MVT::f64, MVT::f32, Expand);
+
+  // A ConstantFP has no immediate form -- LVXISelDAGToDAG materializes it as
+  // an integer MAKE of the value's bit pattern, like any other constant.
+  setOperationAction(ISD::ConstantFP, MVT::f64, Legal);
+  setOperationAction(ISD::ConstantFP, MVT::f32, Legal);
+
+  // FP and integer share the GPR file, so a same-width bitcast is at worst a
+  // register move.
+  setOperationAction(ISD::BITCAST, MVT::f64, Legal);
+  setOperationAction(ISD::BITCAST, MVT::f32, Legal);
+  setOperationAction(ISD::BITCAST, MVT::i64, Legal);
 
   setMinFunctionAlignment(Align(4));
   setPrefFunctionAlignment(Align(4));
@@ -229,8 +296,16 @@ static SDValue extendToSlot(SelectionDAG &DAG, const SDLoc &DL, SDValue Val,
   if (VT == LocVT)
     return Val;
 
-  // A narrower floating-point value cannot be extended directly; reinterpret
-  // it as an integer of its own width first, then widen that.
+  // A narrower floating-point value cannot be extended directly. f32 gets a
+  // dedicated node rather than a bitcast-to-i32-then-extend: i32 is not a
+  // legal type here (only i64 is), so that route makes the legalizer lower
+  // the bitcast through MEMORY, which does not merely cost a spill -- it
+  // silently drops the value, turning "fpext float to double" into a
+  // store/reload of the raw f32 bits with no FWIDENWD at all. See the
+  // LVXISD::F32_TO_BITS comment in LVXInstrInfo.td.
+  if (VT == MVT::f32 && LocVT == MVT::i64)
+    return DAG.getNode(LVXISD::F32_TO_BITS, DL, MVT::i64, Val);
+
   if (VT.isFloatingPoint() && VT.getSizeInBits() < LocVT.getSizeInBits()) {
     Val = DAG.getNode(ISD::BITCAST, DL,
                       MVT::getIntegerVT(VT.getSizeInBits()), Val);
@@ -252,6 +327,11 @@ static SDValue truncateFromSlot(SelectionDAG &DAG, const SDLoc &DL,
                                 SDValue Val, EVT VT) {
   if (VT == MVT::i64)
     return Val;
+  // Mirror of extendToSlot's f32 case: reinterpret the low 32 bits of the
+  // slot in place. ISD::TRUNCATE below is integer-only and would be invalid
+  // for f32 anyway.
+  if (VT == MVT::f32)
+    return DAG.getNode(LVXISD::BITS_TO_F32, DL, MVT::f32, Val);
   if (VT.bitsLT(MVT::i64))
     return DAG.getNode(ISD::TRUNCATE, DL, VT, Val);
   return DAG.getNode(ISD::BITCAST, DL, VT, Val);
@@ -490,6 +570,17 @@ LVXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   Ops.push_back(Callee);
   for (auto &Reg : RegsToPass)
     Ops.push_back(DAG.getRegister(Reg.first, MVT::i64));
+
+  // The clobber mask. Without it the call declares only the generated
+  // "Defs = [RA]" -- what the ISA writes -- and the allocator believes every
+  // other register survives, so it happily keeps a value live across a call
+  // in an argument register the callee then overwrites. That is silent: the
+  // code assembles and runs, just with the wrong value.
+  const uint32_t *Mask =
+      TRI->getCallPreservedMask(DAG.getMachineFunction(), CallConv);
+  assert(Mask && "missing call-preserved mask");
+  Ops.push_back(DAG.getRegisterMask(Mask));
+
   if (Glue.getNode())
     Ops.push_back(Glue);
 

@@ -112,7 +112,13 @@ def R63 : LVXReg64<63, "$r63">;
 // inline asm can still name them.
 //===----------------------------------------------------------------------===//
 
-def GPR : RegisterClass<"LVX", [i64], 64, (add
+// The value-type list carries f64 and f32 as well as i64: LVX has no separate
+// floating-point register file, and every FPU instruction in the generated
+// LVXInstrEncodings.td takes GPR operands. Without them an FP pattern cannot
+// bind its f64/f32 operand to a GPR-typed instruction operand and TableGen
+// rejects it with "Type set is empty for each HW mode". f32 occupies the low
+// 32 bits of its register (the ISA's f32 results are zero-extended to 64).
+def GPR : RegisterClass<"LVX", [i64, f64, f32], 64, (add
   // argument / result (R0-R11)
   R0,  R1,  R2,  R3,  R4,  R5,  R6,  R7,  R8,  R9,  R10, R11,
   // other caller-saved scratch
@@ -123,7 +129,19 @@ def GPR : RegisterClass<"LVX", [i64], 64, (add
   R56, R57, R58, R59, R60, R61, R62, R63,
   // callee-saved (R14 = FP, allocatable when no frame pointer is needed)
   R14, R18, R19, R20, R21, R22, R23,
-  R24, R25, R26, R27, R28, R29, R30, R31
+  R24, R25, R26, R27, R28, R29, R30, R31,
+  // R12 (SP) and R13 (TLS/local) are MEMBERS of this class but are never
+  // allocated -- getReservedRegs marks them reserved and the allocator
+  // filters reserved registers out of the allocation order, so listing them
+  // last costs nothing. They have to belong to SOME i64 register class:
+  // SelectionDAG's CopyFromReg/CopyToReg on a physical register calls
+  // getMinimalPhysRegClass(), which asserts "Couldn't find the register
+  // class" for a register in none. LowerCall does exactly that --
+  // getCopyFromReg(..., LVX::R12, ...) to form the base address for outgoing
+  // stack arguments -- so any call with more than twelve 64-bit argument
+  // slots crashed llc outright. (The block comment above already described
+  // them as kept-in-class; the class body just did not match it.)
+  R12, R13
 )>;
 
 //===----------------------------------------------------------------------===//

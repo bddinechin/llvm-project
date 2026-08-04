@@ -1,8 +1,4 @@
 ; RUN: llc -mtriple=lvx < %s | FileCheck %s
-; XFAIL: *
-; NOT YET PORTED: scalar floating point is not lowered yet ("unsupported library call
-; operation"). Ported from the pre-MDS backend as the spec for that work; drop
-; this XFAIL when it lands.
 
 ; Scalar floating point. LVX has no separate FP register file -- f64 and f32
 ; live in GPRs -- so these checks are as much about the right *instruction*
@@ -124,11 +120,37 @@ define float @fadd32(float %a, float %b) {
 
 ; An FP constant has no immediate form; it is materialized as its raw bit
 ; pattern through the same MAKE ladder as any integer constant.
-; 3.5 == 0x400C000000000000 == 4614838538166547251-ish; just check for a MAKE.
+; The mnemonic is "maked" (the ISA renamed make -> maked); the operand is the
+; f64 bit pattern, 3.5 == 0x400C000000000000.
 ; CHECK-LABEL: fconst:
-; CHECK: make $r{{[0-9]+}} = {{-?[0-9]+}}
+; CHECK: maked $r{{[0-9]+}} = {{-?[0-9]+}}
 define double @fconst() {
   ret double 3.5
 }
 
+; Sign transfer. FSIGND is "(argument2 & 0x7FFF...) | (argument3 & 0x8000...)"
+; -- magnitude from $rZ, sign from $rY -- matching ISD::FCOPYSIGN's
+; (magnitude, sign) operand order exactly.
+;
+; This was Expand until 2026-08-04, because the ISA masked with 0x3FFF...,
+; clearing exponent bit 62 along with the sign: copysign of any magnitude
+; >= 2.0 returned +/-0, while copysign(1.0, ...) stayed correct and hid it.
+; If this ever regresses, check that mask, and test with a magnitude whose
+; bit 62 is SET.
+; CHECK-LABEL: copysign64:
+; CHECK: fsignd $r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
+define double @copysign64(double %mag, double %sgn) {
+  %r = call double @llvm.copysign.f64(double %mag, double %sgn)
+  ret double %r
+}
+
+; CHECK-LABEL: copysign32:
+; CHECK: fsignw $r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
+define float @copysign32(float %mag, float %sgn) {
+  %r = call float @llvm.copysign.f32(float %mag, float %sgn)
+  ret float %r
+}
+
 declare double @llvm.sqrt.f64(double)
+declare double @llvm.copysign.f64(double, double)
+declare float @llvm.copysign.f32(float, float)

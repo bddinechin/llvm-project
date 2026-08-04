@@ -33,6 +33,15 @@ public:
   const MCPhysReg *
   getCalleeSavedRegs(const MachineFunction *MF) const override;
 
+  // The complement of getCalleeSavedRegs, as a register mask attached to
+  // every call. This is what tells the register allocator which registers a
+  // call destroys; without it the only clobber a call declares is the
+  // generated "Defs = [RA]", which states what the ISA writes but says
+  // nothing about the ABI's caller-saved set, and values get parked in
+  // R0-R11 across calls and silently destroyed.
+  const uint32_t *getCallPreservedMask(const MachineFunction &MF,
+                                       CallingConv::ID CC) const override;
+
   BitVector getReservedRegs(const MachineFunction &MF) const override;
 
   // requiresFrameIndexScavenging is deliberately NOT overridden: that flag

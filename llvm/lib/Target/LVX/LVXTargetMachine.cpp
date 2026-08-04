@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "LVXTargetMachine.h"
+#include "LVXMachineFunctionInfo.h"
 #include "llvm/InitializePasses.h"
 #include "LVXISelDAGToDAG.h"
 #include "TargetInfo/LVXTargetInfo.h"
@@ -72,6 +73,13 @@ public:
   }
 };
 } // end anonymous namespace
+
+MachineFunctionInfo *LVXTargetMachine::createMachineFunctionInfo(
+    BumpPtrAllocator &Allocator, const Function &F,
+    const TargetSubtargetInfo *STI) const {
+  return LVXMachineFunctionInfo::create<LVXMachineFunctionInfo>(Allocator, F,
+                                                                STI);
+}
 
 TargetPassConfig *LVXTargetMachine::createPassConfig(PassManagerBase &PM) {
   return new LVXPassConfig(*this, PM);
