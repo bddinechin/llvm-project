@@ -29,6 +29,14 @@ def : Pat<(add GPR:$rZ, simm37imm:$imm),
            (ADDD_DWRI_X GPR:$rZ, simm37imm:$imm)>;
 def : Pat<(add GPR:$rZ, wimm64imm:$imm),
            (ADDD_DWRI_Y GPR:$rZ, wimm64imm:$imm)>;
+def : Pat<(and (add GPR:$rY, GPR:$rZ), 4294967295),
+           (ADDW_WWRR0 GPR:$rZ, GPR:$rY, 0)>;
+def : Pat<(sext_inreg (add GPR:$rY, GPR:$rZ), i32),
+           (ADDW_WWRR0 GPR:$rZ, GPR:$rY, 1)>;
+def : Pat<(and (add GPR:$rZ, wimm32imm:$imm), 4294967295),
+           (ADDW_WWRR0_W GPR:$rZ, wimm32imm:$imm, 0)>;
+def : Pat<(sext_inreg (add GPR:$rZ, wimm32imm:$imm), i32),
+           (ADDW_WWRR0_W GPR:$rZ, wimm32imm:$imm, 1)>;
 def : Pat<(sub GPR128:$rO, GPR128:$rP),
            (SBFQ_QWRR0 GPR128:$rP, GPR128:$rO)>;   // operand order is significant
 def : Pat<(sub GPR:$rY, GPR:$rZ),
@@ -41,6 +49,14 @@ def : Pat<(sub simm37imm:$imm, GPR:$rZ),
            (SBFD_DWRI_X GPR:$rZ, simm37imm:$imm)>;   // operand order is significant
 def : Pat<(sub wimm64imm:$imm, GPR:$rZ),
            (SBFD_DWRI_Y GPR:$rZ, wimm64imm:$imm)>;   // operand order is significant
+def : Pat<(and (sub GPR:$rY, GPR:$rZ), 4294967295),
+           (SBFW_WWRR0 GPR:$rZ, GPR:$rY, 0)>;   // operand order is significant
+def : Pat<(sext_inreg (sub GPR:$rY, GPR:$rZ), i32),
+           (SBFW_WWRR0 GPR:$rZ, GPR:$rY, 1)>;   // operand order is significant
+def : Pat<(and (sub wimm32imm:$imm, GPR:$rZ), 4294967295),
+           (SBFW_WWRR0_W GPR:$rZ, wimm32imm:$imm, 0)>;   // operand order is significant
+def : Pat<(sext_inreg (sub wimm32imm:$imm, GPR:$rZ), i32),
+           (SBFW_WWRR0_W GPR:$rZ, wimm32imm:$imm, 1)>;   // operand order is significant
 def : Pat<(and GPR128:$rP, GPR128:$rO),
            (ANDQ_QWRR0 GPR128:$rP, GPR128:$rO)>;
 def : Pat<(and GPR:$rZ, GPR:$rY),
@@ -53,6 +69,14 @@ def : Pat<(and GPR:$rZ, simm37imm:$imm),
            (ANDD_DWRI_X GPR:$rZ, simm37imm:$imm)>;
 def : Pat<(and GPR:$rZ, wimm64imm:$imm),
            (ANDD_DWRI_Y GPR:$rZ, wimm64imm:$imm)>;
+def : Pat<(and (and GPR:$rZ, GPR:$rY), 4294967295),
+           (ANDW_WWRR0 GPR:$rZ, GPR:$rY, 0)>;
+def : Pat<(sext_inreg (and GPR:$rZ, GPR:$rY), i32),
+           (ANDW_WWRR0 GPR:$rZ, GPR:$rY, 1)>;
+def : Pat<(and (and GPR:$rZ, wimm32imm:$imm), 4294967295),
+           (ANDW_WWRR0_W GPR:$rZ, wimm32imm:$imm, 0)>;
+def : Pat<(sext_inreg (and GPR:$rZ, wimm32imm:$imm), i32),
+           (ANDW_WWRR0_W GPR:$rZ, wimm32imm:$imm, 1)>;
 def : Pat<(or GPR128:$rP, GPR128:$rO),
            (IORQ_QWRR0 GPR128:$rP, GPR128:$rO)>;
 def : Pat<(or GPR:$rZ, GPR:$rY),
@@ -65,6 +89,14 @@ def : Pat<(or GPR:$rZ, simm37imm:$imm),
            (IORD_DWRI_X GPR:$rZ, simm37imm:$imm)>;
 def : Pat<(or GPR:$rZ, wimm64imm:$imm),
            (IORD_DWRI_Y GPR:$rZ, wimm64imm:$imm)>;
+def : Pat<(and (or GPR:$rZ, GPR:$rY), 4294967295),
+           (IORW_WWRR0 GPR:$rZ, GPR:$rY, 0)>;
+def : Pat<(sext_inreg (or GPR:$rZ, GPR:$rY), i32),
+           (IORW_WWRR0 GPR:$rZ, GPR:$rY, 1)>;
+def : Pat<(and (or GPR:$rZ, wimm32imm:$imm), 4294967295),
+           (IORW_WWRR0_W GPR:$rZ, wimm32imm:$imm, 0)>;
+def : Pat<(sext_inreg (or GPR:$rZ, wimm32imm:$imm), i32),
+           (IORW_WWRR0_W GPR:$rZ, wimm32imm:$imm, 1)>;
 def : Pat<(xor GPR128:$rP, GPR128:$rO),
            (EORQ_QWRR0 GPR128:$rP, GPR128:$rO)>;
 def : Pat<(xor GPR:$rZ, GPR:$rY),
@@ -77,6 +109,14 @@ def : Pat<(xor GPR:$rZ, simm37imm:$imm),
            (EORD_DWRI_X GPR:$rZ, simm37imm:$imm)>;
 def : Pat<(xor GPR:$rZ, wimm64imm:$imm),
            (EORD_DWRI_Y GPR:$rZ, wimm64imm:$imm)>;
+def : Pat<(and (xor GPR:$rZ, GPR:$rY), 4294967295),
+           (EORW_WWRR0 GPR:$rZ, GPR:$rY, 0)>;
+def : Pat<(sext_inreg (xor GPR:$rZ, GPR:$rY), i32),
+           (EORW_WWRR0 GPR:$rZ, GPR:$rY, 1)>;
+def : Pat<(and (xor GPR:$rZ, wimm32imm:$imm), 4294967295),
+           (EORW_WWRR0_W GPR:$rZ, wimm32imm:$imm, 0)>;
+def : Pat<(sext_inreg (xor GPR:$rZ, wimm32imm:$imm), i32),
+           (EORW_WWRR0_W GPR:$rZ, wimm32imm:$imm, 1)>;
 def : Pat<(f64 (fpextend f32:$rZ)),
            (FWIDENWD_FDWIDEN f32:$rZ, 0)>;   // to_f64
 def : Pat<(f32 (fpround f64:$rZ)),
