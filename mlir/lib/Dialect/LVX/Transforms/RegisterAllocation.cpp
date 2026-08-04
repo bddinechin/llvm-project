@@ -71,9 +71,9 @@ struct AllocItem {
 
 //===----------------------------------------------------------------------===//
 // Register pool: preference order per docs/lvx/RegisterAllocation.md
-// ("Allocation order"), derived from lvx_Convention.yml's `regular`
-// convention. R12 (stack pointer) and R13 (local/TLS) are always reserved
-// and never appear here.
+// ("Allocation order"), derived from lvx-mds/lvx-refs' Convention.table,
+// `Convention-lvx_v1-regular`. R12 (stack pointer) and R13 (local/TLS) are
+// always reserved and never appear here.
 //===----------------------------------------------------------------------===//
 
 static const Register kFullOrder[] = {

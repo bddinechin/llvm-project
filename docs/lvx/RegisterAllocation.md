@@ -205,7 +205,7 @@ with `SpillAtInterval` replaced by a hard error.
 
 ### Free register pool
 
-From `lvx_Convention.yml`: exclude `R12` (stack pointer) and `R13`
+From `Convention-lvx_v1-regular`: exclude `R12` (stack pointer) and `R13`
 (local/TLS) always — the other 62 GPRs are candidates. `R14` (frame
 pointer) stays allocatable at this stage: step 2 has no stack frame /
 spilling yet, so there's no frame pointer to protect. Revisit once step 3
@@ -215,7 +215,8 @@ needs a frame.
 
 Mirror the *separate* LVX LLVM backend's stated preference
 (`LVXRegisterInfo.td`, in the sibling `lvx-llvm` repo:
-`../lvx-llvm/llvm-project/llvm/lib/Target/LVX/`) for consistency: argument/result registers `R0-R11` first, then other
+`../lvx-llvm/llvm-project/llvm/lib/Target/LVX/`) for consistency:
+argument/result registers `R0-R11` first, then other
 caller-saved scratch (`R15-R17`, `R32-R63`), then callee-saved (`R14`,
 `R18-R31`) last — using a callee-saved register forces prologue/epilogue
 save/restore code we don't emit yet.
@@ -647,7 +648,7 @@ active item exists at all) spill the current item itself.
 ### New op: `lvx.sp`
 
 Spilling needs an SSA value typed `!lvx.reg<r12>` to use as the base operand
-of `lvx.sd`/`lvx.ld` (R12 is `lvx_Convention.yml`'s `stack` register, already
+of `lvx.sd`/`lvx.ld` (R12 is `Convention.table`'s `stack` register, already
 permanently reserved from the allocatable pool since Step 2). Nothing in the
 dialect produces such a value out of thin air, so this adds
 `lvx.sp` — a zero-operand pseudo-op, in the same "not a single real opcode,

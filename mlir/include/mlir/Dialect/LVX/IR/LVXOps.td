@@ -63,7 +63,7 @@ def LVX_SpOp : LVX_Op<"sp", [Pure]> {
   let description = [{
     Synthetic pseudo-instruction (not a real opcode, like `lvx.li`/`lvx.mv`
     above) that materializes the function's current stack-pointer value as
-    an SSA value, typed `!lvx.reg<r12>` (R12 is `lvx_Convention.yml`'s
+    an SSA value, typed `!lvx.reg<r12>` (R12 is `Convention.table`'s
     `stack` register). Inserted by the register allocator's spill rewrite
     (docs/lvx/RegisterAllocation.md, Step 3) to give spill `lvx.sd`/`lvx.ld`
     instructions a base operand; not user-written.
@@ -221,7 +221,7 @@ def LVX_DivmoduwOp : LVX_DivModOp<"divmoduw"> {
 //===----------------------------------------------------------------------===//
 // Floating-point arithmetic. Each carries an `LVX_FloatModeAttr` (rounding
 // mode, printed as a suffix, e.g. `faddd.rn`); default is `cs` (use the
-// mode configured in $cs), matching the empty-suffix case in lvx_Modifier.yml.
+// mode configured in $cs), matching the empty-suffix case in Description.yml.
 //===----------------------------------------------------------------------===//
 
 class LVX_FloatBinaryOp<string mnemonic, list<Trait> traits = []> :
@@ -404,7 +404,7 @@ def LVX_SdOp : LVX_StoreOp<"sd"> { let summary = "SD -- store double word"; }
 //===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
-// Casts, backed by lvx_Synthetic.yml pseudo-instructions.
+// Casts, backed by Synthetic.table pseudo-instructions.
 //===----------------------------------------------------------------------===//
 
 class LVX_CastOp<string mnemonic, list<Trait> traits = []> :
@@ -440,7 +440,7 @@ def LVX_CopydOp : LVX_CastOp<"copyd"> {
 }
 
 // Integer <-> floating-point conversions and bitcast do not have direct
-// lvx_Synthetic.yml pseudo-mnemonics exported yet; keep them as thin
+// Synthetic.table pseudo-mnemonics exported yet; keep them as thin
 // dialect-native casts for now (flagged for a follow-up ground-truth pass
 // once the relevant ALU_FD*FLOAT / ALU_FD*FIXED formats are exported).
 def LVX_SitofpOp : LVX_CastOp<"sitofp"> {

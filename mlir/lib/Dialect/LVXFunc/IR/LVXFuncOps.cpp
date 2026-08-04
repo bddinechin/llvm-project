@@ -16,7 +16,7 @@
 using namespace mlir;
 using namespace mlir::lvx_func;
 
-// Per lvx_Convention.yml's `regular` calling convention: 12 argument
+// Per lvx-mds/lvx-refs' `Convention-lvx_v1-regular`: 12 argument
 // registers ($r0-$r11) and 4 result registers ($r0-$r3).
 static constexpr unsigned kMaxAbiArgRegs = 12;
 static constexpr unsigned kMaxAbiResultRegs = 4;

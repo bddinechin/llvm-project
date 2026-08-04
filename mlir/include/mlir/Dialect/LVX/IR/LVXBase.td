@@ -146,7 +146,7 @@ def LVX_RegType : LVX_Type<"Register", "reg"> {
 }
 
 //===----------------------------------------------------------------------===//
-// Modifier enums, mirroring lvx_Modifier.yml suffixes.
+// Modifier enums, mirroring Description.yml's modifier suffixes.
 //===----------------------------------------------------------------------===//
 
 // `intcomp` -- integer comparison suffix (e.g. `compd.lt`).
