@@ -1,4 +1,5 @@
 add_mlir_dialect_library(MLIRLVXTransforms
+  Combine.cpp
   RegisterAllocation.cpp
   RewriteDivmod.cpp
   SCFToCF.cpp
@@ -13,6 +14,7 @@ add_mlir_dialect_library(MLIRLVXTransforms
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRPass
+  MLIRTransforms
   MLIRLVXAnalysis
   MLIRLVXDialect
   MLIRLVXCFDialect

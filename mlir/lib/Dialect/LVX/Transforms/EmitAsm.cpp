@@ -338,6 +338,18 @@ private:
         // "Subtract FROM" opcodes: real hardware's operand order is the
         // reverse of this dialect's `$lhs, $rhs` -- see
         // emitBinarySubtractFrom's comment.
+        .Case([&](Addx2dOp op) { return emitBinary(op, "addx2d"); })
+        .Case([&](Addx2wOp op) { return emitBinary(op, "addx2w"); })
+        .Case([&](Addx4dOp op) { return emitBinary(op, "addx4d"); })
+        .Case([&](Addx4wOp op) { return emitBinary(op, "addx4w"); })
+        .Case([&](Addx8dOp op) { return emitBinary(op, "addx8d"); })
+        .Case([&](Addx8wOp op) { return emitBinary(op, "addx8w"); })
+        .Case([&](Addx16dOp op) { return emitBinary(op, "addx16d"); })
+        .Case([&](Addx16wOp op) { return emitBinary(op, "addx16w"); })
+        .Case([&](Addx32dOp op) { return emitBinary(op, "addx32d"); })
+        .Case([&](Addx32wOp op) { return emitBinary(op, "addx32w"); })
+        .Case([&](Addx64dOp op) { return emitBinary(op, "addx64d"); })
+        .Case([&](Addx64wOp op) { return emitBinary(op, "addx64w"); })
         .Case([&](SbfdOp op) { return emitBinarySubtractFrom(op, "sbfd"); })
         .Case([&](SbfwOp op) { return emitBinarySubtractFrom(op, "sbfw"); })
         .Case([&](FsbfdOp op) { return emitBinarySubtractFrom(op, "fsbfd"); })

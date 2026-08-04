@@ -155,6 +155,24 @@ class LVX_IntUnaryOp<string mnemonic, list<Trait> traits = []> :
 def LVX_AdddOp : LVX_IntBinaryOp<"addd", [Commutative]> {
   let summary = "ADDD -- 64-bit integer addition";
 }
+// Shift-and-add: `addx<N>d $rW = $rZ, $rY` computes `rY + (rZ << log2(N))`
+// (Description.yml, ADDX2D: "The %2 is shifted left by one bit and added to
+// the %3", `result1 = argument3 + (argument2 << 1)`).  Scales 2..64, i.e.
+// shifts 1..6.  Exactly the shape of an affine array index, which is why
+// -lvx-combine folds `addd(muld(x, 2^n), b)` into one of these; see
+// lvx-mlir/docs/InstructionSelection.md.
+//
+// $lhs is the shifted operand (rZ, printed first), $rhs the addend (rY).
+// Not Commutative -- only one operand is shifted.
+foreach scale = [2, 4, 8, 16, 32, 64] in {
+  def LVX_Addx # scale # dOp : LVX_IntBinaryOp<"addx" # scale # "d"> {
+    let summary = "ADDX" # scale # "D -- 64-bit $rhs + ($lhs << log2(" # scale # "))";
+  }
+  def LVX_Addx # scale # wOp : LVX_IntBinaryOp<"addx" # scale # "w"> {
+    let summary = "ADDX" # scale # "W -- 32-bit $rhs + ($lhs << log2(" # scale # "))";
+  }
+}
+
 def LVX_SbfdOp : LVX_IntBinaryOp<"sbfd"> {
   let summary = "SBFD -- 64-bit integer subtraction";
 }

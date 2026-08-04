@@ -97,6 +97,27 @@ def LVXSCFToCFPass
   }];
 }
 
+def LVXCombinePass : Pass<"lvx-combine"> {
+  let summary = "Peephole-combine lvx operations into stronger ones";
+  let description = [{
+    Greedy pattern rewriting over the `lvx` dialect only: every pattern
+    rewrites `lvx` to `lvx`, so this pass cannot produce illegal IR and is
+    safe to omit -- the pipeline still works without it, just with more
+    instructions. Correctness lives in `-convert-to-lvx`; quality lives
+    here. See lvx-mlir/docs/InstructionSelection.md.
+
+    Must run after `-convert-to-lvx` (the patterns match `lvx` ops) and
+    before `-lvx-allocate-registers` (combining changes which values are
+    live). `-cse` afterwards is worthwhile: folding exposes new common
+    subexpressions.
+
+    Currently one family of pattern: `addd(muld(x, 2^n), b)` becomes
+    `addx<2^n>d(x, b)`, and the 32-bit equivalent, which is the shape every
+    affine array index has.
+  }];
+  let dependentDialects = ["::mlir::lvx::LVXDialect"];
+}
+
 def LVXEmitAsmPass : Pass<"lvx-emit-asm", "::mlir::ModuleOp"> {
   let summary = "Print real LVX assembly text for every lvx_func.func";
   let description = [{
