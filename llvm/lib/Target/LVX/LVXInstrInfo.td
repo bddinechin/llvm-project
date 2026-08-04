@@ -249,11 +249,14 @@ def : Pat<(umax GPR:$rY, GPR:$rZ), (MAXUD_DWRR0 GPR:$rZ, GPR:$rY)>;
 // The low half is bit-identical for signed and unsigned operands, so one
 // pattern covers signed and unsigned MUL alike. MULD is commutative, so the
 // $rZ/$rY order carries no meaning here (unlike SBFD).
-def : Pat<(mul   GPR:$rZ, GPR:$rY), (MULD_DMWRR GPR:$rZ, GPR:$rY, 3 /* low   */)>;
-def : Pat<(mulhs GPR:$rZ, GPR:$rY), (MULD_DMWRR GPR:$rZ, GPR:$rY, 0 /* .h    */)>;
-def : Pat<(mulhu GPR:$rZ, GPR:$rY), (MULD_DMWRR GPR:$rZ, GPR:$rY, 1 /* .hu   */)>;
-// highmult=2 (".hsu", signed x unsigned) has no two-operand ISD node, so it
-// gets no pattern.
+//
+// These three patterns are now GENERATED into LVXInstrPatterns.td: BE/LLVM
+// substitutes each `highmult` value into the Behavior, folds the switch away,
+// and reads the remaining shape -- SX*SX keeping element 1 is `mulhs`, ZX*ZX
+// element 1 is `mulhu`, element 0 is `mul`. The generator reproduced all three
+// modifier values exactly as hand-derived above, which is the only independent
+// check this encoding has had. highmult=2 (".hsu") still gets no pattern; it is
+// skipped for the same reason it was omitted here, LLVM having no mulhsu node.
 
 // ---- Integer arithmetic and logic, register-immediate ---------------------
 //
