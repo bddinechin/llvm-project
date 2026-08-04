@@ -22,7 +22,7 @@ class LVXFunc_Op<string mnemonic, list<Trait> traits = []> :
 
 def LVXFunc_FuncOp : LVXFunc_Op<"func",
     [FunctionOpInterface, IsolatedFromAbove, Symbol]> {
-  let summary = "function definition, ABI-constrained per lvx_Convention.yml";
+  let summary = "function definition, ABI-constrained per Convention.table";
   let arguments = (ins SymbolNameAttr:$sym_name,
                        TypeAttrOf<FunctionType>:$function_type,
                        OptionalAttr<StrAttr>:$sym_visibility,
@@ -58,7 +58,7 @@ def LVXFunc_FuncOp : LVXFunc_Op<"func",
 def LVXFunc_CallOp : LVXFunc_Op<"call",
     [CallOpInterface,
      DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
-  let summary = "direct function call, ABI-constrained per lvx_Convention.yml";
+  let summary = "direct function call, ABI-constrained per Convention.table";
   let arguments = (ins FlatSymbolRefAttr:$callee,
                        Variadic<LVX_RegType>:$operands,
                        OptionalAttr<DictArrayAttr>:$arg_attrs,

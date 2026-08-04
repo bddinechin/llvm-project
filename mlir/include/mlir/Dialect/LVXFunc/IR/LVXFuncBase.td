@@ -16,7 +16,8 @@ def LVXFunc_Dialect : Dialect {
   let cppNamespace = "::mlir::lvx_func";
   let description = [{
     ABI-constrained function definitions/calls for LVX, per the `regular`
-    calling convention (lvx_Convention.yml): up to 12 arguments passed in
+    calling convention (lvx-mds/lvx-refs' `Convention-lvx_v1-regular`): up
+    to 12 arguments passed in
     $r0-$r11, up to 4 results returned in $r0-$r3, return address in $ra.
     A function's entry-block argument/result types should be pinned
     physical registers (`!lvx.reg<r0>`, ...); the body copies each into a

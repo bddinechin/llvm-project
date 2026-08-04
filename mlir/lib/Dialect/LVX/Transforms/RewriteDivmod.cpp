@@ -42,8 +42,8 @@ using namespace mlir::lvx;
 
 namespace {
 
-// Confirmed against real ground truth (lvx-mds Description.yml/
-// lvx_Format.yml) and empirically on real gem5: the low-numbered register
+// Confirmed against real ground truth (lvx-mds/lvx-refs' Description.yml,
+// its Format entries) and empirically on real gem5: the low-numbered register
 // of the pair holds the quotient, the high-numbered one the remainder.
 static constexpr Register kQuotientReg = Register::r30;
 static constexpr Register kRemainderReg = Register::r31;

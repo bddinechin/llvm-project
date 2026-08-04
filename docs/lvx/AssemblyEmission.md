@@ -143,8 +143,8 @@ extracted YAML text was ambiguous, against the real toolchain directly:**
   registerM }` -- a distinct operand class from `{ singleReg: ... }`,
   encoded in a 5-bit field (`registerM: "-----"`) versus `singleReg`'s
   6 bits, i.e. `registerM` names one of 32 register *pairs* directly,
-  confirmed via `lvx-mds/lvx-refs/FE/YAML/lvx/lvx_v1/Description.yml` and
-  `lvx_Format.yml`.
+  confirmed via `lvx-mds/lvx-refs/FE/YAML/lvx/lvx_v1/Description.yml` (its
+  `Format` entries).
 - **Assembly syntax**: `$r<even>r<odd>` with no separator or dot (e.g.
   `divmodd $r30r31 = $r1, $r2`) -- found empirically, since the register-
   name table in `lvx-binutils/opcodes/lvx-opc.c` lists entries like

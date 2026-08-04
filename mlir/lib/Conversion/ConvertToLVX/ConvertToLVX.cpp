@@ -38,7 +38,7 @@ using mlir::lvx::IntComp;
 using mlir::lvx::RegisterType;
 using mlir::lvx::Register;
 
-// Per lvx_Convention.yml's `regular` calling convention.
+// Per lvx-mds/lvx-refs' Convention.table, `Convention-lvx_v1-regular`.
 static constexpr unsigned kMaxAbiArgRegs = 12;
 static constexpr unsigned kMaxAbiResultRegs = 4;
 
@@ -251,7 +251,7 @@ struct FloatCompMapping {
 } // namespace
 
 // LVX's `floatcomp` modifier only directly encodes 8 relations
-// (one/ueq/oeq/une/olt/uge/oge/ult, per lvx_Modifier.yml). The remaining
+// (one/ueq/oeq/une/olt/uge/oge/ult, per Description.yml). The remaining
 // arith predicates that have a clean operand-swap equivalent are handled
 // that way; `ord`/`uno`/always-true/always-false have no direct hardware
 // support here and are left unconverted (arith's own folder eliminates the
@@ -658,7 +658,7 @@ struct YieldToLVX : public OpConversionPattern<scf::YieldOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// Functions: ABI-pin entry-block args/results per lvx_Convention.yml, and
+// Functions: ABI-pin entry-block args/results per Convention.table, and
 // copy pinned argument registers into fresh virtual registers on entry
 // (mirrors the paper's `rv.mv` ABI copy-in pattern).
 //===----------------------------------------------------------------------===//
