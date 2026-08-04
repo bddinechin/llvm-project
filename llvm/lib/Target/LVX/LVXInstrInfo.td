@@ -280,6 +280,12 @@ def : Pat<(select GPR:$rZ, GPR:$rY, GPR:$rW),
 def : Pat<(br bb:$target), (GOTO_UB brtarget27s2:$target)>;
 def : Pat<(LVXretglue), (RET_RTS)>;
 
+// Indirect branch, which is what an expanded jump table lands on: the target
+// address has already been loaded out of the table into a register. This is
+// the only pattern BR_JT's expansion needs -- see the ISD::BR_JT Expand in
+// LVXTargetLowering and the ISD::JumpTable case in LVXISelDAGToDAG::Select.
+def : Pat<(brind i64:$addr), (IGOTO_IBC i64:$addr)>;
+
 // ---- Stores ---------------------------------------------------------------
 //
 // The generated store formats order their operands offset-then-base-then-

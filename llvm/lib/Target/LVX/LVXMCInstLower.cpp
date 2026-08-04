@@ -68,11 +68,23 @@ void LVXMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
     case MachineOperand::MO_ExternalSymbol:
       MCOp = LowerSymbolOperand(MO, GetExternalSymbolSymbol(MO));
       break;
+    case MachineOperand::MO_JumpTableIndex:
+      // The base address of a switch's jump table, materialized by
+      // LVXISelDAGToDAG as a MAKED_DWI_Y of the table symbol. AsmPrinter
+      // emits the table itself (EK_BlockAddress: one 8-byte absolute address
+      // per case) and owns the LJTI symbol naming.
+      //
+      // Built directly rather than through LowerSymbolOperand: that helper
+      // adds MO.getOffset(), and a jump-table-index operand has no offset
+      // field at all -- asking for it asserts "Wrong MachineOperand accessor".
+      MCOp = MCOperand::createExpr(
+          MCSymbolRefExpr::create(Printer.GetJTISymbol(MO.getIndex()), Ctx));
+      break;
     default:
-      // BlockAddress/JumpTableIndex/ConstantPoolIndex/FrameIndex: none of
-      // these are produced by LVXISelLowering/LVXISelDAGToDAG yet (no
-      // blockaddress, switch, or FP-constant lowering implemented, and
-      // FrameIndex operands are always eliminated by PEI before this
+      // BlockAddress/ConstantPoolIndex/FrameIndex: none of these are
+      // produced by LVXISelLowering/LVXISelDAGToDAG yet (no blockaddress
+      // lowering, no constant pool -- FP constants are materialized inline --
+      // and FrameIndex operands are always eliminated by PEI before this
       // runs) -- deferred until something actually generates one.
       MI->print(errs());
       llvm_unreachable("unknown or not-yet-supported operand type in "

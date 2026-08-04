@@ -312,6 +312,22 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     return;
   }
 
+  // ISD::JumpTable -> MAKED_DWI_Y of the table's base address. The table
+  // symbol is a link-time address whose value is unknown at compile time, so
+  // the widest MAKE form is used unconditionally -- the same reasoning as the
+  // wimm64imm pattern in LVXInstrInfo.td, just with a symbol in place of a
+  // constant. The BR_JT that referenced it has already been expanded (it is
+  // declared Expand in LVXTargetLowering) into this base, a scaled index, a
+  // load and an ISD::BRIND -- so all that survives here is an ordinary
+  // address materialization.
+  if (N->getOpcode() == ISD::JumpTable) {
+    auto *JT = cast<JumpTableSDNode>(N);
+    SDValue TJT = CurDAG->getTargetJumpTable(JT->getIndex(), MVT::i64);
+    SDNode *Res = CurDAG->getMachineNode(LVX::MAKED_DWI_Y, DL, MVT::i64, TJT);
+    ReplaceNode(N, Res);
+    return;
+  }
+
   // Standard ISD::LOAD → LD (64-bit), LWZ/LWS (32-bit), LHZ/LHS (16-bit),
   // LBZ/LBS (8-bit). All with variant=0 (normal/non-speculative). Base+offset
   // addressing (register or FrameIndex, per selectAddr above) both handled.
