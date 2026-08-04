@@ -12,10 +12,10 @@
 // order visits result 1 before result 0 is retargeted -- irrelevant to
 // correctness, but pinned here since FileCheck matches exact order).
 // CHECK-LABEL: lvx_func.func @both
-// CHECK-NEXT: %quotient, %remainder = lvx.divmodd %arg0, %arg1 : (<r0>, <r1>) -> (<r62>, <r63>)
+// CHECK-NEXT: %quotient, %remainder = lvx.divmodd %arg0, %arg1 : (!lvx.reg<r0>, !lvx.reg<r1>) -> (!lvx.reg<r62>, !lvx.reg<r63>)
 // CHECK-NEXT: %0 = lvx.mv %remainder : (!lvx.reg<r63>) -> !lvx.reg<r3>
 // CHECK-NEXT: %1 = lvx.mv %quotient : (!lvx.reg<r62>) -> !lvx.reg<r2>
-// CHECK-NEXT: %2 = lvx.addd %1, %0 : (<r2>, <r3>) -> <r0>
+// CHECK-NEXT: %2 = lvx.addd %1, %0 : (!lvx.reg<r2>, !lvx.reg<r3>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_func.return %2 : !lvx.reg<r0>
 lvx_func.func @both(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %q, %r = lvx.divmodd %a, %b : (!lvx.reg<r0>, !lvx.reg<r1>) -> (!lvx.reg, !lvx.reg)
@@ -29,7 +29,7 @@ lvx_func.func @both(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // use -- the remainder is still retyped to r63 (real hardware writes it
 // regardless), but no copy-out is inserted for it since nothing reads it.
 // CHECK-LABEL: lvx_func.func @quotient_only
-// CHECK-NEXT: %quotient, %remainder = lvx.divmodd %arg0, %arg1 : (<r0>, <r1>) -> (<r62>, <r63>)
+// CHECK-NEXT: %quotient, %remainder = lvx.divmodd %arg0, %arg1 : (!lvx.reg<r0>, !lvx.reg<r1>) -> (!lvx.reg<r62>, !lvx.reg<r63>)
 // CHECK-NEXT: %0 = lvx.mv %quotient : (!lvx.reg<r62>) -> !lvx.reg<r2>
 // CHECK-NEXT: %1 = lvx.mv %0 : (!lvx.reg<r2>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_func.return %1 : !lvx.reg<r0>
@@ -41,7 +41,7 @@ lvx_func.func @quotient_only(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0>
 
 // Symmetric case: only the remainder is used.
 // CHECK-LABEL: lvx_func.func @remainder_only
-// CHECK-NEXT: %quotient, %remainder = lvx.divmodd %arg0, %arg1 : (<r0>, <r1>) -> (<r62>, <r63>)
+// CHECK-NEXT: %quotient, %remainder = lvx.divmodd %arg0, %arg1 : (!lvx.reg<r0>, !lvx.reg<r1>) -> (!lvx.reg<r62>, !lvx.reg<r63>)
 // CHECK-NEXT: %0 = lvx.mv %remainder : (!lvx.reg<r63>) -> !lvx.reg<r3>
 // CHECK-NEXT: %1 = lvx.mv %0 : (!lvx.reg<r3>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_func.return %1 : !lvx.reg<r0>

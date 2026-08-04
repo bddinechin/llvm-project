@@ -47,7 +47,7 @@ def LVX_LiOp : LVX_Op<"li", [Pure]> {
   }];
   let arguments = (ins TypedAttrInterface:$value);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "attr-dict $value `:` type($result)";
+  let assemblyFormat = "attr-dict $value `:` qualified(type($result))";
   let hasVerifier = 1;
 }
 
@@ -69,7 +69,7 @@ def LVX_SpOp : LVX_Op<"sp", [Pure]> {
     instructions a base operand; not user-written.
   }];
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "attr-dict `:` type($result)";
+  let assemblyFormat = "attr-dict `:` qualified(type($result))";
 }
 
 def LVX_RegLiveInOp : LVX_Op<"reg_live_in", [Pure]> {
@@ -90,7 +90,7 @@ def LVX_RegLiveInOp : LVX_Op<"reg_live_in", [Pure]> {
     whose result is typed with the same pinned register. Not user-written.
   }];
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "attr-dict `:` type($result)";
+  let assemblyFormat = "attr-dict `:` qualified(type($result))";
   let hasVerifier = 1;
 }
 
@@ -108,7 +108,7 @@ def LVX_GetraOp : LVX_Op<"getra", [Pure]> {
     prologue (Step 3), not user-written.
   }];
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "attr-dict `:` type($result)";
+  let assemblyFormat = "attr-dict `:` qualified(type($result))";
 }
 
 def LVX_SetraOp : LVX_Op<"setra"> {
@@ -123,7 +123,7 @@ def LVX_SetraOp : LVX_Op<"setra"> {
     treated as dead code.
   }];
   let arguments = (ins LVX_RegType:$source);
-  let assemblyFormat = "$source attr-dict `:` type($source)";
+  let assemblyFormat = "$source attr-dict `:` qualified(type($source))";
 }
 
 //===----------------------------------------------------------------------===//
@@ -140,7 +140,7 @@ class LVX_IntBinaryOp<string mnemonic, list<Trait> traits = []> :
     Arguments<(ins LVX_RegType:$lhs, LVX_RegType:$rhs)>,
     Results<(outs LVX_RegType:$result)> {
   let assemblyFormat =
-    "$lhs `,` $rhs attr-dict `:` `(` type($lhs) `,` type($rhs) `)` `->` type($result)";
+    "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
 }
 
 class LVX_IntUnaryOp<string mnemonic, list<Trait> traits = []> :
@@ -210,8 +210,8 @@ class LVX_DivModOp<string mnemonic> :
     Arguments<(ins LVX_RegType:$lhs, LVX_RegType:$rhs)>,
     Results<(outs LVX_RegType:$quotient, LVX_RegType:$remainder)> {
   let assemblyFormat =
-    "$lhs `,` $rhs attr-dict `:` `(` type($lhs) `,` type($rhs) `)` `->` "
-    "`(` type($quotient) `,` type($remainder) `)`";
+    "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` "
+    "`(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
 }
 def LVX_DivmoddOp  : LVX_DivModOp<"divmodd"> {
   let summary = "DIVMODD -- signed 64-bit divide-modulo";
@@ -270,7 +270,7 @@ class LVX_FloatBinaryOp<string mnemonic, list<Trait> traits = []> :
                   DefaultValuedAttr<LVX_FloatModeAttr, "FloatMode::cs">:$mode)>,
     Results<(outs LVX_RegType:$result)> {
   let assemblyFormat =
-    "$mode $lhs `,` $rhs attr-dict `:` `(` type($lhs) `,` type($rhs) `)` `->` type($result)";
+    "$mode $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
 }
 
 // Real FFMAD/FFMAW/FFMSD/FFMSW/FFMAH/FFMSH (lvx-mds Opcode.table's
@@ -293,7 +293,7 @@ class LVX_FloatTernaryOp<string mnemonic, list<Trait> traits = []> :
     Results<(outs LVX_RegType:$result)> {
   let assemblyFormat =
     "$mode $a `,` $b `,` $c attr-dict `:` "
-    "`(` type($a) `,` type($b) `,` type($c) `)` `->` type($result)";
+    "`(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
 }
 
 def LVX_FadddOp : LVX_FloatBinaryOp<"faddd"> {
@@ -351,7 +351,7 @@ def LVX_CompdOp : LVX_Op<"compd", [Pure]> {
                        LVX_RegType:$lhs, LVX_RegType:$rhs);
   let results = (outs LVX_RegType:$result);
   let assemblyFormat =
-    "$predicate $lhs `,` $rhs attr-dict `:` `(` type($lhs) `,` type($rhs) `)` `->` type($result)";
+    "$predicate $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
 }
 
 def LVX_CompwOp : LVX_Op<"compw", [Pure]> {
@@ -360,7 +360,7 @@ def LVX_CompwOp : LVX_Op<"compw", [Pure]> {
                        LVX_RegType:$lhs, LVX_RegType:$rhs);
   let results = (outs LVX_RegType:$result);
   let assemblyFormat =
-    "$predicate $lhs `,` $rhs attr-dict `:` `(` type($lhs) `,` type($rhs) `)` `->` type($result)";
+    "$predicate $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
 }
 
 def LVX_FcompdOp : LVX_Op<"fcompd", [Pure]> {
@@ -369,7 +369,7 @@ def LVX_FcompdOp : LVX_Op<"fcompd", [Pure]> {
                        LVX_RegType:$lhs, LVX_RegType:$rhs);
   let results = (outs LVX_RegType:$result);
   let assemblyFormat =
-    "$predicate $lhs `,` $rhs attr-dict `:` `(` type($lhs) `,` type($rhs) `)` `->` type($result)";
+    "$predicate $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
 }
 
 def LVX_FcompwOp : LVX_Op<"fcompw", [Pure]> {
@@ -378,7 +378,7 @@ def LVX_FcompwOp : LVX_Op<"fcompw", [Pure]> {
                        LVX_RegType:$lhs, LVX_RegType:$rhs);
   let results = (outs LVX_RegType:$result);
   let assemblyFormat =
-    "$predicate $lhs `,` $rhs attr-dict `:` `(` type($lhs) `,` type($rhs) `)` `->` type($result)";
+    "$predicate $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
 }
 
 //===----------------------------------------------------------------------===//
@@ -397,7 +397,7 @@ def LVX_CmovedOp : LVX_Op<"cmoved", [Pure]> {
   let results = (outs LVX_RegType:$result);
   let assemblyFormat = [{
     $condition $test `,` $trueValue `,` $falseValue attr-dict `:`
-    `(` type($test) `,` type($trueValue) `,` type($falseValue) `)` `->` type($result)
+    `(` qualified(type($test)) `,` qualified(type($trueValue)) `,` qualified(type($falseValue)) `)` `->` qualified(type($result))
   }];
 }
 
@@ -427,7 +427,7 @@ class LVX_StoreOp<string mnemonic> :
     LVX_Op<mnemonic>,
     Arguments<(ins LVX_RegType:$value, LVX_RegType:$base, SI32Attr:$offset)> {
   let assemblyFormat =
-    "$value `,` $base `,` $offset attr-dict `:` `(` type($value) `,` type($base) `)`";
+    "$value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
 }
 
 def LVX_SbOp : LVX_StoreOp<"sb"> { let summary = "SB -- store byte"; }

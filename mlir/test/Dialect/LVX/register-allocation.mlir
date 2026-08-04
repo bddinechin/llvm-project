@@ -8,8 +8,8 @@
 // CHECK-LABEL: lvx_func.func @straight
 // CHECK-NEXT: %0 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r2>
 // CHECK-NEXT: %1 = lvx.mv %arg1 : (!lvx.reg<r1>) -> !lvx.reg<r0>
-// CHECK-NEXT: %2 = lvx.addd %0, %1 : (<r2>, <r0>) -> <r1>
-// CHECK-NEXT: %3 = lvx.muld %2, %0 : (<r1>, <r2>) -> <r0>
+// CHECK-NEXT: %2 = lvx.addd %0, %1 : (!lvx.reg<r2>, !lvx.reg<r0>) -> !lvx.reg<r1>
+// CHECK-NEXT: %3 = lvx.muld %2, %0 : (!lvx.reg<r1>, !lvx.reg<r2>) -> !lvx.reg<r0>
 // CHECK-NEXT: %4 = lvx.mv %3 : (!lvx.reg<r0>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_func.return %4 : !lvx.reg<r0>
 lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
@@ -26,9 +26,9 @@ lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // CHECK-LABEL: lvx_func.func @branches
 // CHECK-NEXT: %0 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r2>
 // CHECK-NEXT: %1 = lvx.mv %arg1 : (!lvx.reg<r1>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_cf.cond_br wnez %1 : <r0>, ^bb1, ^bb2
+// CHECK-NEXT: lvx_cf.cond_br wnez %1 : !lvx.reg<r0>, ^bb1, ^bb2
 // CHECK: ^bb2:
-// CHECK-NEXT: %2 = lvx.addd %0, %0 : (<r2>, <r2>) -> <r0>
+// CHECK-NEXT: %2 = lvx.addd %0, %0 : (!lvx.reg<r2>, !lvx.reg<r2>) -> !lvx.reg<r0>
 // CHECK-NEXT: %3 = lvx.mv %2 : (!lvx.reg<r0>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_func.return %3 : !lvx.reg<r0>
 lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
@@ -75,10 +75,10 @@ lvx_func.func @branch_args(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // register, per `ForOp`'s own verifier -- this is the coalescing rule from
 // lvx-mlir/docs/RegisterAllocation.md ("Loop-carried register coalescing").
 // CHECK-LABEL: lvx_func.func @loop
-// CHECK: %4 = lvx.li 0 : i64 : <r4>
-// CHECK-NEXT: %5 = lvx_scf.for %1 : <r0> to %2 : <r2> step %3 : <r3> iter_args(%4) : (!lvx.reg<r4>) -> (!lvx.reg<r4>)
+// CHECK: %4 = lvx.li 0 : i64 : !lvx.reg<r4>
+// CHECK-NEXT: %5 = lvx_scf.for %1 : !lvx.reg<r0> to %2 : !lvx.reg<r2> step %3 : !lvx.reg<r3> iter_args(%4) : (!lvx.reg<r4>) -> (!lvx.reg<r4>)
 // CHECK-NEXT: ^bb0(%arg1: !lvx.reg<r0>, %arg2: !lvx.reg<r4>):
-// CHECK-NEXT: %7 = lvx.addd %arg2, %0 : (<r4>, <r1>) -> <r4>
+// CHECK-NEXT: %7 = lvx.addd %arg2, %0 : (!lvx.reg<r4>, !lvx.reg<r1>) -> !lvx.reg<r4>
 // CHECK-NEXT: lvx_scf.yield %7 : !lvx.reg<r4>
 // CHECK: %6 = lvx.mv %5 : (!lvx.reg<r4>) -> !lvx.reg<r0>
 lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
@@ -114,26 +114,26 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // slot 8 for r14 -- and the prologue names the incoming register with
 // `lvx.reg_live_in` (which emits nothing) so an ordinary `lvx.sd` can
 // store it. The restore needs no such pseudo: an `lvx.ld` whose *result*
-// is typed <r14> already is `ld $r14 = 8[$r12]`. Until this was added,
+// is typed !lvx.reg<r14> already is `ld $r14 = 8[$r12]`. Until this was added,
 // `@caller` clobbered its caller's r14 outright -- an ABI violation
 // against any lvx-gcc-compiled caller.
 // CHECK-LABEL: lvx_func.func @caller
-// CHECK-NEXT: %0 = lvx.sp : <r12>
-// CHECK-NEXT: %1 = lvx.li 16 : i64 : <r61>
-// CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (<r12>, <r61>) -> <r12>
-// CHECK-NEXT: %3 = lvx.getra : <r61>
-// CHECK-NEXT: lvx.sd %3, %2, 0 : (<r61>, <r12>)
-// CHECK-NEXT: %4 = lvx.reg_live_in : <r14>
-// CHECK-NEXT: lvx.sd %4, %2, 8 : (<r14>, <r12>)
+// CHECK-NEXT: %0 = lvx.sp : !lvx.reg<r12>
+// CHECK-NEXT: %1 = lvx.li 16 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
+// CHECK-NEXT: %3 = lvx.getra : !lvx.reg<r61>
+// CHECK-NEXT: lvx.sd %3, %2, 0 : (!lvx.reg<r61>, !lvx.reg<r12>)
+// CHECK-NEXT: %4 = lvx.reg_live_in : !lvx.reg<r14>
+// CHECK-NEXT: lvx.sd %4, %2, 8 : (!lvx.reg<r14>, !lvx.reg<r12>)
 // CHECK-NEXT: %5 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r14>
 // CHECK-NEXT: %6 = lvx_func.call @callee(%arg0) : (!lvx.reg<r0>) -> !lvx.reg<r0>
-// CHECK-NEXT: %7 = lvx.addd %5, %6 : (<r14>, <r0>) -> <r1>
+// CHECK-NEXT: %7 = lvx.addd %5, %6 : (!lvx.reg<r14>, !lvx.reg<r0>) -> !lvx.reg<r1>
 // CHECK-NEXT: %8 = lvx.mv %7 : (!lvx.reg<r1>) -> !lvx.reg<r0>
 // CHECK-NEXT: %9 = lvx.ld %2, 8 : (!lvx.reg<r12>) -> !lvx.reg<r14>
 // CHECK-NEXT: %10 = lvx.ld %2, 0 : (!lvx.reg<r12>) -> !lvx.reg<r61>
-// CHECK-NEXT: lvx.setra %10 : <r61>
-// CHECK-NEXT: %11 = lvx.li 16 : i64 : <r61>
-// CHECK-NEXT: %12 = lvx.addd %2, %11 : (<r12>, <r61>) -> <r12>
+// CHECK-NEXT: lvx.setra %10 : !lvx.reg<r61>
+// CHECK-NEXT: %11 = lvx.li 16 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %12 = lvx.addd %2, %11 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
 // CHECK-NEXT: lvx_func.return %8 : !lvx.reg<r0>
 lvx_func.func private @callee(!lvx.reg<r0>) -> !lvx.reg<r0>
 lvx_func.func @caller(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
@@ -158,8 +158,8 @@ lvx_func.func @caller(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: %1 = lvx.mv %arg1 : (!lvx.reg<r1>) -> !lvx.reg<r0>
 // CHECK-NEXT: %2 = lvx.mv %arg2 : (!lvx.reg<r2>) -> !lvx.reg<r1>
 // CHECK-NEXT: %3 = lvx.mv %2 : (!lvx.reg<r1>) -> !lvx.reg<r2>
-// CHECK-NEXT: %4 = lvx.ffmad cs %0, %1, %2 : (<r3>, <r0>, <r1>) -> <r1>
-// CHECK-NEXT: %5 = lvx.addd %4, %3 : (<r1>, <r2>) -> <r0>
+// CHECK-NEXT: %4 = lvx.ffmad cs %0, %1, %2 : (!lvx.reg<r3>, !lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.reg<r1>
+// CHECK-NEXT: %5 = lvx.addd %4, %3 : (!lvx.reg<r1>, !lvx.reg<r2>) -> !lvx.reg<r0>
 // CHECK-NEXT: %6 = lvx.mv %5 : (!lvx.reg<r0>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_func.return %6 : !lvx.reg<r0>
 lvx_func.func @ffma_preserve(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %acc: !lvx.reg<r2>) -> !lvx.reg<r0> {

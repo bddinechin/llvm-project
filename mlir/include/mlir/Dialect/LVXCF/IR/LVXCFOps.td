@@ -30,7 +30,7 @@ def LVXCF_BranchOp : LVXCF_Op<"br",
       $_state.addOperands(destOperands);
     }]>];
   let assemblyFormat = [{
-    $dest (`(` $destOperands^ `:` type($destOperands) `)`)? attr-dict
+    $dest (`(` $destOperands^ `:` qualified(type($destOperands)) `)`)? attr-dict
   }];
 }
 
@@ -53,9 +53,9 @@ def LVXCF_CondBranchOp : LVXCF_Op<"cond_br",
             trueDest, falseDest);
     }]>];
   let assemblyFormat = [{
-    $condition $test `:` type($test) `,`
-    $trueDest  (`(` $trueDestOperands^  `:` type($trueDestOperands)  `)`)? `,`
-    $falseDest (`(` $falseDestOperands^ `:` type($falseDestOperands) `)`)?
+    $condition $test `:` qualified(type($test)) `,`
+    $trueDest  (`(` $trueDestOperands^  `:` qualified(type($trueDestOperands))  `)`)? `,`
+    $falseDest (`(` $falseDestOperands^ `:` qualified(type($falseDestOperands)) `)`)?
     attr-dict
   }];
 }
@@ -95,9 +95,9 @@ def LVXCF_LoopdoOp : LVXCF_Op<"loopdo",
             body, exit);
     }]>];
   let assemblyFormat = [{
-    $tripCount `:` type($tripCount) `,`
-    $body (`(` $bodyOperands^ `:` type($bodyOperands) `)`)? `,`
-    $exit (`(` $exitOperands^ `:` type($exitOperands) `)`)?
+    $tripCount `:` qualified(type($tripCount)) `,`
+    $body (`(` $bodyOperands^ `:` qualified(type($bodyOperands)) `)`)? `,`
+    $exit (`(` $exitOperands^ `:` qualified(type($exitOperands)) `)`)?
     attr-dict
   }];
 }

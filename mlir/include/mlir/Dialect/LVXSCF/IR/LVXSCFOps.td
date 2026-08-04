@@ -21,7 +21,7 @@ def LVXSCF_YieldOp : LVXSCF_Op<"yield",
     [Pure, ReturnLike, Terminator, HasParent<"ForOp">]> {
   let summary = "loop-carried values produced by one iteration of `lvx_scf.for`";
   let arguments = (ins Variadic<LVX_RegType>:$results);
-  let assemblyFormat = "attr-dict ($results^ `:` type($results))?";
+  let assemblyFormat = "attr-dict ($results^ `:` qualified(type($results)))?";
   let builders = [OpBuilder<(ins), [{ build($_builder, $_state, {}); }]>];
 }
 
@@ -42,11 +42,11 @@ def LVXSCF_ForOp : LVXSCF_Op<"for",
   let results = (outs Variadic<LVX_RegType>:$results);
   let regions = (region SizedRegion<1>:$region);
   let assemblyFormat = [{
-    $lowerBound `:` type($lowerBound)
-    `to` $upperBound `:` type($upperBound)
-    `step` $step `:` type($step)
-    (`iter_args` `(` $initArgs^ `)` `:` `(` type($initArgs) `)`)?
-    (`->` `(` type($results)^ `)`)?
+    $lowerBound `:` qualified(type($lowerBound))
+    `to` $upperBound `:` qualified(type($upperBound))
+    `step` $step `:` qualified(type($step))
+    (`iter_args` `(` $initArgs^ `)` `:` `(` qualified(type($initArgs)) `)`)?
+    (`->` `(` qualified(type($results))^ `)`)?
     $region attr-dict
   }];
   let hasVerifier = 1;

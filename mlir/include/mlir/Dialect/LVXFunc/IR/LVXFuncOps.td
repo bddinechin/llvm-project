@@ -103,7 +103,7 @@ def LVXFunc_ReturnOp : LVXFunc_Op<"return",
   let builders = [OpBuilder<(ins), [{
     build($_builder, $_state, {});
   }]>];
-  let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
+  let assemblyFormat = "attr-dict ($operands^ `:` qualified(type($operands)))?";
   let hasVerifier = 1;
 }
 
