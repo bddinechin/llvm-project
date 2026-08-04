@@ -17,6 +17,7 @@
 #include "mlir/Dialect/LVXCF/IR/LVXCF.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
 #include "mlir/Dialect/LVXSCF/IR/LVXSCF.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/IRMapping.h"
@@ -184,6 +185,39 @@ using AddFToLVX = FloatBinaryToLVX<arith::AddFOp, lvx::FadddOp, lvx::FaddwOp>;
 using SubFToLVX = FloatBinaryToLVX<arith::SubFOp, lvx::FsbfdOp, lvx::FsbfwOp>;
 using MulFToLVX = FloatBinaryToLVX<arith::MulFOp, lvx::FmuldOp, lvx::FmulwOp>;
 using DivFToLVX = FloatBinaryToLVX<arith::DivFOp, lvx::FdivdOp, lvx::FdivwOp>;
+
+// `math.fma a, b, c` is `a*b + c` -- the same operand order as real
+// `FFMAD`/`FFMAW`, whose `c` is the accumulator. Note the real instruction
+// has only *two* explicit source registers (`ffmaw $rW = $rZ, $rY`): the
+// destination doubles as `c`. That tie is not expressed here; the register
+// allocator coalesces the `c` operand with the result into one physical
+// register (lvx-mlir/docs/RegisterAllocation.md, "`ffma`/`ffms` accumulator
+// coalescing"), and -lvx-emit-asm prints the two-source form.
+//
+// Only `math.fma` maps here, never a `mulf`+`addf` pair: fusing rounds once
+// where the pair rounds twice, so silently contracting them would change
+// results behind the author's back. Requiring the source to say `math.fma`
+// keeps that an explicit choice.
+struct FmaToLVX : public OpConversionPattern<math::FmaOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(math::FmaOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Type regTy = getTypeConverter()->convertType(op.getType());
+    unsigned width = getScalarBitWidth(op.getType());
+    Value result;
+    if (width <= 32)
+      result = rewriter.create<lvx::FfmawOp>(op.getLoc(), regTy,
+                                             adaptor.getA(), adaptor.getB(),
+                                             adaptor.getC(), FloatMode::cs);
+    else
+      result = rewriter.create<lvx::FfmadOp>(op.getLoc(), regTy,
+                                             adaptor.getA(), adaptor.getB(),
+                                             adaptor.getC(), FloatMode::cs);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
 
 // arith.negf has no direct LVX opcode; lower to `0.0 - operand`.
 struct NegFToLVX : public OpConversionPattern<arith::NegFOp> {
@@ -810,6 +844,9 @@ struct ConvertToLVXPass
     target.addIllegalDialect<arith::ArithDialect, cf::ControlFlowDialect,
                              scf::SCFDialect, func::FuncDialect,
                              memref::MemRefDialect, index::IndexDialect>();
+    // Only math.fma is lowered; the rest of `math` (transcendentals etc.)
+    // has no LVX opcode, so leave the dialect legal and mark just this op.
+    target.addIllegalOp<math::FmaOp>();
     target.addLegalOp<ModuleOp>();
 
     if (failed(applyFullConversion(getOperation(), target,
@@ -843,7 +880,7 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     // Constant / select
     ConstantToLVX, IndexConstantToLVX, SelectToLVX,
     // Memory
-    MemRefLoadToLVX, MemRefStoreToLVX,
+    MemRefLoadToLVX, MemRefStoreToLVX, FmaToLVX,
     // Control flow
     BrToLVX, CondBrToLVX, ForToLVX, YieldToLVX,
     // Functions

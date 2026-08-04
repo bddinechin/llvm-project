@@ -68,3 +68,21 @@ func.func @casts(%a: i8, %b: i32, %c: f64) -> i64 {
   %10 = arith.addi %9, %7 : i64
   return %10 : i64
 }
+
+// `math.fma a, b, c` is `a*b + c`, matching real FFMAD/FFMAW's operand order
+// with `c` as the accumulator. Width dispatch is the usual f64 -> `d`,
+// f32 -> `w`. Nothing lowers a separate mulf+addf pair to an ffma: fusing
+// rounds once where the pair rounds twice, so it must be asked for.
+// CHECK-LABEL: lvx_func.func @fma_ops
+func.func @fma_ops(%a: f64, %b: f64, %c: f64, %x: f32, %y: f32, %z: f32) -> f64 {
+  // CHECK: lvx.ffmad cs
+  %0 = math.fma %a, %b, %c : f64
+  // CHECK: lvx.ffmaw cs
+  %1 = math.fma %x, %y, %z : f32
+  // A mulf/addf pair stays two instructions.
+  // CHECK: lvx.fmuld
+  // CHECK: lvx.faddd
+  %2 = arith.mulf %a, %b : f64
+  %3 = arith.addf %c, %2 : f64
+  return %0 : f64
+}

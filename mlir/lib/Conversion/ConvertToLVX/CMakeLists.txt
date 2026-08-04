@@ -17,6 +17,7 @@ add_mlir_conversion_library(MLIRConvertToLVX
   MLIRLVXDialect
   MLIRLVXFuncDialect
   MLIRLVXSCFDialect
+  MLIRMathDialect
   MLIRMemRefDialect
   MLIRSCFDialect
   MLIRTransformUtils
