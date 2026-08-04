@@ -24,6 +24,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
+#include "mlir/Dialect/LVX/Transforms/ScratchRegisters.h"
 
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
 #include "mlir/IR/Builders.h"
@@ -45,8 +46,12 @@ namespace {
 // Confirmed against real ground truth (lvx-mds/lvx-refs' Description.yml,
 // its Format entries) and empirically on real gem5: the low-numbered register
 // of the pair holds the quotient, the high-numbered one the remainder.
-static constexpr Register kQuotientReg = Register::r30;
-static constexpr Register kRemainderReg = Register::r31;
+// R62:R63 rather than the original R30:R31 because the spill-scratch pool
+// these come from moved to caller-saved registers -- R30/R31 are callee-saved
+// per `Convention.table`, so pinning a result there clobbered the caller's
+// value with no matching save. Must stay an even/odd aligned pair.
+static constexpr Register kQuotientReg = kScratchPairLo;
+static constexpr Register kRemainderReg = kScratchPairHi;
 
 // Retypes `result` to `pinned` and, if it has any use, inserts an `lvx.mv`
 // copy immediately after `op` from the pinned register back to `result`'s

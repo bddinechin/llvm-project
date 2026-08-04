@@ -217,9 +217,27 @@ Mirror the *separate* LVX LLVM backend's stated preference
 (`LVXRegisterInfo.td`, in the sibling `lvx-llvm` repo:
 `../lvx-llvm/llvm-project/llvm/lib/Target/LVX/`) for consistency:
 argument/result registers `R0-R11` first, then other
-caller-saved scratch (`R15-R17`, `R32-R63`), then callee-saved (`R14`,
-`R18-R31`) last — using a callee-saved register forces prologue/epilogue
-save/restore code we don't emit yet.
+caller-saved scratch (`R15-R17`, `R32-R60`), then callee-saved (`R14`,
+`R18-R31`) last — using a callee-saved register costs a prologue/epilogue
+save/restore pair, so it is preferred last.
+
+`R61-R63` are absent from both runs: they are the reserved spill scratch
+(see "Reserved scratch registers"), held out of the general pool.
+
+**Callee-saved registers are saved and restored** (this was a real ABI bug
+until 2026-08-04: they were allocated freely, but nothing ever preserved
+them, so any `lvx-gcc`-compiled caller with a live value in `R18` got it
+silently clobbered). After assignment, the pass collects every distinct
+callee-saved register appearing in the function's final value types —
+walking the types rather than the allocated items, so that registers pinned
+by other means are caught too: ABI-pinned entry arguments, and
+`RewriteDivmod`'s result pair, neither of which is an allocation item —
+reserves an 8-byte frame slot per register, and emits an `lvx.sd` in the
+prologue and an `lvx.ld` before every `lvx_func.return`. The save needs a
+value to store, and a callee-saved register's incoming content has no
+defining op, hence the `lvx.reg_live_in` pseudo (emits nothing, exactly like
+`lvx.sp`); the restore needs no pseudo, since an `lvx.ld` whose result is
+typed with the pinned register already *is* `ld $rN = off[$r12]`.
 
 ### Call clobbering
 
@@ -672,9 +690,16 @@ either re-running it or reasoning about point-in-time free-register sets.
 **Decision**: reserve a small fixed set of registers, excluded from the
 general candidate pool from the start (so Phase 1 can never hand them to an
 ordinary long-lived value), used exclusively for these transient
-def-then-store / reload-then-use windows. Size: **3** — `r29`, `r30`, `r31`
-(previously the tail of the callee-saved order; general pool shrinks from 62
-to 59). Three covers the worst case among currently-defined ops needing
+def-then-store / reload-then-use windows. Size: **3** — `r61`, `r62`, `r63`
+(the tail of the caller-saved order; general pool shrinks from 62 to 59).
+
+These must be **caller**-saved. The scratch window is transient and never
+crosses a call, so nothing needs preserving across it — but a callee-saved
+choice clobbers the caller's value in a register it is entitled to get back,
+with no save to match. The original choice, `r29`-`r31`, was callee-saved,
+which made every spilling function ABI-illegal against `lvx-gcc` callers;
+`r62:r63` was picked to keep the even/odd aligned pair that
+`lvx.divmodd`'s `registerM` destination requires. Three covers the worst case among currently-defined ops needing
 simultaneous scratch registers: `lvx.cmoved`/`lvx.cmovew`'s three register
 operands (if all three happened to be spilled at once) and
 `lvx.divmodd`/`lvx.divmodud`/`lvx.divmodw`/`lvx.divmoduw`'s two results.
@@ -703,16 +728,16 @@ it's worth getting right now rather than leaving a known-broken gap.
   tracked in a per-function running `frameSize`.
 - Prologue: only emitted if `frameSize > 0` (this now also covers the
   `$ra`-only case below). At the top of the entry block: `%sp0 = lvx.sp`,
-  `%off = lvx.li frameSize : i64 : !lvx.reg<r29>`,
-  `%spBase = lvx.sbfd %sp0, %off : (!lvx.reg<r12>, !lvx.reg<r29>) -> !lvx.reg<r12>`.
+  `%off = lvx.li frameSize : i64 : !lvx.reg<r61>`,
+  `%spBase = lvx.sbfd %sp0, %off : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>`.
   `%spBase` is the `base` operand for every spill `lvx.sd`/`lvx.ld` in the
-  function. `%off`'s type is pinned directly to `r29` (one of the reserved
+  function. `%off`'s type is pinned directly to `r61` (one of the reserved
   scratch registers above) at construction, rather than left unallocated for
   a later scan to assign — this pass runs strictly after Step 2/3's own
   scan, so nothing else would ever give it a register, and `-lvx-emit-asm`
   hard-errors on any unallocated value. Safe because `%off`/`%off2` each die
   immediately at their one use (the following `sbfd`/`addd`), non-overlapping
-  with the adjacent `$ra` snapshot/restore's own r29 use at the same site
+  with the adjacent `$ra` snapshot/restore's own r61 use at the same site
   (see "Return-address save/restore" below).
 - Epilogue: before *every* `lvx_func.return` in the function (there can be
   more than one, reached via different `lvx_cf` blocks), mirror the
@@ -756,12 +781,12 @@ minimal case: no spills, but still gets a full frame purely for `$ra`).
 When `raOffset` is set:
 
 - Right after the frame is established at function entry: `%raVal =
-  lvx.getra : !lvx.reg<r29>`, `lvx.sd %raVal, %spBase, raOffset`.
+  lvx.getra : !lvx.reg<r61>`, `lvx.sd %raVal, %spBase, raOffset`.
 - Right before each epilogue's stack-pointer restore (i.e. immediately
   before every `lvx_func.return`): `%raVal2 = lvx.ld %spBase, raOffset :
-  !lvx.reg<r29>`, `lvx.setra %raVal2`.
+  !lvx.reg<r61>`, `lvx.setra %raVal2`.
 
-Both use the same `r29` scratch register as `%off`/`%off2` above — safe by
+Both use the same `r61` scratch register as `%off`/`%off2` above — safe by
 the same transient, non-overlapping reasoning, and the two never execute
 back-to-back without an intervening def/use that would create a real
 conflict.

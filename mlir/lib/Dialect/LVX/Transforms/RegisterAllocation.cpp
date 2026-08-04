@@ -21,6 +21,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
+#include "mlir/Dialect/LVX/Transforms/ScratchRegisters.h"
 
 #include "mlir/Dialect/LVX/Analysis/LiveIntervals.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
@@ -28,6 +29,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -90,22 +92,31 @@ static const Register kFullOrder[] = {
     Register::r48, Register::r49, Register::r50, Register::r51,
     Register::r52, Register::r53, Register::r54, Register::r55,
     Register::r56, Register::r57, Register::r58, Register::r59,
-    Register::r60, Register::r61, Register::r62, Register::r63,
-    // Callee-saved last -- using one forces the prologue/epilogue
-    // save/restore this pass now emits when spilling is in play.
+    Register::r60,
+    // Callee-saved last -- using one costs a prologue/epilogue save/restore
+    // pair, which `collectCalleeSavedToSave` below now emits.
     Register::r14,
     Register::r18, Register::r19, Register::r20, Register::r21,
     Register::r22, Register::r23, Register::r24, Register::r25,
-    Register::r26, Register::r27, Register::r28,
+    Register::r26, Register::r27, Register::r28, Register::r29,
+    Register::r30, Register::r31,
 };
 
 // The callee-saved suffix of kFullOrder, in the same relative order --
 // used for items whose range straddles a call.
-static const Register *const kCalleeSavedOrder = kFullOrder + 47;
-static constexpr unsigned kCalleeSavedCount = 12;
+static const Register *const kCalleeSavedOrder = kFullOrder + 44;
+static constexpr unsigned kCalleeSavedCount = 15;
 static_assert(std::size(kFullOrder) == 59,
               "expected 59 allocatable GPRs (all but R12/R13 and the 3 "
               "spill-scratch registers below)");
+
+/// True if `r` is callee-saved per `Convention-lvx_v1-regular`'s `callee`
+/// set (R14, R18-R31), i.e. the caller's value in it must be preserved
+/// across this function.
+static bool isCalleeSaved(Register r) {
+  return llvm::is_contained(
+      ArrayRef<Register>(kCalleeSavedOrder, kCalleeSavedCount), r);
+}
 
 //===----------------------------------------------------------------------===//
 // Spill scratch registers: reserved out of the general pool above (never
@@ -115,11 +126,19 @@ static_assert(std::size(kFullOrder) == 59,
 // simultaneously (lvx.cmoved/cmovew's 3 register operands,
 // lvx.divmodd/.../'s 2 results) -- see docs/lvx/RegisterAllocation.md,
 // "Reserved scratch registers".
+//
+// These must be *caller*-saved (R61-R63 are, per `Convention.table`): the
+// scratch window is transient and never crosses a call, so nothing has to
+// be preserved across it -- but a callee-saved choice would silently
+// clobber the caller's value in a register it is entitled to get back,
+// with no save to match. R29-R31 (the previous choice) are callee-saved,
+// which made every spilling function ABI-illegal against lvx-gcc callers.
+// R62:R63 is an even/odd aligned pair, which `lvx.divmodd`'s `registerM`
+// destination requires (see RewriteDivmod.cpp).
 //===----------------------------------------------------------------------===//
 
-static const Register kSpillScratchRegs[] = {Register::r29, Register::r30,
-                                             Register::r31};
-static constexpr unsigned kNumSpillScratchRegs = 3;
+static constexpr const Register *kSpillScratchRegs = kScratchRegs;
+static constexpr unsigned kNumSpillScratchRegs = kNumScratchRegs;
 
 /// Picks the first free register in `order` (truncated to `poolSize`
 /// entries), or nullopt if none is free.
@@ -445,6 +464,8 @@ static void markCallCrossings(lvx_func::FuncOp func,
 /// Only called when `frameSize > 0`.
 static Value insertPrologueEpilogue(lvx_func::FuncOp func, unsigned frameSize,
                                     std::optional<unsigned> raOffset,
+                                    ArrayRef<std::pair<Register, unsigned>>
+                                        calleeSaved,
                                     MLIRContext *ctx) {
   Type r12Ty = RegisterType::get(ctx, Register::r12);
   Type raScratchTy = RegisterType::get(ctx, kSpillScratchRegs[0]);
@@ -465,8 +486,26 @@ static Value insertPrologueEpilogue(lvx_func::FuncOp func, unsigned frameSize,
     builder.create<SdOp>(loc, raVal, spBase, raOffsetAttr);
   }
 
+  // Save the caller's value in every callee-saved register this function
+  // went on to use. `lvx.reg_live_in` emits nothing -- it only names the
+  // incoming register so the `lvx.sd` has an operand to store.
+  for (auto [reg, offset] : calleeSaved) {
+    Type regTy = RegisterType::get(ctx, reg);
+    auto offsetAttr = builder.getSI32IntegerAttr(static_cast<int32_t>(offset));
+    Value live = builder.create<RegLiveInOp>(loc, regTy);
+    builder.create<SdOp>(loc, live, spBase, offsetAttr);
+  }
+
   func.walk([&](lvx_func::ReturnOp ret) {
     builder.setInsertionPoint(ret);
+    // Restore needs no pseudo: an `lvx.ld` whose result is typed with the
+    // pinned register *is* `ld $rN = off[$r12]`.
+    for (auto [reg, offset] : calleeSaved) {
+      Type regTy = RegisterType::get(ctx, reg);
+      auto offsetAttr =
+          builder.getSI32IntegerAttr(static_cast<int32_t>(offset));
+      builder.create<LdOp>(ret.getLoc(), regTy, spBase, offsetAttr);
+    }
     if (raOffset) {
       auto raOffsetAttr =
           builder.getSI32IntegerAttr(static_cast<int32_t>(*raOffset));
@@ -714,9 +753,46 @@ struct LVXAllocateRegistersPass
       frameSize += 8;
     }
 
+    // Every callee-saved register this function actually used must be given
+    // back to the caller unchanged (`Convention.table`'s `callee` set), so
+    // reserve a frame slot per distinct one and save/restore it around the
+    // body. Walking the final types rather than `items` catches the
+    // registers pinned by other means too -- ABI-pinned entry arguments,
+    // and RewriteDivmod's result pair -- which never appear as an assigned
+    // item. Sorted, so the prologue is deterministic.
+    SmallVector<std::pair<Register, unsigned>> calleeSaved;
+    {
+      llvm::SmallSet<Register, 16> used;
+      auto note = [&](Type t) {
+        auto regTy = dyn_cast<RegisterType>(t);
+        if (!regTy || !regTy.isAllocated())
+          return;
+        if (isCalleeSaved(*regTy.getReg()))
+          used.insert(*regTy.getReg());
+      };
+      func.walk([&](Operation *op) {
+        for (Value r : op->getResults())
+          note(r.getType());
+        for (Value o : op->getOperands())
+          note(o.getType());
+      });
+      for (Block &b : func.getBody())
+        for (BlockArgument a : b.getArguments())
+          note(a.getType());
+
+      SmallVector<Register> sorted(used.begin(), used.end());
+      llvm::sort(sorted, [](Register a, Register b) {
+        return static_cast<unsigned>(a) < static_cast<unsigned>(b);
+      });
+      for (Register r : sorted) {
+        calleeSaved.emplace_back(r, frameSize);
+        frameSize += 8;
+      }
+    }
+
     if (frameSize > 0) {
-      Value spBase =
-          insertPrologueEpilogue(func, frameSize, raOffset, &getContext());
+      Value spBase = insertPrologueEpilogue(func, frameSize, raOffset,
+                                            calleeSaved, &getContext());
       if (failed(rewriteSpills(&getContext(), items, spBase)))
         return signalPassFailure();
     }

@@ -20,6 +20,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
+#include "mlir/Dialect/LVX/Transforms/ScratchRegisters.h"
 
 #include "mlir/Dialect/LVXCF/IR/LVXCF.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
@@ -38,11 +39,13 @@ using namespace mlir::lvx;
 
 namespace {
 
-// Step 3's own store-scratch register (docs/lvx/RegisterAllocation.md,
-// "Reserved scratch registers") -- safe to reuse here for the same reason
-// it's safe there: r29 is permanently excluded from the general
-// allocation pool, so nothing else in the function is ever resident in it.
-static constexpr Register kLoopTestScratchReg = Register::r29;
+// The shared reserved scratch register (ScratchRegisters.h,
+// docs/lvx/RegisterAllocation.md "Reserved scratch registers") -- safe to
+// reuse here because it is held out of the general allocation pool, so
+// nothing else in the function is ever resident in it. Taken from the
+// shared header rather than respelled: this pass runs *after* allocation,
+// so naming a register the allocator can hand out silently clobbers it.
+static constexpr Register kLoopTestScratchReg = kScratchReg;
 
 // See docs/lvx/HardwareLoops.md, "Lowering". Only constant-step-1, leaf
 // (no nested lvx_scf.for) loops are eligible -- everything else keeps

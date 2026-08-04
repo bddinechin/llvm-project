@@ -284,6 +284,9 @@ private:
     return llvm::TypeSwitch<Operation *, LogicalResult>(op)
         // Pseudo-ops.
         .Case([&](SpOp) { return success(); }) // never emitted; see doc.
+        // Like SpOp: only names an already-live physical register so an
+        // ordinary lvx.sd can store it. No instruction of its own.
+        .Case([&](RegLiveInOp) { return success(); })
         .Case([&](LiOp li) {
           FailureOr<std::string> rd = reg(li.getResult());
           if (failed(rd))

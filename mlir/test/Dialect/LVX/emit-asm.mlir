@@ -112,7 +112,7 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 
 // A counted, constant-step-1 loop is eligible for the hardware-loop path
 // (docs/lvx/HardwareLoops.md): a single `loopdo` replaces the
-// compare+cond_br header entirely. `%trip` (r29) = ub - lb via `sbfd`;
+// compare+cond_br header entirely. `%trip` (r61) = ub - lb via `sbfd`;
 // real `sbfd`/`sbfw`/`fsbfd`/`fsbfw` are "subtract FROM" opcodes --
 // `sbfd $rd = $rs1, $rs2` computes `$rs2 - $rs1`, the reverse of every
 // other binary op's `$rd = $rs1 op $rs2` reading (confirmed against
@@ -140,11 +140,11 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // CHECK-NEXT: ;;
 // CHECK-NEXT: maked $r4 = 0
 // CHECK-NEXT: ;;
-// CHECK-NEXT: sbfd $r29 = $r0, $r2
+// CHECK-NEXT: sbfd $r61 = $r0, $r2
 // CHECK-NEXT: ;;
 // CHECK-NEXT: copyd $r0 = $r0
 // CHECK-NEXT: ;;
-// CHECK-NEXT: loopdo $r29, [[EXIT:\.LBB[0-9]+]]
+// CHECK-NEXT: loopdo $r61, [[EXIT:\.LBB[0-9]+]]
 // CHECK-NEXT: ;;
 // CHECK-NEXT: {{\.LBB[0-9]+}}:
 // CHECK-NEXT: addd $r4 = $r4, $r1
@@ -176,18 +176,18 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // with the real `lvx-mbr-as` and disassembling the result, and the
 // low=quotient/high=remainder assignment confirmed by actually executing a
 // `divmodd` on real gem5 -- docs/lvx/AssemblyEmission.md). `-lvx-rewrite-
-// divmod` pins both results to r30:r31 and copies each used one back out
+// divmod` pins both results to r62:r63 and copies each used one back out
 // to wherever Steps 1-3 originally allocated it (`$r2`/`$r3` below).
 // CHECK-LABEL: divmod:
 // CHECK-NEXT: copyd $r2 = $r0
 // CHECK-NEXT: ;;
 // CHECK-NEXT: copyd $r0 = $r1
 // CHECK-NEXT: ;;
-// CHECK-NEXT: divmodd $r30r31 = $r2, $r0
+// CHECK-NEXT: divmodd $r62r63 = $r2, $r0
 // CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r3 = $r31
+// CHECK-NEXT: copyd $r3 = $r63
 // CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r1 = $r30
+// CHECK-NEXT: copyd $r1 = $r62
 // CHECK-NEXT: ;;
 // CHECK-NEXT: addd $r0 = $r1, $r3
 // CHECK-NEXT: ;;
@@ -250,7 +250,7 @@ lvx_func.func @ffma(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %c: !lvx.reg<r2>,
 // CHECK: copyd $r0 = $r0
 // CHECK-NEXT: ;;
 // CHECK-NEXT: {{\.LBB[0-9]+}}:
-// CHECK-NEXT: compd.lt $r29 =
+// CHECK-NEXT: compd.lt $r61 =
 lvx_func.func @loop_step2(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %ov = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %lb = lvx.li 0 : i64 : !lvx.reg

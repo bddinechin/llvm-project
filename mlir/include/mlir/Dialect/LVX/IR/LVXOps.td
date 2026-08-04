@@ -72,6 +72,28 @@ def LVX_SpOp : LVX_Op<"sp", [Pure]> {
   let assemblyFormat = "attr-dict `:` type($result)";
 }
 
+def LVX_RegLiveInOp : LVX_Op<"reg_live_in", [Pure]> {
+  let summary = "name a physical register's incoming value (pseudo)";
+  let description = [{
+    Synthetic pseudo-instruction, emitting no assembly at all -- like
+    `lvx.sp`, it only gives a name to a register that is already live on
+    entry, so that an ordinary `lvx.sd` can store it. Its result must be a
+    *pinned* register type (`!lvx.reg<r18>`, ...); an unpinned result is
+    meaningless, since the whole point is to denote one specific physical
+    register.
+
+    Inserted by the register allocator's prologue (Step 3) to save the
+    callee-saved registers the function actually used, per
+    `Convention.table`'s `callee` set: the caller's values in those
+    registers are live on entry and must be restored before returning.
+    The matching restore needs no pseudo -- it is an ordinary `lvx.ld`
+    whose result is typed with the same pinned register. Not user-written.
+  }];
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "attr-dict `:` type($result)";
+  let hasVerifier = 1;
+}
+
 def LVX_GetraOp : LVX_Op<"getra", [Pure]> {
   let summary = "read the return-address register into a GPR";
   let description = [{

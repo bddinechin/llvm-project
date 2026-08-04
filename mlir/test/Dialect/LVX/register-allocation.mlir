@@ -103,25 +103,38 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // `@caller` itself executes a call, so it's non-leaf and gets a
 // prologue/epilogue purely for $ra even though nothing is spilled here
 // (docs/lvx/RegisterAllocation.md, "Return-address save/restore"): $ra is
-// snapshotted (`lvx.getra` + `lvx.sd`, both r29) right after the frame is
+// snapshotted (`lvx.getra` + `lvx.sd`, both r61) right after the frame is
 // established, and restored (`lvx.ld` + `lvx.setra`) right before the
 // epilogue's stack-pointer restore -- otherwise `@callee`'s own `call`
 // would silently overwrite `@caller`'s $ra before its own `ret` uses it.
+//
+// This also exercises the callee-saved save/restore: `%live` above is
+// forced into r14, which is callee-saved, so the caller's own r14 has to
+// be preserved. The frame is therefore 16 bytes, not 8 -- slot 0 for $ra,
+// slot 8 for r14 -- and the prologue names the incoming register with
+// `lvx.reg_live_in` (which emits nothing) so an ordinary `lvx.sd` can
+// store it. The restore needs no such pseudo: an `lvx.ld` whose *result*
+// is typed <r14> already is `ld $r14 = 8[$r12]`. Until this was added,
+// `@caller` clobbered its caller's r14 outright -- an ABI violation
+// against any lvx-gcc-compiled caller.
 // CHECK-LABEL: lvx_func.func @caller
 // CHECK-NEXT: %0 = lvx.sp : <r12>
-// CHECK-NEXT: %1 = lvx.li 8 : i64 : <r29>
-// CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (<r12>, <r29>) -> <r12>
-// CHECK-NEXT: %3 = lvx.getra : <r29>
-// CHECK-NEXT: lvx.sd %3, %2, 0 : (<r29>, <r12>)
-// CHECK-NEXT: %4 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r14>
-// CHECK-NEXT: %5 = lvx_func.call @callee(%arg0) : (!lvx.reg<r0>) -> !lvx.reg<r0>
-// CHECK-NEXT: %6 = lvx.addd %4, %5 : (<r14>, <r0>) -> <r1>
-// CHECK-NEXT: %7 = lvx.mv %6 : (!lvx.reg<r1>) -> !lvx.reg<r0>
-// CHECK-NEXT: %8 = lvx.ld %2, 0 : (!lvx.reg<r12>) -> !lvx.reg<r29>
-// CHECK-NEXT: lvx.setra %8 : <r29>
-// CHECK-NEXT: %9 = lvx.li 8 : i64 : <r29>
-// CHECK-NEXT: %10 = lvx.addd %2, %9 : (<r12>, <r29>) -> <r12>
-// CHECK-NEXT: lvx_func.return %7 : !lvx.reg<r0>
+// CHECK-NEXT: %1 = lvx.li 16 : i64 : <r61>
+// CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (<r12>, <r61>) -> <r12>
+// CHECK-NEXT: %3 = lvx.getra : <r61>
+// CHECK-NEXT: lvx.sd %3, %2, 0 : (<r61>, <r12>)
+// CHECK-NEXT: %4 = lvx.reg_live_in : <r14>
+// CHECK-NEXT: lvx.sd %4, %2, 8 : (<r14>, <r12>)
+// CHECK-NEXT: %5 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r14>
+// CHECK-NEXT: %6 = lvx_func.call @callee(%arg0) : (!lvx.reg<r0>) -> !lvx.reg<r0>
+// CHECK-NEXT: %7 = lvx.addd %5, %6 : (<r14>, <r0>) -> <r1>
+// CHECK-NEXT: %8 = lvx.mv %7 : (!lvx.reg<r1>) -> !lvx.reg<r0>
+// CHECK-NEXT: %9 = lvx.ld %2, 8 : (!lvx.reg<r12>) -> !lvx.reg<r14>
+// CHECK-NEXT: %10 = lvx.ld %2, 0 : (!lvx.reg<r12>) -> !lvx.reg<r61>
+// CHECK-NEXT: lvx.setra %10 : <r61>
+// CHECK-NEXT: %11 = lvx.li 16 : i64 : <r61>
+// CHECK-NEXT: %12 = lvx.addd %2, %11 : (<r12>, <r61>) -> <r12>
+// CHECK-NEXT: lvx_func.return %8 : !lvx.reg<r0>
 lvx_func.func private @callee(!lvx.reg<r0>) -> !lvx.reg<r0>
 lvx_func.func @caller(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %live = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg

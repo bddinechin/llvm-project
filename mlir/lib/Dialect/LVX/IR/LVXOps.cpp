@@ -26,3 +26,16 @@ LogicalResult LiOp::verify() {
     return emitOpError("value must be an integer or float attribute");
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// RegLiveInOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult RegLiveInOp::verify() {
+  // An unpinned result would denote "some register", which is meaningless
+  // for an op whose only purpose is to name one specific physical register
+  // that is already live on entry.
+  if (!cast<RegisterType>(getResult().getType()).isAllocated())
+    return emitOpError("result must be a pinned physical register");
+  return success();
+}
