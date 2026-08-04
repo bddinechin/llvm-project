@@ -1,7 +1,7 @@
 // RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers{max-registers=0}))' -split-input-file -verify-diagnostics
 
 // With the allocatable pool shrunk to 0 (test-only `max-registers` option --
-// see docs/lvx/RegisterAllocation.md), Step 3 spills ordinary values rather
+// see lvx-mlir/docs/RegisterAllocation.md), Step 3 spills ordinary values rather
 // than erroring on pressure alone. But spilling a coalesced `lvx_scf.for`
 // loop-carried channel isn't implemented yet, so that specific case must
 // still be a hard error rather than silently producing wrong code.

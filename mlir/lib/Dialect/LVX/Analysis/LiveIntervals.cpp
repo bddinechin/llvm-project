@@ -83,7 +83,7 @@ void LVXLiveIntervals::buildIntervals(lvx_func::FuncOp func) {
   // `lvx_scf.for`'s induction variable (the body's block argument 0) *and*
   // its `step` operand both have an implicit extra use invisible to plain
   // SSA/dataflow liveness: both `-lvx-scf-to-cf` lowering paths
-  // (docs/lvx/AssemblyEmission.md, docs/lvx/HardwareLoops.md) synthesize an
+  // (lvx-mlir/docs/AssemblyEmission.md, lvx-mlir/docs/HardwareLoops.md) synthesize an
   // in-place "iv = iv + step" increment right before the body's
   // terminator, *after* this pass has already run -- reading both iv and
   // step at that point -- so if either one also has no other use that
@@ -126,7 +126,7 @@ void LVXLiveIntervals::buildIntervals(lvx_func::FuncOp func) {
     // reused register, re-executes on the next outer iteration), the
     // capture's *original* value is needed again at that point, but the
     // register has since been overwritten by the inner loop's own
-    // induction-variable increments -- see docs/lvx/HardwareLoops.md,
+    // induction-variable increments -- see lvx-mlir/docs/HardwareLoops.md,
     // "hardware-loop clobber bug" for the concrete failure this caused.
     // `getUsedValuesDefinedAbove` (the same "closure capture" utility
     // MLIR's own region-isolation transforms use) gives exactly the set

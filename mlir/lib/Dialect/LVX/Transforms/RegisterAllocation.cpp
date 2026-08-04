@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 //
 // Steps 2 and 3 of the linear-scan register allocator described in
-// docs/lvx/RegisterAllocation.md, as one pass: Step 2 is Fig. 1's scan with
+// lvx-mlir/docs/RegisterAllocation.md, as one pass: Step 2 is Fig. 1's scan with
 // `SpillAtInterval` replaced by a hard error; Step 3 is the same scan with
 // real spilling. See that file for the full design rationale, including
 // corrections made relative to the original walkthrough: call-clobbering is
@@ -51,7 +51,7 @@ namespace {
 /// iter_arg, yield operand, and the op's own result), an `lvx_cf` branch
 /// edge (forwarded operand and destination block argument), or an
 /// `ffma`/`ffms` accumulator (the `c` operand and the op's own result) --
-/// see docs/lvx/RegisterAllocation.md.
+/// see lvx-mlir/docs/RegisterAllocation.md.
 struct AllocItem {
   SmallVector<Value, 4> values;
   unsigned start = 0;
@@ -67,12 +67,12 @@ struct AllocItem {
 
   bool isFixed() const { return fixedReg.has_value(); }
   // Coalesced `lvx_scf.for` channels aren't spillable yet -- see
-  // docs/lvx/RegisterAllocation.md, "What remains a hard error".
+  // lvx-mlir/docs/RegisterAllocation.md, "What remains a hard error".
   bool isGroup() const { return values.size() > 1; }
 };
 
 //===----------------------------------------------------------------------===//
-// Register pool: preference order per docs/lvx/RegisterAllocation.md
+// Register pool: preference order per lvx-mlir/docs/RegisterAllocation.md
 // ("Allocation order"), derived from lvx-mds/lvx-refs' Convention.table,
 // `Convention-lvx_v1-regular`. R12 (stack pointer) and R13 (local/TLS) are
 // always reserved and never appear here.
@@ -124,7 +124,7 @@ static bool isCalleeSaved(Register r) {
 // value's transient def-then-store or reload-then-use window. Sized for
 // the worst case among currently-defined ops needing several
 // simultaneously (lvx.cmoved/cmovew's 3 register operands,
-// lvx.divmodd/.../'s 2 results) -- see docs/lvx/RegisterAllocation.md,
+// lvx.divmodd/.../'s 2 results) -- see lvx-mlir/docs/RegisterAllocation.md,
 // "Reserved scratch registers".
 //
 // These must be *caller*-saved (R61-R63 are, per `Convention.table`): the
@@ -177,7 +177,7 @@ static void mergeValue(AllocItem &item, Value value,
 
 //===----------------------------------------------------------------------===//
 // Preserving copies for loop-carried init args also used independently
-// elsewhere -- docs/lvx/RegisterAllocation.md, "Narrower gap discovered
+// elsewhere -- lvx-mlir/docs/RegisterAllocation.md, "Narrower gap discovered
 // while verifying the fix": `buildAllocItems` below force-coalesces an
 // `lvx_scf.for`'s whole {initArg, iterArg, yieldOperand, result} channel
 // into one register (mechanically required -- `ForOp`'s verifier demands
@@ -232,7 +232,7 @@ static void insertLoopCarriedPreservingCopies(lvx_func::FuncOp func) {
 // for a different coalescing source: `lvx.ffmad`/`lvx.ffmaw`/`lvx.ffmsd`/
 // `lvx.ffmsw`'s third operand (`c`, the accumulator) is force-coalesced
 // with the op's own result in `buildAllocItems` below (real hardware has
-// no separate destination register -- see docs/lvx/RegisterAllocation.md,
+// no separate destination register -- see lvx-mlir/docs/RegisterAllocation.md,
 // "`ffma`/`ffms` accumulator coalescing"). If `c`'s value is read anywhere
 // else too, that other read must not observe the register being
 // overwritten in place by this op -- so redirect every *other* use to an
@@ -274,7 +274,7 @@ static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
   // overlap must end up sharing exactly one register -- deciding the
   // inner and outer channels as two independent groups can each pick a
   // different register for that shared value, which is exactly the bug
-  // this fixes (docs/lvx/RegisterAllocation.md, "nested lvx_scf.for").
+  // this fixes (lvx-mlir/docs/RegisterAllocation.md, "nested lvx_scf.for").
   DenseMap<Value, Value> parent;
   auto find = [&](Value v) {
     Value root = v;
@@ -350,7 +350,7 @@ static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
   // registers (registerZ, registerY); the destination (registerW) doubles
   // as the third, implicit accumulate-into operand, so `c`'s register and
   // `result`'s register must be identical or the instruction has no way to
-  // be printed at all -- see docs/lvx/RegisterAllocation.md, "`ffma`/`ffms`
+  // be printed at all -- see lvx-mlir/docs/RegisterAllocation.md, "`ffma`/`ffms`
   // accumulator coalescing". Same JOIN-style idea as the loop/branch
   // unioning above, just a 2-value group.
   // `insertFmaAccumulatorPreservingCopies` (run before this pass builds
@@ -437,7 +437,7 @@ static void markCallCrossings(lvx_func::FuncOp func,
 
 //===----------------------------------------------------------------------===//
 // Step 3 rewrite: prologue/epilogue and spill store/reload insertion. See
-// docs/lvx/RegisterAllocation.md, "Frame layout and prologue/epilogue" and
+// lvx-mlir/docs/RegisterAllocation.md, "Frame layout and prologue/epilogue" and
 // "No interval splitting / no lifetime holes".
 //===----------------------------------------------------------------------===//
 
@@ -454,7 +454,7 @@ static void markCallCrossings(lvx_func::FuncOp func,
 /// function -- one that itself executes an `lvx_func.call`), also
 /// snapshots $ra into that frame slot right after establishing the frame
 /// and restores it right before each `lvx.addd` epilogue restore -- see
-/// docs/lvx/RegisterAllocation.md, "Return-address save/restore": $ra is
+/// lvx-mlir/docs/RegisterAllocation.md, "Return-address save/restore": $ra is
 /// otherwise silently overwritten by the function's own call(s) before its
 /// own `ret` gets to use it. The snapshot/restore values are pinned to the
 /// same `kSpillScratchRegs[0]`, for the same transient-and-sequential
@@ -536,7 +536,7 @@ static LogicalResult rewriteSpills(MLIRContext *ctx, ArrayRef<AllocItem> items,
     if (!item.spilled)
       continue;
     // Groups are never spilled -- the scan hard-errors first; see
-    // docs/lvx/RegisterAllocation.md, "What remains a hard error".
+    // lvx-mlir/docs/RegisterAllocation.md, "What remains a hard error".
     assert(!item.isGroup() && "coalesced group reached spill rewrite");
     Value v = item.values.front();
     auto offsetAttr = builder.getSI32IntegerAttr(
@@ -584,7 +584,7 @@ static LogicalResult rewriteSpills(MLIRContext *ctx, ArrayRef<AllocItem> items,
 
 //===----------------------------------------------------------------------===//
 // The scan (Poletto & Sarkar Fig. 1, extended with `SpillAtInterval` --
-// see docs/lvx/RegisterAllocation.md, "Step 3").
+// see lvx-mlir/docs/RegisterAllocation.md, "Step 3").
 //===----------------------------------------------------------------------===//
 
 struct LVXAllocateRegistersPass
@@ -692,7 +692,7 @@ struct LVXAllocateRegistersPass
       // register would actually help `item` (in its allowed pool, not
       // fixed, not an unspillable coalesced group), spill whichever ends
       // furthest -- `active` is sorted by increasing end, so scan from the
-      // back for the first eligible one. See docs/lvx/RegisterAllocation.md,
+      // back for the first eligible one. See lvx-mlir/docs/RegisterAllocation.md,
       // "Spill heuristic".
       std::optional<unsigned> victimIdx;
       for (auto it = active.rbegin(), ie = active.rend(); it != ie; ++it) {
@@ -742,7 +742,7 @@ struct LVXAllocateRegistersPass
     }
 
     // A function that itself executes a call clobbers its own $ra before
-    // its own `ret` gets to use it (docs/lvx/RegisterAllocation.md,
+    // its own `ret` gets to use it (lvx-mlir/docs/RegisterAllocation.md,
     // "Return-address save/restore") -- reserve one more frame slot and
     // force a prologue/epilogue to exist even if nothing was spilled.
     bool isNonLeaf = false;

@@ -2,7 +2,7 @@
 
 // Straight-line code. `%3`'s last use is as the operand of the very `mv`
 // that defines the pinned return value `%4` (fixed r0) -- this exercises
-// the fixed-interval boundary fix (see docs/lvx/RegisterAllocation.md,
+// the fixed-interval boundary fix (see lvx-mlir/docs/RegisterAllocation.md,
 // "Bail-out semantics"): %3 must not spuriously conflict with %4's r0 just
 // because it's still nominally "active" at that exact instruction.
 // CHECK-LABEL: lvx_func.func @straight
@@ -54,7 +54,7 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // `goto`). This is not hypothetical: this exact shape produced a
 // type-mismatch verifier error the first time a real
 // `-convert-to-lvx`-produced kernel was ever run through this pass end to
-// end (docs/lvx/EndToEndValidation.md) -- every prior hand-written test
+// end (lvx-mlir/docs/EndToEndValidation.md) -- every prior hand-written test
 // happened to only use argument-less blocks for `lvx_cf.br`.
 // CHECK-LABEL: lvx_func.func @branch_args
 // CHECK-NEXT: %0 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r1>
@@ -73,7 +73,7 @@ lvx_func.func @branch_args(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // `lvx_scf.for`: the loop-carried channel (`%init` -> `%acc` -> `%use` ->
 // the op's own result `%r`) must all end up pinned to the *same* physical
 // register, per `ForOp`'s own verifier -- this is the coalescing rule from
-// docs/lvx/RegisterAllocation.md ("Loop-carried register coalescing").
+// lvx-mlir/docs/RegisterAllocation.md ("Loop-carried register coalescing").
 // CHECK-LABEL: lvx_func.func @loop
 // CHECK: %4 = lvx.li 0 : i64 : <r4>
 // CHECK-NEXT: %5 = lvx_scf.for %1 : <r0> to %2 : <r2> step %3 : <r3> iter_args(%4) : (!lvx.reg<r4>) -> (!lvx.reg<r4>)
@@ -102,7 +102,7 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 //
 // `@caller` itself executes a call, so it's non-leaf and gets a
 // prologue/epilogue purely for $ra even though nothing is spilled here
-// (docs/lvx/RegisterAllocation.md, "Return-address save/restore"): $ra is
+// (lvx-mlir/docs/RegisterAllocation.md, "Return-address save/restore"): $ra is
 // snapshotted (`lvx.getra` + `lvx.sd`, both r61) right after the frame is
 // established, and restored (`lvx.ld` + `lvx.setra`) right before the
 // epilogue's stack-pointer restore -- otherwise `@callee`'s own `call`
@@ -147,7 +147,7 @@ lvx_func.func @caller(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // `lvx.ffmad`/`lvx.ffmsd`/`lvx.ffmaw`/`lvx.ffmsw` have no separate
 // destination register on real hardware -- the `c` operand and the op's
 // own result must be coalesced into one physical register
-// (docs/lvx/RegisterAllocation.md, "`ffma`/`ffms` accumulator
+// (lvx-mlir/docs/RegisterAllocation.md, "`ffma`/`ffms` accumulator
 // coalescing"): `%2`/`%4` below both land in `r1`. `%2` (the accumulator)
 // is *also* read again after the ffma (`%5`'s second operand), so
 // `insertFmaAccumulatorPreservingCopies` must insert a defensive copy

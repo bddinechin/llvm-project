@@ -49,7 +49,7 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // point (`%1`, the addd inside the body), the same "captured value must
 // span the whole loop" reasoning applied to every value
 // `getUsedValuesDefinedAbove` finds referenced inside a `lvx_scf.for`'s
-// body but defined outside it (docs/lvx/HardwareLoops.md, "hardware-loop
+// body but defined outside it (lvx-mlir/docs/HardwareLoops.md, "hardware-loop
 // clobber bug"): if this loop were itself nested inside another one, its
 // whole body -- including whatever register `%ov` shares once its own
 // last use has passed -- re-executes on the next outer iteration, and
@@ -96,7 +96,7 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // A nested `lvx_scf.for` whose inner loop reuses the outer loop's own
 // bounds/step (`%lb`/`%ub`/`%step`, `%0`/`%1`/`%2` below) verbatim as its
 // own bound operands -- the exact shape that exposed the hardware-loop
-// clobber bug (docs/lvx/HardwareLoops.md, docs/lvx/RegisterAllocation.md
+// clobber bug (lvx-mlir/docs/HardwareLoops.md, lvx-mlir/docs/RegisterAllocation.md
 // "Captured values across a re-entered loop"). Without the fix, `%0`'s
 // interval (its "own" recorded last use is the *inner* for-op's operand
 // list) would end at instruction 3 -- one less than `%arg3` (the inner

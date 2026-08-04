@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 //
 // Step 1 of the linear-scan register allocator described in
-// docs/lvx/RegisterAllocation.md (Poletto & Sarkar, TOPLAS 1999): computes
+// lvx-mlir/docs/RegisterAllocation.md (Poletto & Sarkar, TOPLAS 1999): computes
 // a conservative [start, end] live interval for every `!lvx.reg`-typed SSA
 // value in an `lvx_func::FuncOp`, using a linear instruction numbering
 // derived from a reverse-postorder walk of the function's block graph.
@@ -64,7 +64,7 @@ struct LiveInterval {
 /// computed interval naturally extends to cover it, with no special-cased
 /// "loop extension" step required. (Verified empirically against
 /// `mlir::Liveness`'s treatment of `lvx_scf.for`'s nested region -- see
-/// docs/lvx/RegisterAllocation.md.)
+/// lvx-mlir/docs/RegisterAllocation.md.)
 ///
 /// Raw liveness (needed to correctly extend a value's interval through a
 /// block it passes through untouched, without any direct use in that

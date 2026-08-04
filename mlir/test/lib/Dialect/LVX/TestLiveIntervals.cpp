@@ -8,7 +8,7 @@
 //
 // Test pass for mlir::lvx::LVXLiveIntervals (see
 // mlir/include/mlir/Dialect/LVX/Analysis/LiveIntervals.h and
-// docs/lvx/RegisterAllocation.md). Mirrors the existing
+// lvx-mlir/docs/RegisterAllocation.md). Mirrors the existing
 // mlir/test/lib/Analysis/TestLiveness.cpp convention.
 //
 //===----------------------------------------------------------------------===//

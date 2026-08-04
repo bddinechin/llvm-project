@@ -1,6 +1,6 @@
 // RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-rewrite-divmod))' | FileCheck %s
 
-// Must run after -lvx-allocate-registers (docs/lvx/AssemblyEmission.md, "A
+// Must run after -lvx-allocate-registers (lvx-mlir/docs/AssemblyEmission.md, "A
 // narrower fix for divmod"): Steps 1-3 allocate `divmodd`'s quotient and
 // remainder as two ordinary, independently allocated values (here, r2 and
 // r3), then this pass retypes both results in place to the fixed, aligned
@@ -24,7 +24,7 @@ lvx_func.func @both(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 }
 
 // `arith.divsi`/`remsi` each lower to their own full `lvx.divmodd`
-// (docs/lvx/AssemblyEmission.md's "duplicates the divmod computation"
+// (lvx-mlir/docs/AssemblyEmission.md's "duplicates the divmod computation"
 // note), so it's common for only one of the two results to have a real
 // use -- the remainder is still retyped to r63 (real hardware writes it
 // regardless), but no copy-out is inserted for it since nothing reads it.

@@ -65,7 +65,7 @@ def LVX_SpOp : LVX_Op<"sp", [Pure]> {
     above) that materializes the function's current stack-pointer value as
     an SSA value, typed `!lvx.reg<r12>` (R12 is `Convention.table`'s
     `stack` register). Inserted by the register allocator's spill rewrite
-    (docs/lvx/RegisterAllocation.md, Step 3) to give spill `lvx.sd`/`lvx.ld`
+    (lvx-mlir/docs/RegisterAllocation.md, Step 3) to give spill `lvx.sd`/`lvx.ld`
     instructions a base operand; not user-written.
   }];
   let results = (outs LVX_RegType:$result);
@@ -99,7 +99,7 @@ def LVX_GetraOp : LVX_Op<"getra", [Pure]> {
   let description = [{
     Backed by the real `GET_registerZ_systemS3` opcode (`$rd = $ra`,
     printed `get`, confirmed against the real `lvx-mbr-as`/`lvx-mbr-objdump`
-    -- see docs/lvx/RegisterAllocation.md, "Return-address save/restore").
+    -- see lvx-mlir/docs/RegisterAllocation.md, "Return-address save/restore").
     $ra is LVX's single hardware link register, written implicitly by
     every real `call` with no software-visible call stack; a non-leaf
     function (one that itself executes a `call`) must snapshot its own
@@ -266,7 +266,7 @@ class LVX_FloatBinaryOp<string mnemonic, list<Trait> traits = []> :
 // general stance -- see top-level CLAUDE.md's "type-system invariant to
 // preserve"), but `-lvx-allocate-registers` must coalesce `c` and `result`
 // into the *same* physical register before `-lvx-emit-asm` can print a
-// real instruction -- see docs/lvx/RegisterAllocation.md, "`ffma`/`ffms`
+// real instruction -- see lvx-mlir/docs/RegisterAllocation.md, "`ffma`/`ffms`
 // accumulator coalescing".
 class LVX_FloatTernaryOp<string mnemonic, list<Trait> traits = []> :
     LVX_Op<mnemonic, traits # [Pure]>,

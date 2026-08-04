@@ -1,10 +1,10 @@
 // RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-scf-to-cf))' | FileCheck %s
 
-// Must run after -lvx-allocate-registers (docs/lvx/AssemblyEmission.md,
+// Must run after -lvx-allocate-registers (lvx-mlir/docs/AssemblyEmission.md,
 // "lvx-scf-to-cf: lowering after allocation").
 
 // A constant-step-1, non-nested loop is eligible for the hardware-loop
-// path (docs/lvx/HardwareLoops.md): `lvx_cf.loopdo` replaces the
+// path (lvx-mlir/docs/HardwareLoops.md): `lvx_cf.loopdo` replaces the
 // compare+cond_br header entirely, and the induction variable's entry
 // value is still copied in via an explicit `lvx.mv` (%6) for the same
 // reason the branch-based path needs it -- the lower bound and the body's
@@ -71,20 +71,20 @@ lvx_func.func @loop_step2(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 
 // A loop with a nested lvx_scf.for: the outer loop is excluded from the
 // hardware-loop path (LC/LS/LE are a single register set, not a stack --
-// docs/lvx/HardwareLoops.md, "No nesting") and uses the branch-based
+// lvx-mlir/docs/HardwareLoops.md, "No nesting") and uses the branch-based
 // lowering (compd/cond_br, %7), while the inner loop -- itself a leaf,
 // step 1 -- independently takes the hardware-loop path on its own turn
 // (lvx_cf.loopdo, %10/^bb3). The accumulator channel (%3 init / %6+%9
 // outer iterArg / %13 inner iterArg / %14 inner yield+result / %16 outer
 // yield / %18 outer result) all share register r3 across *both* nesting
-// levels -- the fix for docs/lvx/RegisterAllocation.md's "coalescing
+// levels -- the fix for lvx-mlir/docs/RegisterAllocation.md's "coalescing
 // across nesting levels": the inner loop's own result (%14, via the
 // group ^bb4 feeds from) is the outer loop's directly-yielded operand,
 // which used to make this either fail verification or crash this pass.
 //
 // This test also, incidentally, reuses the outer loop's own bounds/step
 // (%lb/%ub/%step) verbatim as the inner loop's -- exactly the shape that
-// exposed the hardware-loop clobber bug (docs/lvx/HardwareLoops.md): `%0`
+// exposed the hardware-loop clobber bug (lvx-mlir/docs/HardwareLoops.md): `%0`
 // (the shared lower bound, r0) used to get reused for the inner loop's
 // own induction-variable copy too (`%11 = lvx.mv %0 : (!lvx.reg<r0>) ->
 // !lvx.reg<r0>` -- a same-register self-copy, only "safe" because this
@@ -141,7 +141,7 @@ lvx_func.func @nested(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // pinned to the same register by buildAllocItems's forced coalescing,
 // silently observing whatever the inner loop's own iterations last left
 // there instead of %acc's actual pre-loop value
-// (docs/lvx/RegisterAllocation.md, "Nested lvx_scf.for": the paragraph
+// (lvx-mlir/docs/RegisterAllocation.md, "Nested lvx_scf.for": the paragraph
 // after the fix). Fixed by `insertLoopCarriedPreservingCopies`
 // (`RegisterAllocation.cpp`), which runs before Step 1 and inserts an
 // explicit `lvx.mv` copy of any loop init-arg that has a use beyond that
@@ -156,7 +156,7 @@ lvx_func.func @nested(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // real `lvx-mbr-as` and executed on real `lvx-gem5` (10 outer iterations
 // each combining a fresh 10-iteration inner sum-of-0..9, recurrence
 // acc' = 2*acc + 45 from acc=0) exits with code 46035, matching the
-// hand-derived expected result (`docs/lvx/EndToEndValidation.md`-style
+// hand-derived expected result (`lvx-mlir/docs/EndToEndValidation.md`-style
 // verification, not run separately as its own kernel here).
 //
 // The inner loop's own bounds (`%lb2`/`%ub2`/`%step2`) were originally
@@ -224,7 +224,7 @@ lvx_func.func @nested_combined_accumulator(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // (here: squaring it into the accumulator), not just to feed the implicit
 // per-iteration increment `-lvx-scf-to-cf` synthesizes. This is the exact
 // shape that exposed a real Step 1 live-interval gap
-// (docs/lvx/EndToEndValidation.md, "Induction variable's live range didn't
+// (lvx-mlir/docs/EndToEndValidation.md, "Induction variable's live range didn't
 // account for the lowering-synthesized increment"): `-lvx-allocate-
 // registers` runs *before* this pass ever creates the synthesized
 // increment, so without explicitly extending `%iv`'s (and `%step`'s) live

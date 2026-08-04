@@ -6,11 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// See docs/lvx/AssemblyEmission.md, "A narrower fix for divmod". Real
+// See lvx-mlir/docs/AssemblyEmission.md, "A narrower fix for divmod". Real
 // hardware's DIVMODD/etc. write quotient and remainder into one aligned
 // register pair (the `registerM` operand class), but Steps 1-3 of
 // -lvx-allocate-registers treat the dialect's `lvx.divmodd`'s two results
-// as ordinary, independently allocated values (docs/lvx/
+// as ordinary, independently allocated values (lvx-mlir/docs/
 // RegisterAllocation.md, "What remains a hard error" does not need to
 // change: this never becomes a coalesced group). This pass runs strictly
 // after that allocation and retypes both results to the fixed pair

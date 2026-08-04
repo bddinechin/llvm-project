@@ -1,7 +1,7 @@
 // RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-rewrite-divmod),any(lvx-scf-to-cf),lvx-emit-asm)' -o /dev/null | FileCheck %s
 
 // This is also, deliberately, an integration test against the real
-// sibling-project toolchain (docs/lvx/AssemblyEmission.md, "Testing"):
+// sibling-project toolchain (lvx-mlir/docs/AssemblyEmission.md, "Testing"):
 // every function emitted here was hand-assembled with the real
 // `lvx-mbr-as` and round-tripped through `lvx-mbr-objdump` before these
 // CHECK lines were written, and the RUN line below re-assembles the same
@@ -45,7 +45,7 @@ lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // `$rs2 - $rs1`, not `$rs1 - $rs2` -- confirmed against
 // lvx-mds/refs/FE/YAML/lvx/lvx_v1/Description.yml's own description ("The
 // %2 is subtracted from the %3") and empirically on real gem5
-// (docs/lvx/EndToEndValidation.md, where a naively-printed "subtract" of 5
+// (lvx-mlir/docs/EndToEndValidation.md, where a naively-printed "subtract" of 5
 // and 0 executed to -5). `lvx.sbfd %lhs, %rhs`'s own IR-level semantics
 // still mean the natural "result = lhs - rhs" that `arith.subi` and every
 // other caller assumes; only the *printed* operand order is swapped
@@ -79,7 +79,7 @@ lvx_func.func @subtract(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // exit, see the @loop case below, applied here purely as a cleanup).
 // Block-label numbers are a single counter for the whole module, not
 // reset per function (see scf-to-cf.mlir's neighbor doc comment /
-// docs/lvx/AssemblyEmission.md's "Confirmed syntax" gotcha), so this
+// lvx-mlir/docs/AssemblyEmission.md's "Confirmed syntax" gotcha), so this
 // matches them by capture rather than hardcoding which number lands here.
 // CHECK-LABEL: branches:
 // CHECK-NEXT: copyd $r2 = $r0
@@ -111,7 +111,7 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 }
 
 // A counted, constant-step-1 loop is eligible for the hardware-loop path
-// (docs/lvx/HardwareLoops.md): a single `loopdo` replaces the
+// (lvx-mlir/docs/HardwareLoops.md): a single `loopdo` replaces the
 // compare+cond_br header entirely. `%trip` (r61) = ub - lb via `sbfd`;
 // real `sbfd`/`sbfw`/`fsbfd`/`fsbfw` are "subtract FROM" opcodes --
 // `sbfd $rd = $rs1, $rs2` computes `$rs2 - $rs1`, the reverse of every
@@ -128,7 +128,7 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // correctness requirement, not just a cleanup -- an explicit `goto` there
 // would override LOOPDO's implicit hardware back-edge and truncate the
 // loop to one iteration regardless of trip count (see
-// docs/lvx/HardwareLoops.md).
+// lvx-mlir/docs/HardwareLoops.md).
 // CHECK-LABEL: loop:
 // CHECK-NEXT: copyd $r1 = $r0
 // CHECK-NEXT: ;;
@@ -175,7 +175,7 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // spelled `$r<even>r<odd>` with no separator (confirmed by hand-assembling
 // with the real `lvx-mbr-as` and disassembling the result, and the
 // low=quotient/high=remainder assignment confirmed by actually executing a
-// `divmodd` on real gem5 -- docs/lvx/AssemblyEmission.md). `-lvx-rewrite-
+// `divmodd` on real gem5 -- lvx-mlir/docs/AssemblyEmission.md). `-lvx-rewrite-
 // divmod` pins both results to r62:r63 and copies each used one back out
 // to wherever Steps 1-3 originally allocated it (`$r2`/`$r3` below).
 // CHECK-LABEL: divmod:
@@ -206,7 +206,7 @@ lvx_func.func @divmod(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 
 // `ffmad`/`ffmsd`: real hardware has no separate destination register --
 // the `c` operand and the result share one physical register in place
-// (docs/lvx/RegisterAllocation.md, "`ffma`/`ffms` accumulator
+// (lvx-mlir/docs/RegisterAllocation.md, "`ffma`/`ffms` accumulator
 // coalescing"). Two chained ops (`%5`'s result feeds `%6`'s `c`) confirm
 // the whole chain coalesces to one register (`$r3` throughout) rather than
 // each op getting an independent one.

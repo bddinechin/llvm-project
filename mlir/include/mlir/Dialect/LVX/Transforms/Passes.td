@@ -16,7 +16,7 @@ def LVXAllocateRegistersPass
   let summary = "Assign physical registers via linear scan, with spilling";
   let description = [{
     Steps 2 and 3 of the linear-scan register allocator described in
-    docs/lvx/RegisterAllocation.md (Poletto & Sarkar, TOPLAS 1999, Fig. 1):
+    lvx-mlir/docs/RegisterAllocation.md (Poletto & Sarkar, TOPLAS 1999, Fig. 1):
     runs `LVXLiveIntervals` (Step 1) to compute live intervals, coalesces
     each `lvx_scf.for` loop-carried channel (init operand / body iter_arg /
     yield operand / result) into a single allocation item, restricts
@@ -56,7 +56,7 @@ def LVXRewriteDivmodPass
     : Pass<"lvx-rewrite-divmod", "::mlir::lvx_func::FuncOp"> {
   let summary = "Pin divmod's dual result to the r30:r31 scratch pair, post-allocation";
   let description = [{
-    See docs/lvx/AssemblyEmission.md ("A narrower fix for divmod, sketched
+    See lvx-mlir/docs/AssemblyEmission.md ("A narrower fix for divmod, sketched
     but not implemented" -- now implemented). Must run after
     `-lvx-allocate-registers`: `lvx.divmodd`/`divmodud`/`divmodw`/
     `divmoduw`'s quotient and remainder are ordinary, independently
@@ -83,8 +83,8 @@ def LVXSCFToCFPass
   let summary = "Lower lvx_scf.for to lvx_cf branches or a hardware loop, after allocation";
   let dependentDialects = ["lvx_cf::LVXCFDialect"];
   let description = [{
-    See docs/lvx/AssemblyEmission.md ("lvx-scf-to-cf: lowering after
-    allocation") and docs/lvx/HardwareLoops.md. Must run strictly after
+    See lvx-mlir/docs/AssemblyEmission.md ("lvx-scf-to-cf: lowering after
+    allocation") and lvx-mlir/docs/HardwareLoops.md. Must run strictly after
     `-lvx-allocate-registers`: real assembly has no structured loops, but
     the allocator's loop-carried coalescing needs `lvx_scf.for` intact, so
     this pass exists to lower it only once allocation is done. Eligible
@@ -100,7 +100,7 @@ def LVXSCFToCFPass
 def LVXEmitAsmPass : Pass<"lvx-emit-asm", "::mlir::ModuleOp"> {
   let summary = "Print real LVX assembly text for every lvx_func.func";
   let description = [{
-    See docs/lvx/AssemblyEmission.md. Must run after
+    See lvx-mlir/docs/AssemblyEmission.md. Must run after
     `-lvx-allocate-registers` and `-lvx-scf-to-cf` (every value needs a
     pinned `!lvx.reg<rN>` type, and there must be no structured
     `lvx_scf.for` left). Prints to stdout; combine with `-o /dev/null` to

@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// See docs/lvx/AssemblyEmission.md, "lvx-scf-to-cf: lowering after
+// See lvx-mlir/docs/AssemblyEmission.md, "lvx-scf-to-cf: lowering after
 // allocation". Deliberately runs *after* -lvx-allocate-registers (real
 // assembly has no structured loops, but the allocator needs lvx_scf.for
 // intact for its loop-carried coalescing); the two brand-new values this
@@ -15,7 +15,7 @@
 // going through any allocation decision of their own.
 //
 // Eligible loops (constant step 1, no nested lvx_scf.for) instead lower to
-// a hardware zero-overhead loop (LOOPDO) -- see docs/lvx/HardwareLoops.md.
+// a hardware zero-overhead loop (LOOPDO) -- see lvx-mlir/docs/HardwareLoops.md.
 //
 //===----------------------------------------------------------------------===//
 
@@ -40,14 +40,14 @@ using namespace mlir::lvx;
 namespace {
 
 // The shared reserved scratch register (ScratchRegisters.h,
-// docs/lvx/RegisterAllocation.md "Reserved scratch registers") -- safe to
+// lvx-mlir/docs/RegisterAllocation.md "Reserved scratch registers") -- safe to
 // reuse here because it is held out of the general allocation pool, so
 // nothing else in the function is ever resident in it. Taken from the
 // shared header rather than respelled: this pass runs *after* allocation,
 // so naming a register the allocator can hand out silently clobbers it.
 static constexpr Register kLoopTestScratchReg = kScratchReg;
 
-// See docs/lvx/HardwareLoops.md, "Lowering". Only constant-step-1, leaf
+// See lvx-mlir/docs/HardwareLoops.md, "Lowering". Only constant-step-1, leaf
 // (no nested lvx_scf.for) loops are eligible -- everything else keeps
 // using the branch-based lowering below.
 static bool isHardwareLoopEligible(lvx_scf::ForOp forOp, Block *body) {
@@ -62,14 +62,14 @@ static bool isHardwareLoopEligible(lvx_scf::ForOp forOp, Block *body) {
   return !hasNestedFor;
 }
 
-// See docs/lvx/HardwareLoops.md. `%next_iv`'s result is never read by
+// See lvx-mlir/docs/HardwareLoops.md. `%next_iv`'s result is never read by
 // anything else in the IR -- its correctness comes entirely from being
 // pinned to the exact same register as `%iv` itself (a real hardware loop
 // has no mechanism to pass values into its own next iteration; the
 // physical register simply persists, so the increment must overwrite it
 // in place). Same "register-pinned op has a load-bearing effect invisible
 // to SSA use-count" caveat as the prologue/epilogue's SP restore
-// (docs/lvx/RegisterAllocation.md) -- fine today since nothing runs DCE.
+// (lvx-mlir/docs/RegisterAllocation.md) -- fine today since nothing runs DCE.
 static void lowerForHardware(lvx_scf::ForOp forOp) {
   Location loc = forOp.getLoc();
   MLIRContext *ctx = forOp.getContext();

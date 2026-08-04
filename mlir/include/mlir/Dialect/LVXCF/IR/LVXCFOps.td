@@ -73,13 +73,13 @@ def LVXCF_LoopdoOp : LVXCF_Op<"loopdo",
     the very next bundle. If `$tripCount` is zero, real hardware jumps
     straight to `$exit` instead (LVX's own "skip the body entirely"
     semantics, explicitly different from KVX's infinite-loop-on-zero
-    behavior for the same opcode -- see docs/lvx/HardwareLoops.md).
+    behavior for the same opcode -- see lvx-mlir/docs/HardwareLoops.md).
 
     `$body`'s own terminator must branch to `$exit` too (never anywhere
     else), and that branch must be the last thing printed as *nothing* --
     an explicit `goto` there would be a real branch, which per LOOPDO's own
     semantics overrides the hardware back-edge and would make the loop run
-    exactly once regardless of `$tripCount`. See docs/lvx/HardwareLoops.md
+    exactly once regardless of `$tripCount`. See lvx-mlir/docs/HardwareLoops.md
     and `-lvx-emit-asm`'s fallthrough-elision rule, which this depends on
     for correctness, not just as an optimization.
   }];

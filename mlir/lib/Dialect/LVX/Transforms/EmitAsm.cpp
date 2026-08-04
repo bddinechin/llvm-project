@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// See docs/lvx/AssemblyEmission.md for the syntax reference (confirmed by
+// See lvx-mlir/docs/AssemblyEmission.md for the syntax reference (confirmed by
 // hand-assembling representative snippets with the real `lvx-mbr-as`, not
 // just inferred from reading tables) and the scope decisions below.
 //
@@ -33,7 +33,7 @@ namespace {
 
 /// Real modifier text for `LVX_IntCompAttr`/`LVX_BcuCondAttr` cases omits
 /// the leading dot (MLIR keyword syntax); real assembly concatenates it
-/// directly onto the mnemonic (docs/lvx/AssemblyEmission.md, "modifier
+/// directly onto the mnemonic (lvx-mlir/docs/AssemblyEmission.md, "modifier
 /// suffixes").
 static std::string dotted(StringRef modifier) { return ("." + modifier).str(); }
 
@@ -84,9 +84,9 @@ private:
   /// only satisfiable if every branch operand is already, by construction,
   /// pinned to the exact same register as the block argument it feeds
   /// (true of everything `-lvx-scf-to-cf` generates -- see
-  /// docs/lvx/AssemblyEmission.md). Verify it rather than silently
+  /// lvx-mlir/docs/AssemblyEmission.md). Verify it rather than silently
   /// dropping the (unrepresentable) move a real phi-merge would need --
-  /// see docs/lvx/RegisterAllocation.md's "general lvx_cf block-argument
+  /// see lvx-mlir/docs/RegisterAllocation.md's "general lvx_cf block-argument
   /// merges" known limitation.
   LogicalResult checkBranchOperands(Operation *branch, Block *dest,
                                     ValueRange operands) {
@@ -105,7 +105,7 @@ private:
   /// which case nothing is printed at all (real assembly just falls
   /// through). Ordinarily a harmless cleanup; **required for correctness**
   /// on a hardware loop's body-to-exit edge specifically (see
-  /// docs/lvx/HardwareLoops.md) -- printing an explicit branch there would
+  /// lvx-mlir/docs/HardwareLoops.md) -- printing an explicit branch there would
   /// override LOOPDO's implicit back-edge and silently truncate the loop
   /// to one iteration.
   void printGoto(Block *dest, Block *nextBlock) {
@@ -170,7 +170,7 @@ private:
   /// accumulate-into operand, so real syntax is `ffmad $rW = $rZ, $rY`,
   /// not a 4-register ternary. `-lvx-allocate-registers` coalesces this
   /// op's `c` operand with its own result to guarantee they land in the
-  /// same physical register (docs/lvx/RegisterAllocation.md, "`ffma`/
+  /// same physical register (lvx-mlir/docs/RegisterAllocation.md, "`ffma`/
   /// `ffms` accumulator coalescing"); this only re-checks that invariant
   /// rather than assuming it, so a mis-ordered pipeline (this pass run
   /// without register allocation's coalescing having applied) is caught as
@@ -243,13 +243,13 @@ private:
         "lvx-emit-asm: cmoved is not supported -- the "
         "dialect models a 3-operand select, the real opcode is a "
         "2-operand in-place conditional move (see "
-        "docs/lvx/AssemblyEmission.md)");
+        "lvx-mlir/docs/AssemblyEmission.md)");
   }
 
   /// Real hardware's divmod destination is the `registerM` operand class:
   /// one aligned register pair, spelled `$r<even>r<odd>` with no separator
   /// or dot (confirmed by hand-assembling with the real `lvx-mbr-as` and
-  /// disassembling the result -- see docs/lvx/AssemblyEmission.md). By the
+  /// disassembling the result -- see lvx-mlir/docs/AssemblyEmission.md). By the
   /// time this pass runs, `-lvx-rewrite-divmod` has already retyped both
   /// results to that fixed pair (r30:r31 today); this only re-derives the
   /// pair from the actual result types rather than hard-coding r30/r31, so
@@ -301,7 +301,7 @@ private:
           return success();
         })
         .Case([&](MvOp mv) { return emitUnary(mv, "copyd"); })
-        // $ra save/restore (docs/lvx/RegisterAllocation.md, "Return-
+        // $ra save/restore (lvx-mlir/docs/RegisterAllocation.md, "Return-
         // address save/restore"): real `get`/`set` on the RA system
         // register, confirmed via the real lvx-mbr-as/lvx-mbr-objdump.
         .Case([&](GetraOp op) {
@@ -343,7 +343,7 @@ private:
         .Case([&](FsbfdOp op) { return emitBinarySubtractFrom(op, "fsbfd"); })
         .Case([&](FsbfwOp op) { return emitBinarySubtractFrom(op, "fsbfw"); })
         // Explicitly unsupported: a real-hardware modeling mismatch, not
-        // just missing syntax -- see docs/lvx/AssemblyEmission.md, "Scope:
+        // just missing syntax -- see lvx-mlir/docs/AssemblyEmission.md, "Scope:
         // supported ops".
         .Case([&](CmovedOp op) { return unsupportedCmove(op); })
         // divmod: pairedReg destination, see emitDivmod's comment.
@@ -371,7 +371,7 @@ private:
         // operands/results is dispatched purely by arity: this dialect's
         // mnemonics match real LVX mnemonics verbatim (top-level
         // CLAUDE.md), and the "$rd = $rs..." shape is uniform across the
-        // arithmetic/cast op families (docs/lvx/AssemblyEmission.md).
+        // arithmetic/cast op families (lvx-mlir/docs/AssemblyEmission.md).
         .Default([&](Operation *op) -> LogicalResult {
           StringRef mnemonic = op->getName().stripDialect();
           if (op->getNumResults() == 1 && op->getNumOperands() == 1)
@@ -420,7 +420,7 @@ private:
       // `body` is never printed as a jump target: real LOOPDO falls
       // through to it unconditionally (the lowering guarantees `body`
       // immediately follows in block order -- see
-      // docs/lvx/HardwareLoops.md). Only `exit` is a real operand, the
+      // lvx-mlir/docs/HardwareLoops.md). Only `exit` is a real operand, the
       // branch target encoded in the instruction itself.
       os << "\tloopdo " << *rt << ", " << label(loopdo.getExit()) << "\n\t;;\n";
       if (loopdo.getBody() != nextBlock)
@@ -461,7 +461,7 @@ private:
     // auto-scoped: two functions independently emitting `.LBB0` collide
     // as duplicate-symbol errors in the same assembled file (found by
     // actually assembling this pass's output with the real `lvx-mbr-as`
-    // -- see docs/lvx/AssemblyEmission.md). One counter for the whole
+    // -- see lvx-mlir/docs/AssemblyEmission.md). One counter for the whole
     // module keeps every label unique.
     entryBlock = &func.getBody().front();
     os << func.getSymName() << ":\n";
