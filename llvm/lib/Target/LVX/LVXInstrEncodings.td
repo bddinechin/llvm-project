@@ -6537,17 +6537,19 @@ def CTZD_DBWR              : ALU_DBWR_Inst<"ctzd", []> {
 
 //===----------------------------------------------------------------------===//
 // ALU_BWRW — ALU Word Bit Write Read
-// simple (32 bits), syntax: %0 %1 = %2
+// simple (32 bits), syntax: %0%3 %1 = %2
 //===----------------------------------------------------------------------===//
 class ALU_BWRW_Inst<string mnemonic, list<dag> pattern,
                     InstrItinClass itin = ALU_TINY>
-    : LVXInst32<(outs GPR:$rW), (ins GPR:$rZ),
-                !strconcat(mnemonic, " $rW = $rZ"),
+    : LVXInst32<(outs GPR:$rW), (ins GPR:$rZ, signextw:$signextw),
+                !strconcat(mnemonic, "${signextw} $rW = $rZ"),
                 pattern, itin> {
   bits<6>  rW;
   bits<6>  rZ;
+  bits<1>  signextw;
   let Inst{23-18}  = rW;
   let Inst{5-0}    = rZ;
+  let Inst{12}     = signextw;
   let Inst{30-24}  = 0b1101111;
   let Inst{17-13}  = 0b11101;
   let Inst{7-6}    = 0b00;
