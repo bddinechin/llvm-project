@@ -33,7 +33,11 @@ func.func @float_ops(%a: f64, %b: f64) -> f64 {
   %2 = arith.cmpf ogt, %a, %b : f64
   // CHECK: lvx.li
   %c0 = arith.constant 0.0 : f64
-  // CHECK: lvx.fsbfd
+  // `arith.negf` lowered to `0.0 - x` until fnegd existed, which is wrong on
+  // a signed zero: IEEE gives 0.0 - 0.0 = +0.0, where negating +0.0 must
+  // give -0.0. fnegd flips the sign bit, exact for zeros and NaNs.
+  // CHECK: lvx.fnegd
+  // CHECK-NOT: lvx.fsbfd
   %3 = arith.negf %a : f64
   return %0 : f64
 }
@@ -85,4 +89,53 @@ func.func @fma_ops(%a: f64, %b: f64, %c: f64, %x: f32, %y: f32, %z: f32) -> f64 
   %2 = arith.mulf %a, %b : f64
   %3 = arith.addf %c, %2 : f64
   return %0 : f64
+}
+
+// The scalar FP ops added 2026-08-05. Two things are worth asserting beyond
+// "it lowers": that min/max pick the right *family*, and that the
+// round-to-integral ops pick the right rounding modifier -- both are
+// invisible on ordinary inputs and only show up on NaNs or halfway cases.
+//
+//   arith.minimumf  IEEE-2019 minimum, propagates NaN  -> fmind
+//   arith.minnumf   IEEE-2008 minNum, returns non-NaN  -> fminnd
+//
+// CHECK-LABEL: lvx_func.func @fp_scalar
+func.func @fp_scalar(%a: f64, %b: f64, %x: f32, %y: f32) -> f64 {
+  // CHECK: lvx.fmind
+  %0 = arith.minimumf %a, %b : f64
+  // CHECK: lvx.fminnd
+  %1 = arith.minnumf %a, %b : f64
+  // CHECK: lvx.fmaxd
+  %2 = arith.maximumf %0, %1 : f64
+  // CHECK: lvx.fmaxnd
+  %3 = arith.maxnumf %2, %b : f64
+  // CHECK: lvx.fsqrtd cs
+  %4 = math.sqrt %3 : f64
+  // CHECK: lvx.fabsd
+  %5 = math.absf %4 : f64
+  // CHECK: lvx.fnegd
+  %6 = arith.negf %5 : f64
+  // One instruction, five modifiers: rd=floor, ru=ceil, rn=roundeven,
+  // rz=trunc, and rm ("ties to max magnitude") = round-half-away-from-zero,
+  // which is what math.round means -- not rn.
+  // CHECK: lvx.frintd rd
+  %7 = math.floor %6 : f64
+  // CHECK: lvx.frintd ru
+  %8 = math.ceil %7 : f64
+  // CHECK: lvx.frintd rn
+  %9 = math.roundeven %8 : f64
+  // CHECK: lvx.frintd rz
+  %10 = math.trunc %9 : f64
+  // CHECK: lvx.frintd rm
+  %11 = math.round %10 : f64
+  // 32-bit forms go to the `w` instructions. Distinct operands on purpose:
+  // `minimumf %x, %x` folds to %x upstream, before any conversion pattern
+  // sees it (same trap CLAUDE.md notes for select/trunci).
+  // CHECK: lvx.fminw
+  %12 = arith.minimumf %x, %y : f32
+  // CHECK: lvx.fsqrtw cs
+  %13 = math.sqrt %12 : f32
+  %14 = arith.extf %13 : f32 to f64
+  %15 = arith.addf %11, %14 : f64
+  return %15 : f64
 }

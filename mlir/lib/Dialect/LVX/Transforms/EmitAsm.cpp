@@ -207,6 +207,24 @@ private:
     return success();
   }
 
+  /// Unary op whose real encoding carries a `floatmode` modifier, printed
+  /// as a suffix on the mnemonic. `cs` is the empty suffix -- "use the
+  /// rounding mode currently in $cs" -- so `frintd` bare is rint, while
+  /// `frintd.rd` is floor. Emitting these through the generic unary path
+  /// would silently drop the mode and turn every floor into a rint.
+  LogicalResult emitUnaryMode(Operation *op, StringRef mnemonic,
+                              FloatMode mode) {
+    FailureOr<std::string> rd = reg(op->getResult(0));
+    FailureOr<std::string> rs = reg(op->getOperand(0));
+    if (failed(rd) || failed(rs))
+      return failure();
+    os << "\t" << mnemonic;
+    if (mode != FloatMode::cs)
+      os << dotted(stringifyFloatMode(mode));
+    os << " " << *rd << " = " << *rs << "\n\t;;\n";
+    return success();
+  }
+
   LogicalResult emitCompare(Operation *op, StringRef mnemonic,
                             StringRef predicate) {
     FailureOr<std::string> rd = reg(op->getResult(0));
@@ -333,6 +351,11 @@ private:
         .Case([&](ShOp op) { return emitStore(op, "sh", op.getValue(), op.getBase(), op.getOffset()); })
         .Case([&](SwOp op) { return emitStore(op, "sw", op.getValue(), op.getBase(), op.getOffset()); })
         .Case([&](SdOp op) { return emitStore(op, "sd", op.getValue(), op.getBase(), op.getOffset()); })
+        // Unary float ops carrying a rounding-mode suffix.
+        .Case([&](FsqrtdOp op) { return emitUnaryMode(op, "fsqrtd", op.getMode()); })
+        .Case([&](FsqrtwOp op) { return emitUnaryMode(op, "fsqrtw", op.getMode()); })
+        .Case([&](FrintdOp op) { return emitUnaryMode(op, "frintd", op.getMode()); })
+        .Case([&](FrintwOp op) { return emitUnaryMode(op, "frintw", op.getMode()); })
         // Comparisons (dotted predicate).
         .Case([&](CompdOp op) { return emitCompare(op, "compd", stringifyIntComp(op.getPredicate())); })
         .Case([&](CompwOp op) { return emitCompare(op, "compw", stringifyIntComp(op.getPredicate())); })

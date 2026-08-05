@@ -220,22 +220,92 @@ struct FmaToLVX : public OpConversionPattern<math::FmaOp> {
 };
 
 // arith.negf has no direct LVX opcode; lower to `0.0 - operand`.
-struct NegFToLVX : public OpConversionPattern<arith::NegFOp> {
-  using OpConversionPattern::OpConversionPattern;
+// Float min/max have the same shape as an integer binary op: two operands,
+// no rounding-mode modifier, because a selection has nothing to round.
+template <typename SourceOp, typename DOp, typename WOp>
+using FloatMinMaxToLVX = IntBinaryToLVX<SourceOp, DOp, WOp>;
+
+// The pairing here is the whole point, and it is exact because MLIR draws
+// the same distinction the ISA does:
+//
+//   arith.minimumf  IEEE 754-2019 minimum -- propagates NaN  -> fmind
+//   arith.minnumf   IEEE 754-2008 minNum  -- returns non-NaN -> fminnd
+//
+// Swapping them is invisible on every non-NaN input, which is exactly how
+// the same mistake survived in lvx-gcc until 2026-08-04.
+using MinimumFToLVX = FloatMinMaxToLVX<arith::MinimumFOp, lvx::FmindOp, lvx::FminwOp>;
+using MaximumFToLVX = FloatMinMaxToLVX<arith::MaximumFOp, lvx::FmaxdOp, lvx::FmaxwOp>;
+using MinNumFToLVX  = FloatMinMaxToLVX<arith::MinNumFOp, lvx::FminndOp, lvx::FminnwOp>;
+using MaxNumFToLVX  = FloatMinMaxToLVX<arith::MaxNumFOp, lvx::FmaxndOp, lvx::FmaxnwOp>;
+
+// Unary float ops with no modifier.
+template <typename SourceOp, typename DOp, typename WOp>
+struct FloatUnaryToLVX : public OpConversionPattern<SourceOp> {
+  using OpConversionPattern<SourceOp>::OpConversionPattern;
+  using OpAdaptor = typename OpConversionPattern<SourceOp>::OpAdaptor;
   LogicalResult
-  matchAndRewrite(arith::NegFOp op, OpAdaptor adaptor,
+  matchAndRewrite(SourceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    Type regTy = getTypeConverter()->convertType(op.getType());
+    Type regTy = this->getTypeConverter()->convertType(op.getType());
     unsigned width = getScalarBitWidth(op.getType());
-    auto zeroAttr = rewriter.getFloatAttr(op.getType(), 0.0);
-    Value zero = rewriter.create<lvx::LiOp>(op.getLoc(), regTy, zeroAttr);
-    Value result = createFloatBinary<lvx::FsbfdOp, lvx::FsbfwOp>(
-        rewriter, op.getLoc(), width, regTy, zero, adaptor.getOperand());
+    Value result;
+    if (width <= 32)
+      result = rewriter.create<WOp>(op.getLoc(), regTy, adaptor.getOperand());
+    else
+      result = rewriter.create<DOp>(op.getLoc(), regTy, adaptor.getOperand());
     rewriter.replaceOp(op, result);
     return success();
   }
 };
 
+using AbsFToLVX = FloatUnaryToLVX<math::AbsFOp, lvx::FabsdOp, lvx::FabswOp>;
+
+// `arith.negf` used to lower to `0.0 - x` via fsbfd, for want of a negate
+// instruction. That is wrong on a signed zero: IEEE gives 0.0 - 0.0 = +0.0
+// under round-to-nearest, where negating +0.0 must give -0.0. `fnegd` is a
+// sign-bit flip, exact for zeros and NaNs alike.
+using NegFToLVX = FloatUnaryToLVX<arith::NegFOp, lvx::FnegdOp, lvx::FnegwOp>;
+
+// Unary float ops that carry a rounding mode. One instruction covers the
+// whole round-to-integral family; only the modifier differs.
+template <typename SourceOp, typename DOp, typename WOp, FloatMode Mode>
+struct FloatUnaryModeToLVX : public OpConversionPattern<SourceOp> {
+  using OpConversionPattern<SourceOp>::OpConversionPattern;
+  using OpAdaptor = typename OpConversionPattern<SourceOp>::OpAdaptor;
+  LogicalResult
+  matchAndRewrite(SourceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Type regTy = this->getTypeConverter()->convertType(op.getType());
+    unsigned width = getScalarBitWidth(op.getType());
+    Value result;
+    if (width <= 32)
+      result = rewriter.create<WOp>(op.getLoc(), regTy, adaptor.getOperand(),
+                                    Mode);
+    else
+      result = rewriter.create<DOp>(op.getLoc(), regTy, adaptor.getOperand(),
+                                    Mode);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+using SqrtToLVX = FloatUnaryModeToLVX<math::SqrtOp, lvx::FsqrtdOp,
+                                      lvx::FsqrtwOp, FloatMode::cs>;
+// frint's directed modes give the whole round-to-integral family.
+using RoundEvenToLVX = FloatUnaryModeToLVX<math::RoundEvenOp, lvx::FrintdOp,
+                                           lvx::FrintwOp, FloatMode::rn>;
+// Named for math.trunc (round toward zero) -- distinct from the existing
+// TruncFToLVX, which is arith.truncf, a width narrowing.
+using MathTruncToLVX = FloatUnaryModeToLVX<math::TruncOp, lvx::FrintdOp,
+                                           lvx::FrintwOp, FloatMode::rz>;
+using FloorToLVX     = FloatUnaryModeToLVX<math::FloorOp, lvx::FrintdOp,
+                                           lvx::FrintwOp, FloatMode::rd>;
+using CeilToLVX      = FloatUnaryModeToLVX<math::CeilOp, lvx::FrintdOp,
+                                           lvx::FrintwOp, FloatMode::ru>;
+// math.round is round-half-away-from-zero, which is `.rm` ("ties to max
+// magnitude"), not `.rn`.
+using RoundToLVX     = FloatUnaryModeToLVX<math::RoundOp, lvx::FrintdOp,
+                                           lvx::FrintwOp, FloatMode::rm>;
 //===----------------------------------------------------------------------===//
 // Comparisons
 //===----------------------------------------------------------------------===//
@@ -846,7 +916,9 @@ struct ConvertToLVXPass
                              memref::MemRefDialect, index::IndexDialect>();
     // Only math.fma is lowered; the rest of `math` (transcendentals etc.)
     // has no LVX opcode, so leave the dialect legal and mark just this op.
-    target.addIllegalOp<math::FmaOp>();
+    target.addIllegalOp<math::FmaOp, math::AbsFOp, math::SqrtOp,
+                        math::RoundEvenOp, math::TruncOp, math::FloorOp,
+                        math::CeilOp, math::RoundOp>();
     target.addLegalOp<ModuleOp>();
 
     if (failed(applyFullConversion(getOperation(), target,
@@ -881,6 +953,9 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     ConstantToLVX, IndexConstantToLVX, SelectToLVX,
     // Memory
     MemRefLoadToLVX, MemRefStoreToLVX, FmaToLVX,
+    MinimumFToLVX, MaximumFToLVX, MinNumFToLVX, MaxNumFToLVX,
+    AbsFToLVX, SqrtToLVX, RoundEvenToLVX, MathTruncToLVX, FloorToLVX,
+    CeilToLVX, RoundToLVX,
     // Control flow
     BrToLVX, CondBrToLVX, ForToLVX, YieldToLVX,
     // Functions

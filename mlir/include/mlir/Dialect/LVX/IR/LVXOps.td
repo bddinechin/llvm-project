@@ -342,6 +342,72 @@ def LVX_FfmswOp : LVX_FloatTernaryOp<"ffmsw"> {
 }
 
 //===----------------------------------------------------------------------===//
+// Float min/max, and unary float ops.
+//===----------------------------------------------------------------------===//
+
+// Binary float ops that take *no* rounding-mode modifier -- min/max are
+// selections, not arithmetic, so there is nothing to round.
+class LVX_FloatMinMaxOp<string mnemonic> :
+    LVX_Op<mnemonic, [Pure, Commutative]>,
+    Arguments<(ins LVX_RegType:$lhs, LVX_RegType:$rhs)>,
+    Results<(outs LVX_RegType:$result)> {
+  let assemblyFormat =
+    "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` "
+    "qualified(type($rhs)) `)` `->` qualified(type($result))";
+}
+
+// LVX has *two* min/max families, and they differ only on a NaN operand:
+//
+//   fmin{h,w,d}   f<N>_min     IEEE 754-2019 minimum -- propagates the NaN
+//   fminn{h,w,d}  f<N>_minNum  IEEE 754-2008 minNum  -- returns the non-NaN
+//
+// MLIR distinguishes these too, so the mapping is exact: arith.minimumf is
+// the -2019 one, arith.minnumf the -2008 one. Getting the pairing backwards
+// is invisible on every non-NaN input, which is precisely how it went
+// unnoticed in lvx-gcc until 2026-08-04 (validation/tests/micro/minmax.c).
+def LVX_FmindOp  : LVX_FloatMinMaxOp<"fmind">  { let summary = "FMIND -- IEEE-2019 minimum, propagates NaN"; }
+def LVX_FminwOp  : LVX_FloatMinMaxOp<"fminw">  { let summary = "FMINW -- IEEE-2019 minimum, propagates NaN"; }
+def LVX_FmaxdOp  : LVX_FloatMinMaxOp<"fmaxd">  { let summary = "FMAXD -- IEEE-2019 maximum, propagates NaN"; }
+def LVX_FmaxwOp  : LVX_FloatMinMaxOp<"fmaxw">  { let summary = "FMAXW -- IEEE-2019 maximum, propagates NaN"; }
+def LVX_FminndOp : LVX_FloatMinMaxOp<"fminnd"> { let summary = "FMINND -- IEEE-2008 minNum, returns the non-NaN operand"; }
+def LVX_FminnwOp : LVX_FloatMinMaxOp<"fminnw"> { let summary = "FMINNW -- IEEE-2008 minNum, returns the non-NaN operand"; }
+def LVX_FmaxndOp : LVX_FloatMinMaxOp<"fmaxnd"> { let summary = "FMAXND -- IEEE-2008 maxNum, returns the non-NaN operand"; }
+def LVX_FmaxnwOp : LVX_FloatMinMaxOp<"fmaxnw"> { let summary = "FMAXNW -- IEEE-2008 maxNum, returns the non-NaN operand"; }
+
+// Unary float ops with no modifier. `fabs`/`fneg` are sign-bit operations,
+// exact for every input including zeros and NaNs.
+class LVX_FloatUnaryOp<string mnemonic> :
+    LVX_Op<mnemonic, [Pure]>,
+    Arguments<(ins LVX_RegType:$operand)>,
+    Results<(outs LVX_RegType:$result)> {
+  let assemblyFormat =
+    "$operand attr-dict `:` functional-type($operand, $result)";
+}
+
+def LVX_FabsdOp : LVX_FloatUnaryOp<"fabsd"> { let summary = "FABSD -- 64-bit floating-point absolute value"; }
+def LVX_FabswOp : LVX_FloatUnaryOp<"fabsw"> { let summary = "FABSW -- 32-bit floating-point absolute value"; }
+def LVX_FnegdOp : LVX_FloatUnaryOp<"fnegd"> { let summary = "FNEGD -- 64-bit floating-point negation"; }
+def LVX_FnegwOp : LVX_FloatUnaryOp<"fnegw"> { let summary = "FNEGW -- 32-bit floating-point negation"; }
+
+// Unary float ops that *do* carry a rounding mode (`floatmode` in the real
+// encoding). `cs` -- the empty suffix -- means "use the mode currently in
+// $cs", which is what a plain sqrt or rint wants; the directed modes give
+// floor/ceil/trunc/roundeven from one instruction.
+class LVX_FloatUnaryModeOp<string mnemonic> :
+    LVX_Op<mnemonic, [Pure]>,
+    Arguments<(ins LVX_RegType:$operand,
+                   DefaultValuedAttr<LVX_FloatModeAttr, "FloatMode::cs">:$mode)>,
+    Results<(outs LVX_RegType:$result)> {
+  let assemblyFormat =
+    "$mode $operand attr-dict `:` functional-type($operand, $result)";
+}
+
+def LVX_FsqrtdOp : LVX_FloatUnaryModeOp<"fsqrtd"> { let summary = "FSQRTD -- 64-bit floating-point square root"; }
+def LVX_FsqrtwOp : LVX_FloatUnaryModeOp<"fsqrtw"> { let summary = "FSQRTW -- 32-bit floating-point square root"; }
+def LVX_FrintdOp : LVX_FloatUnaryModeOp<"frintd"> { let summary = "FRINTD -- 64-bit float round to integral float"; }
+def LVX_FrintwOp : LVX_FloatUnaryModeOp<"frintw"> { let summary = "FRINTW -- 32-bit float round to integral float"; }
+
+//===----------------------------------------------------------------------===//
 // Comparisons. Real hardware writes a full register (0/1), not a flag bit.
 //===----------------------------------------------------------------------===//
 
