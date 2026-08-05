@@ -151,6 +151,10 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // CHECK-NEXT: ;;
 // CHECK-NEXT: addd $r0 = $r0, $r3
 // CHECK-NEXT: ;;
+// The body's terminator is `lvx_cf.loopend`, which emits this comment and
+// no instruction -- LOOPDO's back-edge is implicit, so a real `goto` here
+// would override it and run the body exactly once.
+// CHECK-NEXT: # end of hardware loop body
 // CHECK-NEXT: [[EXIT]]:
 // CHECK-NEXT: copyd $r0 = $r4
 // CHECK-NEXT: ;;

@@ -103,11 +103,14 @@ private:
   /// Prints `goto <label(dest)>` as its own bundle, *unless* `dest` is the
   /// block immediately following the current one in emission order, in
   /// which case nothing is printed at all (real assembly just falls
-  /// through). Ordinarily a harmless cleanup; **required for correctness**
-  /// on a hardware loop's body-to-exit edge specifically (see
-  /// lvx-mlir/docs/HardwareLoops.md) -- printing an explicit branch there would
-  /// override LOOPDO's implicit back-edge and silently truncate the loop
-  /// to one iteration.
+  /// through). Purely an optimization.
+  ///
+  /// It was not always: a hardware loop's body-to-exit edge used to be an
+  /// ordinary `lvx_cf.br` that had to be elided here, since a real `goto`
+  /// overrides LOOPDO's implicit back-edge and truncates the loop to one
+  /// iteration. That made correctness depend on block layout order and on
+  /// this function's behaviour. `lvx_cf.loopend` now carries that edge and
+  /// emits a comment of its own, so nothing here is load-bearing.
   void printGoto(Block *dest, Block *nextBlock) {
     if (dest != nextBlock)
       os << "\tgoto " << label(dest) << "\n\t;;\n";
@@ -402,6 +405,18 @@ private:
   //===--------------------------------------------------------------------===//
 
   LogicalResult emitTerminator(Operation *op, Block *nextBlock) {
+    // A hardware loop's body-to-exit edge. Real, and checked like any other
+    // branch, but emitted as a comment only: LOOPDO's back-edge is implicit
+    // in hardware, so a `goto` here would override it and run the body once.
+    // See lvx-mlir/docs/HardwareLoops.md.
+    if (auto loopend = dyn_cast<lvx_cf::LoopendOp>(op)) {
+      if (failed(checkBranchOperands(op, loopend.getDest(),
+                                     loopend.getDestOperands())))
+        return failure();
+      os << "\t# end of hardware loop body -- LOOPDO back-edge is implicit\n";
+      return success();
+    }
+
     if (auto br = dyn_cast<lvx_cf::BranchOp>(op)) {
       if (failed(checkBranchOperands(op, br.getDest(), br.getDestOperands())))
         return failure();

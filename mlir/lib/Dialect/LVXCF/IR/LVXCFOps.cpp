@@ -28,6 +28,20 @@ Block *BranchOp::getSuccessorForOperands(ArrayRef<Attribute>) {
 }
 
 //===----------------------------------------------------------------------===//
+// LoopendOp
+//===----------------------------------------------------------------------===//
+
+// Identical to BranchOp: the edge is real, only its *emission* differs.
+SuccessorOperands LoopendOp::getSuccessorOperands(unsigned index) {
+  assert(index == 0 && "invalid successor index");
+  return SuccessorOperands(getDestOperandsMutable());
+}
+
+Block *LoopendOp::getSuccessorForOperands(ArrayRef<Attribute>) {
+  return getDest();
+}
+
+//===----------------------------------------------------------------------===//
 // CondBranchOp
 //===----------------------------------------------------------------------===//
 

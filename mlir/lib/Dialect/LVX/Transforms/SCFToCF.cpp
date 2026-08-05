@@ -105,15 +105,15 @@ static void lowerForHardware(lvx_scf::ForOp forOp) {
                                    exitOperands);
 
   // Body end: increment iv in place (same register, see comment above),
-  // then branch to exit -- never actually printed (-lvx-emit-asm elides a
-  // branch to the immediately-following block; required for correctness
-  // here, not just cosmetic, since a real printed `goto` would override
-  // the hardware back-edge).
+  // then terminate with the exit edge.
   builder.setInsertionPoint(yieldOp);
   Value iv = body->getArgument(0);
   builder.create<AdddOp>(loc, iv.getType(), iv, forOp.getStep());
-  builder.create<lvx_cf::BranchOp>(loc, remainder,
-                                   SmallVector<Value>(yieldOp.getResults()));
+  // lvx_cf.loopend, not lvx_cf.br: same edge, same forwarded operands, but
+  // -lvx-emit-asm prints only a comment for it. A real `goto` here would
+  // override LOOPDO's implicit back-edge and run the body exactly once.
+  builder.create<lvx_cf::LoopendOp>(loc, remainder,
+                                    SmallVector<Value>(yieldOp.getResults()));
   yieldOp.erase();
 
   forOp.erase();

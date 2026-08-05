@@ -17,7 +17,7 @@
 // CHECK-NEXT: ^bb1(%7: !lvx.reg<r0>, %8: !lvx.reg<r4>):
 // CHECK-NEXT: %9 = lvx.addd %8, %0 : (!lvx.reg<r4>, !lvx.reg<r1>) -> !lvx.reg<r4>
 // CHECK-NEXT: %10 = lvx.addd %7, %3 : (!lvx.reg<r0>, !lvx.reg<r3>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_cf.br ^bb2(%9 : !lvx.reg<r4>)
+// CHECK-NEXT: lvx_cf.loopend ^bb2(%9 : !lvx.reg<r4>)
 // CHECK-NEXT: ^bb2(%11: !lvx.reg<r4>):
 // CHECK-NEXT: %12 = lvx.mv %11 : (!lvx.reg<r4>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_func.return %12 : !lvx.reg<r0>
@@ -108,7 +108,7 @@ lvx_func.func @loop_step2(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: ^bb3(%12: !lvx.reg<r5>, %13: !lvx.reg<r3>):
 // CHECK-NEXT: %14 = lvx.addd %13, %12 : (!lvx.reg<r3>, !lvx.reg<r5>) -> !lvx.reg<r3>
 // CHECK-NEXT: %15 = lvx.addd %12, %2 : (!lvx.reg<r5>, !lvx.reg<r2>) -> !lvx.reg<r5>
-// CHECK-NEXT: lvx_cf.br ^bb4(%14 : !lvx.reg<r3>)
+// CHECK-NEXT: lvx_cf.loopend ^bb4(%14 : !lvx.reg<r3>)
 // CHECK-NEXT: ^bb4(%16: !lvx.reg<r3>):
 // CHECK-NEXT: %17 = lvx.addd %5, %2 : (!lvx.reg<r4>, !lvx.reg<r2>) -> !lvx.reg<r4>
 // CHECK-NEXT: lvx_cf.br ^bb1(%17, %16 : !lvx.reg<r4>, !lvx.reg<r3>)
@@ -190,7 +190,7 @@ lvx_func.func @nested(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: ^bb3(%16: !lvx.reg<r1>, %17: !lvx.reg<r3>):
 // CHECK-NEXT: %18 = lvx.addd %17, %16 : (!lvx.reg<r3>, !lvx.reg<r1>) -> !lvx.reg<r3>
 // CHECK-NEXT: %19 = lvx.addd %16, %12 : (!lvx.reg<r1>, !lvx.reg<r5>) -> !lvx.reg<r1>
-// CHECK-NEXT: lvx_cf.br ^bb4(%18 : !lvx.reg<r3>)
+// CHECK-NEXT: lvx_cf.loopend ^bb4(%18 : !lvx.reg<r3>)
 // CHECK-NEXT: ^bb4(%20: !lvx.reg<r3>):
 // CHECK-NEXT: %21 = lvx.addd %13, %20 : (!lvx.reg<r6>, !lvx.reg<r3>) -> !lvx.reg<r3>
 // CHECK-NEXT: %22 = lvx.addd %5, %2 : (!lvx.reg<r0>, !lvx.reg<r2>) -> !lvx.reg<r0>
@@ -245,7 +245,7 @@ lvx_func.func @nested_combined_accumulator(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: %9 = lvx.muld %8, %8 : (!lvx.reg<r1>, !lvx.reg<r1>) -> !lvx.reg<r4>
 // CHECK-NEXT: %10 = lvx.addd %7, %9 : (!lvx.reg<r3>, !lvx.reg<r4>) -> !lvx.reg<r3>
 // CHECK-NEXT: %11 = lvx.addd %6, %2 : (!lvx.reg<r0>, !lvx.reg<r2>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_cf.br ^bb2(%10 : !lvx.reg<r3>)
+// CHECK-NEXT: lvx_cf.loopend ^bb2(%10 : !lvx.reg<r3>)
 // CHECK-NEXT: ^bb2(%12: !lvx.reg<r3>):
 // CHECK-NEXT: %13 = lvx.mv %12 : (!lvx.reg<r3>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_func.return %13 : !lvx.reg<r0>
