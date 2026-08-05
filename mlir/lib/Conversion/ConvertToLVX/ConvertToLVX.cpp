@@ -260,6 +260,14 @@ struct FloatUnaryToLVX : public OpConversionPattern<SourceOp> {
 
 using AbsFToLVX = FloatUnaryToLVX<math::AbsFOp, lvx::FabsdOp, lvx::FabswOp>;
 
+// Integer bit-counting and absolute value, all ALU_BWRW on the 32-bit side.
+// CLS ("count leading sign bits") and the saturating negate/abs have no MLIR
+// counterpart, so they are modelled in the dialect but unreachable here.
+using CtlzToLVX  = FloatUnaryToLVX<math::CountLeadingZerosOp, lvx::ClzdOp, lvx::ClzwOp>;
+using CttzToLVX  = FloatUnaryToLVX<math::CountTrailingZerosOp, lvx::CtzdOp, lvx::CtzwOp>;
+using CtpopToLVX = FloatUnaryToLVX<math::CtPopOp, lvx::CbsdOp, lvx::CbswOp>;
+using AbsIToLVX  = FloatUnaryToLVX<math::AbsIOp, lvx::AbsdOp, lvx::AbswOp>;
+
 // `arith.negf` used to lower to `0.0 - x` via fsbfd, for want of a negate
 // instruction. That is wrong on a signed zero: IEEE gives 0.0 - 0.0 = +0.0
 // under round-to-nearest, where negating +0.0 must give -0.0. `fnegd` is a
@@ -916,7 +924,10 @@ struct ConvertToLVXPass
                              memref::MemRefDialect, index::IndexDialect>();
     // Only math.fma is lowered; the rest of `math` (transcendentals etc.)
     // has no LVX opcode, so leave the dialect legal and mark just this op.
-    target.addIllegalOp<math::FmaOp, math::AbsFOp, math::SqrtOp,
+    target.addIllegalOp<math::CountLeadingZerosOp,
+                        math::CountTrailingZerosOp, math::CtPopOp,
+                        math::AbsIOp,
+                        math::FmaOp, math::AbsFOp, math::SqrtOp,
                         math::RoundEvenOp, math::TruncOp, math::FloorOp,
                         math::CeilOp, math::RoundOp>();
     target.addLegalOp<ModuleOp>();
@@ -954,7 +965,8 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     // Memory
     MemRefLoadToLVX, MemRefStoreToLVX, FmaToLVX,
     MinimumFToLVX, MaximumFToLVX, MinNumFToLVX, MaxNumFToLVX,
-    AbsFToLVX, SqrtToLVX, RoundEvenToLVX, MathTruncToLVX, FloorToLVX,
+    AbsFToLVX, CtlzToLVX, CttzToLVX, CtpopToLVX, AbsIToLVX,
+    SqrtToLVX, RoundEvenToLVX, MathTruncToLVX, FloorToLVX,
     CeilToLVX, RoundToLVX,
     // Control flow
     BrToLVX, CondBrToLVX, ForToLVX, YieldToLVX,

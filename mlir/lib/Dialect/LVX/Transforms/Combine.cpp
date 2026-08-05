@@ -125,11 +125,83 @@ using FoldMulAddToAddxW =
     FoldMulAddToAddx<AddwOp, MulwOp, Addx2wOp, Addx4wOp, Addx8wOp, Addx16wOp,
                      Addx32wOp, Addx64wOp>;
 
+/// The 32-bit ALU ops that carry the real `signextw` modifier. Spelled out
+/// rather than probed, because a unit attribute is *absent* when false --
+/// `hasAttr("sx")` cannot distinguish "a w op set to zero-extend" from "not
+/// a w op at all".
+///
+/// The ALU_BWRW unary ops joined this list on 2026-08-05. That format
+/// reserved the `signextw` encoding bit but never wired it into its operand
+/// list, so `notw.sx` was unencodable and the real assembler rejected it.
+/// Fixed in lvx-mds' Format.yml, regenerated, and confirmed against the
+/// rebuilt assembler before being relied on here.
+static bool carriesSignExtW(Operation *op) {
+  return isa<AddwOp, SbfwOp, MulwOp, AndwOp, IorwOp, EorwOp, SllwOp, SrawOp,
+             SrlwOp, Addx2wOp, Addx4wOp, Addx8wOp, Addx16wOp, Addx32wOp,
+             Addx64wOp,
+             // ALU_BWRW, unary.
+             NotwOp, NegwOp, AbswOp, ClzwOp, CtzwOp, CbswOp, ClswOp>(op);
+}
+
+/// `zxwd(wop)` -> `wop`.
+///
+/// Not a fold so much as a deletion: the bare 32-bit form *already*
+/// zero-extends its result into the 64-bit register (Description.yml,
+/// signextw members `[ ., .SX ]`, where `.` is Zero Extend), so an explicit
+/// zero-extension of it is redundant.
+///
+/// Safe regardless of how many users `wop` has -- it is not modified, and
+/// its result already is the zero-extended value.
+struct DropRedundantZxwd : public OpRewritePattern<ZxwdOp> {
+  using OpRewritePattern::OpRewritePattern;
+  LogicalResult matchAndRewrite(ZxwdOp op,
+                                PatternRewriter &rewriter) const override {
+    Operation *src = op.getIn().getDefiningOp();
+    if (!src || !carriesSignExtW(src))
+      return failure();
+    // If it is set to sign-extend, the zxwd is doing real work.
+    if (src->hasAttr("sx"))
+      return failure();
+    // The extend's users take the producer's value directly, so the two
+    // must agree on type. Pre-allocation -- where this pass runs -- every
+    // value is the same unpinned `!lvx.reg`, so this is not a restriction
+    // in practice; it stops the pattern from forging invalid IR if it is
+    // ever run somewhere else.
+    if (op.getOut().getType() != src->getResult(0).getType())
+      return failure();
+    rewriter.replaceOp(op, src->getResult(0));
+    return success();
+  }
+};
+
+/// `sxwd(wop)` -> `wop.sx`, two instructions to one.
+///
+/// Unlike the zxwd case this *mutates* `wop`, changing the value every user
+/// of it sees, so it requires the extend to be its only use.
+struct FoldSxwdIntoW : public OpRewritePattern<SxwdOp> {
+  using OpRewritePattern::OpRewritePattern;
+  LogicalResult matchAndRewrite(SxwdOp op,
+                                PatternRewriter &rewriter) const override {
+    Operation *src = op.getIn().getDefiningOp();
+    if (!src || !carriesSignExtW(src) || src->hasAttr("sx"))
+      return failure();
+    if (!src->hasOneUse())
+      return failure();
+    if (op.getOut().getType() != src->getResult(0).getType())
+      return failure();
+    rewriter.modifyOpInPlace(
+        src, [&] { src->setAttr("sx", rewriter.getUnitAttr()); });
+    rewriter.replaceOp(op, src->getResult(0));
+    return success();
+  }
+};
+
 struct LVXCombinePass
     : public lvx::impl::LVXCombinePassBase<LVXCombinePass> {
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
-    patterns.add<FoldMulAddToAddxD, FoldMulAddToAddxW>(&getContext());
+    patterns.add<FoldMulAddToAddxD, FoldMulAddToAddxW,
+                 DropRedundantZxwd, FoldSxwdIntoW>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
       signalPassFailure();
   }

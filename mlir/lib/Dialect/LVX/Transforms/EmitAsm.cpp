@@ -120,14 +120,24 @@ private:
   // Per-op emission
   //===--------------------------------------------------------------------===//
 
+  /// The real `signextw` modifier on 32-bit ALU ops: bare means zero-extend
+  /// the 32-bit result into the 64-bit register, `.sx` means sign-extend.
+  /// Carried as a unit attribute, so absent == the hardware default and the
+  /// ordinary form prints exactly as it always did.
+  static std::string withSx(Operation *op, StringRef mnemonic) {
+    if (op->hasAttr("sx"))
+      return (mnemonic + ".sx").str();
+    return mnemonic.str();
+  }
+
   LogicalResult emitBinary(Operation *op, StringRef mnemonic) {
     FailureOr<std::string> rd = reg(op->getResult(0));
     FailureOr<std::string> rs1 = reg(op->getOperand(0));
     FailureOr<std::string> rs2 = reg(op->getOperand(1));
     if (failed(rd) || failed(rs1) || failed(rs2))
       return failure();
-    os << "\t" << mnemonic << " " << *rd << " = " << *rs1 << ", " << *rs2
-       << "\n\t;;\n";
+    os << "\t" << withSx(op, mnemonic) << " " << *rd << " = " << *rs1 << ", "
+       << *rs2 << "\n\t;;\n";
     return success();
   }
 
@@ -150,7 +160,7 @@ private:
     FailureOr<std::string> rs2 = reg(op->getOperand(0));
     if (failed(rd) || failed(rs1) || failed(rs2))
       return failure();
-    os << "\t" << mnemonic << " " << *rd << " = " << *rs1 << ", " << *rs2
+    os << "\t" << withSx(op, mnemonic) << " " << *rd << " = " << *rs1 << ", " << *rs2
        << "\n\t;;\n";
     return success();
   }

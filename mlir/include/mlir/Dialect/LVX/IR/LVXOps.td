@@ -143,6 +143,48 @@ class LVX_IntBinaryOp<string mnemonic, list<Trait> traits = []> :
     "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
 }
 
+// 32-bit integer ops carry the real `signextw` modifier, which decides how
+// the 32-bit result is placed in the 64-bit register:
+//
+//   bare   Zero Extend   (Description.yml, signextw members [ ., .SX ])
+//   .sx    Sign Extend
+//
+// Modelled as a unit attribute rather than an enum so the common
+// zero-extending form prints exactly as it did before this existed, and so
+// absent == the hardware default. `-lvx-combine` sets it when it finds an
+// `lvx.sxwd` consuming the result, and deletes an `lvx.zxwd` outright
+// because the bare form already zero-extends.
+class LVX_IntBinaryWOp<string mnemonic, list<Trait> traits = []> :
+    LVX_Op<mnemonic, traits # [Pure]>,
+    Arguments<(ins LVX_RegType:$lhs, LVX_RegType:$rhs, UnitAttr:$sx)>,
+    Results<(outs LVX_RegType:$result)> {
+  let assemblyFormat =
+    "(`sx` $sx^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` "
+    "qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$result, "::mlir::Value":$lhs,
+                   "::mlir::Value":$rhs), [{
+      build($_builder, $_state, result, lhs, rhs, /*sx=*/nullptr);
+    }]>];
+}
+
+// 32-bit unary ALU ops. These gained the `signextw` modifier on 2026-08-05:
+// the ALU_BWRW format reserved the encoding bit but never wired it into its
+// operand list, so `notw.sx` and friends were unencodable. Fixed in
+// lvx-mds' Format.yml, regenerated, and confirmed against the rebuilt
+// assembler before being modelled here.
+class LVX_IntUnaryWOp<string mnemonic, list<Trait> traits = []> :
+    LVX_Op<mnemonic, traits # [Pure]>,
+    Arguments<(ins LVX_RegType:$operand, UnitAttr:$sx)>,
+    Results<(outs LVX_RegType:$result)> {
+  let assemblyFormat =
+    "(`sx` $sx^)? $operand attr-dict `:` functional-type($operand, $result)";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$result, "::mlir::Value":$operand), [{
+      build($_builder, $_state, result, operand, /*sx=*/nullptr);
+    }]>];
+}
+
 class LVX_IntUnaryOp<string mnemonic, list<Trait> traits = []> :
     LVX_Op<mnemonic, traits # [Pure]>,
     Arguments<(ins LVX_RegType:$operand)>,
@@ -168,7 +210,7 @@ foreach scale = [2, 4, 8, 16, 32, 64] in {
   def LVX_Addx # scale # dOp : LVX_IntBinaryOp<"addx" # scale # "d"> {
     let summary = "ADDX" # scale # "D -- 64-bit $rhs + ($lhs << log2(" # scale # "))";
   }
-  def LVX_Addx # scale # wOp : LVX_IntBinaryOp<"addx" # scale # "w"> {
+  def LVX_Addx # scale # wOp : LVX_IntBinaryWOp<"addx" # scale # "w"> {
     let summary = "ADDX" # scale # "W -- 32-bit $rhs + ($lhs << log2(" # scale # "))";
   }
 }
@@ -221,34 +263,34 @@ def LVX_DivmodudOp : LVX_DivModOp<"divmodud"> {
 }
 
 // 32-bit ("w") integer ops.
-def LVX_AddwOp : LVX_IntBinaryOp<"addw", [Commutative]> {
+def LVX_AddwOp : LVX_IntBinaryWOp<"addw", [Commutative]> {
   let summary = "ADDW -- 32-bit integer addition";
 }
-def LVX_SbfwOp : LVX_IntBinaryOp<"sbfw"> {
+def LVX_SbfwOp : LVX_IntBinaryWOp<"sbfw"> {
   let summary = "SBFW -- 32-bit integer subtraction";
 }
-def LVX_MulwOp : LVX_IntBinaryOp<"mulw", [Commutative]> {
+def LVX_MulwOp : LVX_IntBinaryWOp<"mulw", [Commutative]> {
   let summary = "MULW -- 32-bit integer multiplication (low bits)";
 }
-def LVX_AndwOp : LVX_IntBinaryOp<"andw", [Commutative]> {
+def LVX_AndwOp : LVX_IntBinaryWOp<"andw", [Commutative]> {
   let summary = "ANDW -- 32-bit bitwise AND";
 }
-def LVX_IorwOp : LVX_IntBinaryOp<"iorw", [Commutative]> {
+def LVX_IorwOp : LVX_IntBinaryWOp<"iorw", [Commutative]> {
   let summary = "IORW -- 32-bit bitwise OR";
 }
-def LVX_EorwOp : LVX_IntBinaryOp<"eorw", [Commutative]> {
+def LVX_EorwOp : LVX_IntBinaryWOp<"eorw", [Commutative]> {
   let summary = "EORW -- 32-bit bitwise XOR";
 }
-def LVX_NotwOp : LVX_IntUnaryOp<"notw"> {
+def LVX_NotwOp : LVX_IntUnaryWOp<"notw"> {
   let summary = "NOTW -- 32-bit bitwise complement";
 }
-def LVX_SllwOp : LVX_IntBinaryOp<"sllw"> {
+def LVX_SllwOp : LVX_IntBinaryWOp<"sllw"> {
   let summary = "SLLW -- 32-bit shift left logical";
 }
-def LVX_SrawOp : LVX_IntBinaryOp<"sraw"> {
+def LVX_SrawOp : LVX_IntBinaryWOp<"sraw"> {
   let summary = "SRAW -- 32-bit shift right arithmetic";
 }
-def LVX_SrlwOp : LVX_IntBinaryOp<"srlw"> {
+def LVX_SrlwOp : LVX_IntBinaryWOp<"srlw"> {
   let summary = "SRLW -- 32-bit shift right logical";
 }
 def LVX_DivmodwOp  : LVX_DivModOp<"divmodw"> {
@@ -340,6 +382,27 @@ def LVX_FfmawOp : LVX_FloatTernaryOp<"ffmaw"> {
 def LVX_FfmswOp : LVX_FloatTernaryOp<"ffmsw"> {
   let summary = "FFMSW -- single-precision fused multiply-subtract: c-a*b";
 }
+
+//===----------------------------------------------------------------------===//
+// Bit-counting and integer absolute/negate. The 32-bit forms are ALU_BWRW
+// and carry `signextw`; the 64-bit forms need no modifier, since a 64-bit
+// result already fills the register.
+//===----------------------------------------------------------------------===//
+
+def LVX_NegdOp : LVX_IntUnaryOp<"negd">  { let summary = "NEGD -- 64-bit arithmetic negation"; }
+def LVX_NegwOp : LVX_IntUnaryWOp<"negw"> { let summary = "NEGW -- 32-bit arithmetic negation"; }
+def LVX_AbsdOp : LVX_IntUnaryOp<"absd">  { let summary = "ABSD -- 64-bit absolute value"; }
+def LVX_AbswOp : LVX_IntUnaryWOp<"absw"> { let summary = "ABSW -- 32-bit absolute value"; }
+def LVX_ClzdOp : LVX_IntUnaryOp<"clzd">  { let summary = "CLZD -- count leading zeros, 64-bit"; }
+def LVX_ClzwOp : LVX_IntUnaryWOp<"clzw"> { let summary = "CLZW -- count leading zeros, 32-bit"; }
+def LVX_CtzdOp : LVX_IntUnaryOp<"ctzd">  { let summary = "CTZD -- count trailing zeros, 64-bit"; }
+def LVX_CtzwOp : LVX_IntUnaryWOp<"ctzw"> { let summary = "CTZW -- count trailing zeros, 32-bit"; }
+def LVX_CbsdOp : LVX_IntUnaryOp<"cbsd">  { let summary = "CBSD -- count bits set (population count), 64-bit"; }
+def LVX_CbswOp : LVX_IntUnaryWOp<"cbsw"> { let summary = "CBSW -- count bits set (population count), 32-bit"; }
+// Count leading *sign* bits: no MLIR op corresponds, so this is modelled
+// but unreachable from any lowering today.
+def LVX_ClsdOp : LVX_IntUnaryOp<"clsd">  { let summary = "CLSD -- count leading sign bits, 64-bit"; }
+def LVX_ClswOp : LVX_IntUnaryWOp<"clsw"> { let summary = "CLSW -- count leading sign bits, 32-bit"; }
 
 //===----------------------------------------------------------------------===//
 // Float min/max, and unary float ops.

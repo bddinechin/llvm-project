@@ -72,3 +72,71 @@ lvx_func.func @no_fold_multi_use(%i: !lvx.reg<r0>, %b1: !lvx.reg<r1>,
   %s = lvx.addd %a1, %a2 : (!lvx.reg, !lvx.reg) -> !lvx.reg<r0>
   lvx_func.return %s : !lvx.reg<r0>
 }
+
+// The real `signextw` modifier decides how a 32-bit result lands in the
+// 64-bit register: bare = zero-extend, `.sx` = sign-extend
+// (Description.yml, signextw members `[ ., .SX ]`).
+//
+// So `sxwd` folds into the producer as a modifier, and `zxwd` is not folded
+// but *deleted* -- the bare form already zero-extends, making it redundant.
+// CHECK-LABEL: lvx_func.func @fold_sxwd
+// CHECK: lvx.addw sx
+// CHECK-NOT: lvx.sxwd
+lvx_func.func @fold_sxwd(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
+  %0 = lvx.addw %a, %b : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.reg
+  %1 = lvx.sxwd %0 : (!lvx.reg) -> !lvx.reg
+  %2 = lvx.mv %1 : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %2 : !lvx.reg<r0>
+}
+
+// CHECK-LABEL: lvx_func.func @drop_zxwd
+// CHECK: lvx.mulw %arg0, %arg1
+// CHECK-NOT: lvx.zxwd
+// CHECK-NOT: lvx.mulw sx
+lvx_func.func @drop_zxwd(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
+  %0 = lvx.mulw %a, %b : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.reg
+  %1 = lvx.zxwd %0 : (!lvx.reg) -> !lvx.reg
+  %2 = lvx.mv %1 : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %2 : !lvx.reg<r0>
+}
+
+// NEGATIVE: the producer has a second user, so setting `sx` would change
+// the value that user sees. The zxwd case has no such restriction because
+// it does not touch the producer -- but this one must not fire.
+// CHECK-LABEL: lvx_func.func @no_fold_sxwd_multi_use
+// CHECK: lvx.sxwd
+// CHECK-NOT: lvx.addw sx
+lvx_func.func @no_fold_sxwd_multi_use(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>)
+    -> !lvx.reg<r0> {
+  %0 = lvx.addw %a, %b : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.reg
+  %1 = lvx.sxwd %0 : (!lvx.reg) -> !lvx.reg
+  %2 = lvx.addd %0, %1 : (!lvx.reg, !lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %2 : !lvx.reg<r0>
+}
+
+// `notw` folds too, as of 2026-08-05. Its format (ALU_BWRW) reserved the
+// signextw encoding bit but never wired it into the operand list, so
+// `notw.sx` was unencodable and the assembler rejected it; fixed in
+// lvx-mds' Format.yml and confirmed against the rebuilt assembler. The
+// whole ALU_BWRW family gained it: negw, absw, clzw, ctzw, clsw, cbsw too.
+// CHECK-LABEL: lvx_func.func @fold_notw
+// CHECK: lvx.notw sx
+// CHECK-NOT: lvx.sxwd
+lvx_func.func @fold_notw(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
+  %0 = lvx.notw %a : (!lvx.reg<r0>) -> !lvx.reg
+  %1 = lvx.sxwd %0 : (!lvx.reg) -> !lvx.reg
+  %2 = lvx.mv %1 : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %2 : !lvx.reg<r0>
+}
+
+// NEGATIVE: a zxwd of an already-sign-extending op is doing real work.
+// CHECK-LABEL: lvx_func.func @no_drop_zxwd_of_sx
+// CHECK: lvx.addw sx
+// CHECK: lvx.zxwd
+lvx_func.func @no_drop_zxwd_of_sx(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>)
+    -> !lvx.reg<r0> {
+  %0 = lvx.addw sx %a, %b : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.reg
+  %1 = lvx.zxwd %0 : (!lvx.reg) -> !lvx.reg
+  %2 = lvx.mv %1 : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %2 : !lvx.reg<r0>
+}
