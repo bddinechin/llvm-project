@@ -143,6 +143,43 @@ static bool carriesSignExtW(Operation *op) {
              NotwOp, NegwOp, AbswOp, ClzwOp, CtzwOp, CbswOp, ClswOp>(op);
 }
 
+/// `eor(x, -1)` -> `not(x)`.
+///
+/// Two instructions become one, and the `lvx.li -1` usually dies with them.
+/// More to the point it is the only thing that produces `lvx.notw`/`notd`:
+/// MLIR spells bitwise complement as `arith.xori %x, -1`, so without this
+/// the not instructions are unreachable from any input.
+template <typename EorOp, typename NotOp>
+struct FoldEorAllOnesToNot : public OpRewritePattern<EorOp> {
+  using OpRewritePattern<EorOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(EorOp op,
+                                PatternRewriter &rewriter) const override {
+    // xor is commutative, so the constant may be on either side.
+    for (unsigned i = 0; i < 2; ++i) {
+      auto li = op->getOperand(i).template getDefiningOp<LiOp>();
+      if (!li)
+        continue;
+      auto attr = dyn_cast<IntegerAttr>(li.getValue());
+      if (!attr || !attr.getValue().isAllOnes())
+        continue;
+      auto notOp = rewriter.replaceOpWithNewOp<NotOp>(
+          op, op.getResult().getType(), op->getOperand(1 - i));
+      // Carry the signextw modifier across. FoldSxwdIntoW may already have
+      // set it on the eor, and the two-operand builder does not copy
+      // attributes -- dropping it here would silently turn a required
+      // sign-extension into a zero-extension, i.e. a wrong number rather
+      // than a failure. Only the 32-bit ops have the attribute at all.
+      if (op->hasAttr("sx"))
+        notOp->setAttr("sx", rewriter.getUnitAttr());
+      return success();
+    }
+    return failure();
+  }
+};
+
+using FoldEorToNotD = FoldEorAllOnesToNot<EorddOp, NotdOp>;
+using FoldEorToNotW = FoldEorAllOnesToNot<EorwOp, NotwOp>;
+
 /// `zxwd(wop)` -> `wop`.
 ///
 /// Not a fold so much as a deletion: the bare 32-bit form *already*
@@ -201,7 +238,8 @@ struct LVXCombinePass
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
     patterns.add<FoldMulAddToAddxD, FoldMulAddToAddxW,
-                 DropRedundantZxwd, FoldSxwdIntoW>(&getContext());
+                 DropRedundantZxwd, FoldSxwdIntoW,
+                 FoldEorToNotD, FoldEorToNotW>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
       signalPassFailure();
   }

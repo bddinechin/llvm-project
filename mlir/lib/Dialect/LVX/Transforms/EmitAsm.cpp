@@ -213,7 +213,8 @@ private:
     FailureOr<std::string> rs = reg(op->getOperand(0));
     if (failed(rd) || failed(rs))
       return failure();
-    os << "\t" << mnemonic << " " << *rd << " = " << *rs << "\n\t;;\n";
+    os << "\t" << withSx(op, mnemonic) << " " << *rd << " = " << *rs
+       << "\n\t;;\n";
     return success();
   }
 

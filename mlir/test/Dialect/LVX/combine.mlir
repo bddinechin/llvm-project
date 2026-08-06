@@ -140,3 +140,31 @@ lvx_func.func @no_drop_zxwd_of_sx(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>)
   %2 = lvx.mv %1 : (!lvx.reg) -> !lvx.reg<r0>
   lvx_func.return %2 : !lvx.reg<r0>
 }
+
+// MLIR spells bitwise complement as `xor x, -1`, so without this fold
+// `lvx.notw`/`notd` are unreachable from any input -- nothing else produces
+// them. Two instructions become one, and the `lvx.li -1` dies with them.
+// CHECK-LABEL: lvx_func.func @fold_eor_to_not
+// CHECK: lvx.notd
+// CHECK-NOT: lvx.eord
+lvx_func.func @fold_eor_to_not(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
+  %c = lvx.li -1 : i64 : !lvx.reg
+  %0 = lvx.eord %a, %c : (!lvx.reg<r0>, !lvx.reg) -> !lvx.reg
+  %1 = lvx.mv %0 : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %1 : !lvx.reg<r0>
+}
+
+// The fold must carry the signextw modifier across. FoldSxwdIntoW may have
+// already set it on the eor, and building a fresh notw drops attributes --
+// losing it turns a required sign-extension into a zero-extension, i.e. a
+// wrong number rather than a failure. This case caught exactly that.
+// CHECK-LABEL: lvx_func.func @fold_eor_to_not_keeps_sx
+// CHECK: lvx.notw sx
+// CHECK-NOT: lvx.sxwd
+lvx_func.func @fold_eor_to_not_keeps_sx(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
+  %c = lvx.li -1 : i32 : !lvx.reg
+  %0 = lvx.eorw %a, %c : (!lvx.reg<r0>, !lvx.reg) -> !lvx.reg
+  %1 = lvx.sxwd %0 : (!lvx.reg) -> !lvx.reg
+  %2 = lvx.mv %1 : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %2 : !lvx.reg<r0>
+}
