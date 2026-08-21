@@ -29,10 +29,10 @@ lvx_func.func @scalar_ops(%a: !lvx.reg, %b: !lvx.reg) -> !lvx.reg {
 
 // CHECK-LABEL: func @float_ops
 lvx_func.func @float_ops(%a: !lvx.reg, %b: !lvx.reg, %c: !lvx.reg) -> !lvx.reg {
-  // CHECK: lvx.faddd cs %{{.*}}, %{{.*}} : (!lvx.reg, !lvx.reg) -> !lvx.reg
-  %0 = lvx.faddd cs %a, %b : (!lvx.reg, !lvx.reg) -> !lvx.reg
-  // CHECK: lvx.ffmad cs %{{.*}}, %{{.*}}, %{{.*}} : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
-  %1 = lvx.ffmad cs %a, %b, %c : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
+  // CHECK: lvx.faddd %{{.*}}, %{{.*}} : (!lvx.reg, !lvx.reg) -> !lvx.reg
+  %0 = lvx.faddd %a, %b : (!lvx.reg, !lvx.reg) -> !lvx.reg
+  // CHECK: lvx.ffmad %{{.*}}, %{{.*}}, %{{.*}} : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
+  %1 = lvx.ffmad %a, %b, %c : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
   // CHECK: lvx.fcompd olt %{{.*}}, %{{.*}} : (!lvx.reg, !lvx.reg) -> !lvx.reg
   %2 = lvx.fcompd olt %a, %b : (!lvx.reg, !lvx.reg) -> !lvx.reg
   lvx_func.return %0 : !lvx.reg

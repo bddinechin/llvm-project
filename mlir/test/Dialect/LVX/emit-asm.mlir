@@ -240,8 +240,8 @@ lvx_func.func @ffma(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %c: !lvx.reg<r2>,
   %2 = lvx.mv %c : (!lvx.reg<r2>) -> !lvx.reg
   %3 = lvx.mv %d : (!lvx.reg<r3>) -> !lvx.reg
   %4 = lvx.mv %acc0 : (!lvx.reg<r4>) -> !lvx.reg
-  %5 = lvx.ffmad cs %0, %1, %4 : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
-  %6 = lvx.ffmsd cs %2, %3, %5 : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
+  %5 = lvx.ffmad %0, %1, %4 : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
+  %6 = lvx.ffmsd %2, %3, %5 : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
   %p = lvx.mv %6 : (!lvx.reg) -> !lvx.reg<r0>
   lvx_func.return %p : !lvx.reg<r0>
 }

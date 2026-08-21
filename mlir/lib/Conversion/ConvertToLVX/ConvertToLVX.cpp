@@ -94,8 +94,8 @@ static Value createFloatBinary(ConversionPatternRewriter &rewriter,
                                Location loc, unsigned width, Type regTy,
                                Value lhs, Value rhs) {
   if (width <= 32)
-    return rewriter.create<WOp>(loc, regTy, lhs, rhs, FloatMode::cs);
-  return rewriter.create<DOp>(loc, regTy, lhs, rhs, FloatMode::cs);
+    return rewriter.create<WOp>(loc, regTy, lhs, rhs);
+  return rewriter.create<DOp>(loc, regTy, lhs, rhs);
 }
 
 //===----------------------------------------------------------------------===//
@@ -209,11 +209,11 @@ struct FmaToLVX : public OpConversionPattern<math::FmaOp> {
     if (width <= 32)
       result = rewriter.create<lvx::FfmawOp>(op.getLoc(), regTy,
                                              adaptor.getA(), adaptor.getB(),
-                                             adaptor.getC(), FloatMode::cs);
+                                             adaptor.getC());
     else
       result = rewriter.create<lvx::FfmadOp>(op.getLoc(), regTy,
                                              adaptor.getA(), adaptor.getB(),
-                                             adaptor.getC(), FloatMode::cs);
+                                             adaptor.getC());
     rewriter.replaceOp(op, result);
     return success();
   }
@@ -287,18 +287,22 @@ struct FloatUnaryModeToLVX : public OpConversionPattern<SourceOp> {
     unsigned width = getScalarBitWidth(op.getType());
     Value result;
     if (width <= 32)
-      result = rewriter.create<WOp>(op.getLoc(), regTy, adaptor.getOperand(),
-                                    Mode);
+      result = rewriter.create<WOp>(
+          op.getLoc(), regTy, adaptor.getOperand(),
+          lvx::FloatModeAttr::get(rewriter.getContext(), Mode));
     else
-      result = rewriter.create<DOp>(op.getLoc(), regTy, adaptor.getOperand(),
-                                    Mode);
+      result = rewriter.create<DOp>(
+          op.getLoc(), regTy, adaptor.getOperand(),
+          lvx::FloatModeAttr::get(rewriter.getContext(), Mode));
     rewriter.replaceOp(op, result);
     return success();
   }
 };
 
-using SqrtToLVX = FloatUnaryModeToLVX<math::SqrtOp, lvx::FsqrtdOp,
-                                      lvx::FsqrtwOp, FloatMode::cs>;
+// sqrt takes the CS rounding mode, which is now spelled by *absence* of the
+// attribute -- so it uses the no-mode unary template, not the mode-carrying
+// one. Only frint's directed variants name a mode.
+using SqrtToLVX = FloatUnaryToLVX<math::SqrtOp, lvx::FsqrtdOp, lvx::FsqrtwOp>;
 // frint's directed modes give the whole round-to-integral family.
 using RoundEvenToLVX = FloatUnaryModeToLVX<math::RoundEvenOp, lvx::FrintdOp,
                                            lvx::FrintwOp, FloatMode::rn>;

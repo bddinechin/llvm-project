@@ -252,10 +252,25 @@ static void insertFmaAccumulatorPreservingCopies(lvx_func::FuncOp func) {
     });
     if (!hasOtherUse)
       continue;
+    // Give the *ffma* a private copy, rather than redirecting the other
+    // readers to one.
+    //
+    // Redirecting the readers was the original approach and it was wrong.
+    // The copy has to sit immediately before the ffma (that is where `c`
+    // is still intact), so any reader *earlier* than the ffma would be
+    // rewired to a value defined after it -- `operand #N does not dominate
+    // this use`, a hard verifier failure. Ordering it the other way round
+    // has the same problem for a reader inside a loop, whose next
+    // iteration would read the register after the ffma overwrote it, and
+    // that one would be silent rather than caught.
+    //
+    // Copying into the ffma avoids both: `c` itself is never touched, so
+    // every other reader keeps working whatever its position or trip
+    // count, and the value that gets overwritten in place is the copy --
+    // which has exactly one reader, this op.
     OpBuilder builder(op);
     auto copy = builder.create<MvOp>(op->getLoc(), c.getType(), c);
-    llvm::SmallPtrSet<Operation *, 2> keep{op, copy};
-    c.replaceAllUsesExcept(copy, keep);
+    op->setOperand(2, copy);
   }
 }
 

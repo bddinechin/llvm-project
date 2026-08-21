@@ -224,14 +224,16 @@ private:
   /// `frintd.rd` is floor. Emitting these through the generic unary path
   /// would silently drop the mode and turn every floor into a rint.
   LogicalResult emitUnaryMode(Operation *op, StringRef mnemonic,
-                              FloatMode mode) {
+                              std::optional<FloatMode> mode) {
     FailureOr<std::string> rd = reg(op->getResult(0));
     FailureOr<std::string> rs = reg(op->getOperand(0));
     if (failed(rd) || failed(rs))
       return failure();
     os << "\t" << mnemonic;
-    if (mode != FloatMode::cs)
-      os << dotted(stringifyFloatMode(mode));
+    // Absent means the CS rounding mode, whose real suffix is empty -- so
+    // there is nothing to print. See LVXBase.td on why `cs` is not a member.
+    if (mode)
+      os << dotted(stringifyFloatMode(*mode));
     os << " " << *rd << " = " << *rs << "\n\t;;\n";
     return success();
   }

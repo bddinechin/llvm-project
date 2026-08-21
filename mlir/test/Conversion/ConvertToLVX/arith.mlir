@@ -79,9 +79,9 @@ func.func @casts(%a: i8, %b: i32, %c: f64) -> i64 {
 // rounds once where the pair rounds twice, so it must be asked for.
 // CHECK-LABEL: lvx_func.func @fma_ops
 func.func @fma_ops(%a: f64, %b: f64, %c: f64, %x: f32, %y: f32, %z: f32) -> f64 {
-  // CHECK: lvx.ffmad cs
+  // CHECK: lvx.ffmad
   %0 = math.fma %a, %b, %c : f64
-  // CHECK: lvx.ffmaw cs
+  // CHECK: lvx.ffmaw
   %1 = math.fma %x, %y, %z : f32
   // A mulf/addf pair stays two instructions.
   // CHECK: lvx.fmuld
@@ -109,7 +109,7 @@ func.func @fp_scalar(%a: f64, %b: f64, %x: f32, %y: f32) -> f64 {
   %2 = arith.maximumf %0, %1 : f64
   // CHECK: lvx.fmaxnd
   %3 = arith.maxnumf %2, %b : f64
-  // CHECK: lvx.fsqrtd cs
+  // CHECK: lvx.fsqrtd
   %4 = math.sqrt %3 : f64
   // CHECK: lvx.fabsd
   %5 = math.absf %4 : f64
@@ -133,7 +133,7 @@ func.func @fp_scalar(%a: f64, %b: f64, %x: f32, %y: f32) -> f64 {
   // sees it (same trap CLAUDE.md notes for select/trunci).
   // CHECK: lvx.fminw
   %12 = arith.minimumf %x, %y : f32
-  // CHECK: lvx.fsqrtw cs
+  // CHECK: lvx.fsqrtw
   %13 = math.sqrt %12 : f32
   %14 = arith.extf %13 : f32 to f64
   %15 = arith.addf %11, %14 : f64

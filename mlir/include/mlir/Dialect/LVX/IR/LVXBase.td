@@ -195,8 +195,17 @@ def LVX_FloatModeAttr : I64EnumAttr<
       I64EnumAttrCase<"ru", 3, "ru">,
       I64EnumAttrCase<"rm", 4, "rm">,
       I64EnumAttrCase<"ro", 6, "ro">,
-      // Empty suffix: use the rounding mode configured in $cs.
-      I64EnumAttrCase<"cs", 7, "cs">,
+      // Value 7 -- the empty suffix, "use the rounding mode configured in
+      // $cs" -- is deliberately NOT a member. "No modifier" *is* that mode,
+      // not merely equivalent to it, so the IR must offer one spelling and
+      // not two: the attribute is optional, and absent means 7. Adding a
+      // `cs` case back would make the same thing expressible twice, and the
+      // redundant spelling would end up in a hand-written test.
+      //
+      // The cost, accepted deliberately: 7 stops being expressible as
+      // generated data, so "absent means 7" is a rule the emitter and any
+      // future BE/MLIR generator must hold. See lvx-mds' BE/MLIR answer
+      // sheet, O4. `signextw`'s UnitAttr is the same shape.
     ]> {
   let cppNamespace = "::mlir::lvx";
 }

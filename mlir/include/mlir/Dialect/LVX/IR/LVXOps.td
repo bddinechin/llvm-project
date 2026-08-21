@@ -309,10 +309,15 @@ def LVX_DivmoduwOp : LVX_DivModOp<"divmoduw"> {
 class LVX_FloatBinaryOp<string mnemonic, list<Trait> traits = []> :
     LVX_Op<mnemonic, traits # [Pure]>,
     Arguments<(ins LVX_RegType:$lhs, LVX_RegType:$rhs,
-                  DefaultValuedAttr<LVX_FloatModeAttr, "FloatMode::cs">:$mode)>,
+                  OptionalAttr<LVX_FloatModeAttr>:$mode)>,
     Results<(outs LVX_RegType:$result)> {
   let assemblyFormat =
-    "$mode $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+    "($mode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$result, "::mlir::Value":$lhs,
+                   "::mlir::Value":$rhs), [{
+      build($_builder, $_state, result, lhs, rhs, /*mode=*/nullptr);
+    }]>];
 }
 
 // Real FFMAD/FFMAW/FFMSD/FFMSW/FFMAH/FFMSH (lvx-mds Opcode.table's
@@ -331,11 +336,16 @@ class LVX_FloatBinaryOp<string mnemonic, list<Trait> traits = []> :
 class LVX_FloatTernaryOp<string mnemonic, list<Trait> traits = []> :
     LVX_Op<mnemonic, traits # [Pure]>,
     Arguments<(ins LVX_RegType:$a, LVX_RegType:$b, LVX_RegType:$c,
-                  DefaultValuedAttr<LVX_FloatModeAttr, "FloatMode::cs">:$mode)>,
+                  OptionalAttr<LVX_FloatModeAttr>:$mode)>,
     Results<(outs LVX_RegType:$result)> {
   let assemblyFormat =
-    "$mode $a `,` $b `,` $c attr-dict `:` "
+    "($mode^)? $a `,` $b `,` $c attr-dict `:` "
     "`(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$result, "::mlir::Value":$a,
+                   "::mlir::Value":$b, "::mlir::Value":$c), [{
+      build($_builder, $_state, result, a, b, c, /*mode=*/nullptr);
+    }]>];
 }
 
 def LVX_FadddOp : LVX_FloatBinaryOp<"faddd"> {
@@ -459,10 +469,14 @@ def LVX_FnegwOp : LVX_FloatUnaryOp<"fnegw"> { let summary = "FNEGW -- 32-bit flo
 class LVX_FloatUnaryModeOp<string mnemonic> :
     LVX_Op<mnemonic, [Pure]>,
     Arguments<(ins LVX_RegType:$operand,
-                   DefaultValuedAttr<LVX_FloatModeAttr, "FloatMode::cs">:$mode)>,
+                   OptionalAttr<LVX_FloatModeAttr>:$mode)>,
     Results<(outs LVX_RegType:$result)> {
   let assemblyFormat =
-    "$mode $operand attr-dict `:` functional-type($operand, $result)";
+    "($mode^)? $operand attr-dict `:` functional-type($operand, $result)";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$result, "::mlir::Value":$operand), [{
+      build($_builder, $_state, result, operand, /*mode=*/nullptr);
+    }]>];
 }
 
 def LVX_FsqrtdOp : LVX_FloatUnaryModeOp<"fsqrtd"> { let summary = "FSQRTD -- 64-bit floating-point square root"; }

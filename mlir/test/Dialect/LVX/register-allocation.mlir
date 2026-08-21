@@ -148,26 +148,55 @@ lvx_func.func @caller(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // destination register on real hardware -- the `c` operand and the op's
 // own result must be coalesced into one physical register
 // (lvx-mlir/docs/RegisterAllocation.md, "`ffma`/`ffms` accumulator
-// coalescing"): `%2`/`%4` below both land in `r1`. `%2` (the accumulator)
-// is *also* read again after the ffma (`%5`'s second operand), so
-// `insertFmaAccumulatorPreservingCopies` must insert a defensive copy
-// (`%3`, independently allocated to `r2`) before the ffma clobbers `r1` in
-// place -- `%5` reads `%3`, not `%2`, getting the correct pre-ffma value.
+// coalescing"). `%2` (the accumulator) is *also* read after the ffma, so
+// `insertFmaAccumulatorPreservingCopies` inserts a copy -- and the copy
+// goes into the **ffma**, not into the other reader.
+//
+// That direction matters. Copying for the *reader* only works when every
+// other reader follows the ffma, because the copy must sit where `c` is
+// still intact, i.e. immediately before it. A reader placed earlier would
+// be rewired to a value defined after it (`operand #N does not dominate
+// this use`), and a reader inside a loop would silently read the
+// overwritten register on its next iteration. Copying into the ffma leaves
+// `%2` untouched for every reader, whatever its position; the value
+// overwritten in place is `%3`, which has exactly one reader.
+//
+// So `%3`/`%4` share `r2` -- accumulator and result, as the hardware
+// requires -- while `%5` still reads `%2` in `r1`, the pre-ffma value.
 // CHECK-LABEL: lvx_func.func @ffma_preserve
 // CHECK-NEXT: %0 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r3>
 // CHECK-NEXT: %1 = lvx.mv %arg1 : (!lvx.reg<r1>) -> !lvx.reg<r0>
 // CHECK-NEXT: %2 = lvx.mv %arg2 : (!lvx.reg<r2>) -> !lvx.reg<r1>
 // CHECK-NEXT: %3 = lvx.mv %2 : (!lvx.reg<r1>) -> !lvx.reg<r2>
-// CHECK-NEXT: %4 = lvx.ffmad cs %0, %1, %2 : (!lvx.reg<r3>, !lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.reg<r1>
-// CHECK-NEXT: %5 = lvx.addd %4, %3 : (!lvx.reg<r1>, !lvx.reg<r2>) -> !lvx.reg<r0>
+// CHECK-NEXT: %4 = lvx.ffmad %0, %1, %3 : (!lvx.reg<r3>, !lvx.reg<r0>, !lvx.reg<r2>) -> !lvx.reg<r2>
+// CHECK-NEXT: %5 = lvx.addd %4, %2 : (!lvx.reg<r2>, !lvx.reg<r1>) -> !lvx.reg<r0>
 // CHECK-NEXT: %6 = lvx.mv %5 : (!lvx.reg<r0>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_func.return %6 : !lvx.reg<r0>
 lvx_func.func @ffma_preserve(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %acc: !lvx.reg<r2>) -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg
   %2 = lvx.mv %acc : (!lvx.reg<r2>) -> !lvx.reg
-  %3 = lvx.ffmad cs %0, %1, %2 : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
+  %3 = lvx.ffmad %0, %1, %2 : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
   %4 = lvx.addd %3, %2 : (!lvx.reg, !lvx.reg) -> !lvx.reg
   %p = lvx.mv %4 : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %p : !lvx.reg<r0>
+}
+
+// The accumulator read *before* the ffma. This is the case the original
+// copy-the-reader scheme could not express: the copy has to sit immediately
+// before the ffma, so redirecting an earlier reader to it produced
+// `operand #1 does not dominate this use` and the pass failed outright.
+// Copying into the ffma instead leaves the earlier reader alone.
+// CHECK-LABEL: lvx_func.func @ffma_accumulator_read_earlier
+// CHECK: lvx.faddd %{{[0-9]+}}, %[[ACC:[0-9]+]]
+// CHECK: %[[CP:[0-9]+]] = lvx.mv %[[ACC]]
+// CHECK: lvx.ffmad %{{[0-9]+}}, %{{[0-9]+}}, %[[CP]]
+lvx_func.func @ffma_accumulator_read_earlier(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>)
+    -> !lvx.reg<r0> {
+  %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
+  %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg
+  %2 = lvx.faddd %0, %1 : (!lvx.reg, !lvx.reg) -> !lvx.reg
+  %3 = lvx.ffmad %2, %0, %1 : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
+  %p = lvx.mv %3 : (!lvx.reg) -> !lvx.reg<r0>
   lvx_func.return %p : !lvx.reg<r0>
 }
