@@ -272,12 +272,34 @@ private:
     return success();
   }
 
-  static LogicalResult unsupportedCmove(Operation *op) {
-    return op->emitError(
-        "lvx-emit-asm: cmoved is not supported -- the "
-        "dialect models a 3-operand select, the real opcode is a "
-        "2-operand in-place conditional move (see "
-        "lvx-mlir/docs/AssemblyEmission.md)");
+  /// `cmoved.cond $rZ? $rW = $rY` -- a predicated in-place move: when the
+  /// guard holds, the destination takes `$rY`; otherwise it keeps what it
+  /// had. The dialect models that as a 3-operand select, which is what SSA
+  /// requires, so the "keep what it had" operand (#2, `falseValue`) must
+  /// already share the result's register. `hasTiedAccumulator` in
+  /// RegisterAllocation.cpp guarantees it, the same way it does for ffma's
+  /// accumulator; assert rather than silently emit a wrong register.
+  LogicalResult emitCmove(Operation *op, StringRef mnemonic) {
+    auto cond = op->getAttrOfType<BcuCondAttr>("cmovecond");
+    if (!cond)
+      cond = op->getAttrOfType<BcuCondAttr>("condition");
+    if (!cond)
+      return op->emitError("lvx-emit-asm: cmove without a condition attribute");
+
+    FailureOr<std::string> rd = reg(op->getResult(0));
+    FailureOr<std::string> guard = reg(op->getOperand(0));
+    FailureOr<std::string> ry = reg(op->getOperand(1));
+    FailureOr<std::string> tied = reg(op->getOperand(2));
+    if (failed(rd) || failed(guard) || failed(ry) || failed(tied))
+      return failure();
+    if (*rd != *tied)
+      return op->emitError("lvx-emit-asm: cmove's false-case operand (")
+             << *tied << ") must share the result's register (" << *rd
+             << ") -- register allocation should have coalesced them";
+
+    os << "\t" << mnemonic << "." << stringifyBcuCond(cond.getValue()) << " "
+       << *guard << "? " << *rd << " = " << *ry << "\n\t;;\n";
+    return success();
   }
 
   /// Real hardware's divmod destination is the `registerM` operand class:
@@ -393,10 +415,9 @@ private:
         .Case([&](SbfwOp op) { return emitBinarySubtractFrom(op, "sbfw"); })
         .Case([&](FsbfdOp op) { return emitBinarySubtractFrom(op, "fsbfd"); })
         .Case([&](FsbfwOp op) { return emitBinarySubtractFrom(op, "fsbfw"); })
-        // Explicitly unsupported: a real-hardware modeling mismatch, not
-        // just missing syntax -- see lvx-mlir/docs/AssemblyEmission.md, "Scope:
-        // supported ops".
-        .Case([&](CmovedOp op) { return unsupportedCmove(op); })
+        // Predicated in-place move: operand #2 is tied to the result, see
+        // emitCmove's comment.
+        .Case([&](CmovedOp op) { return emitCmove(op, "cmoved"); })
         // divmod: pairedReg destination, see emitDivmod's comment.
         .Case([&](DivmoddOp op) { return emitDivmod(op, "divmodd"); })
         .Case([&](DivmodudOp op) { return emitDivmod(op, "divmodud"); })

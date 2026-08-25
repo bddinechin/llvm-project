@@ -239,10 +239,23 @@ static void insertLoopCarriedPreservingCopies(lvx_func::FuncOp func) {
 // independent copy made right before the op, exactly mirroring the loop
 // case (the op itself keeps reading the original value; only outside
 // readers move to the copy).
+/// Ops whose operand #2 must land in the same register as their result,
+/// because real hardware overwrites that operand in place.
+///
+/// Two families, for the same underlying reason. `ffma`/`ffms` accumulate
+/// into their destination: `ffmad $rW = $rZ, $rY` computes
+/// `rW := rZ * rY + rW`. `cmoved` conditionally overwrites its destination:
+/// `cmoved.cond $rZ? $rW = $rY` leaves `rW` alone when the guard fails, so
+/// `rW`'s prior value is live into the op. Both are modelled here as an
+/// ordinary SSA operand (index 2) that happens to be tied to the result.
+static bool hasTiedAccumulator(Operation *op) {
+  return isa<FfmadOp, FfmawOp, FfmsdOp, FfmswOp, CmovedOp>(op);
+}
+
 static void insertFmaAccumulatorPreservingCopies(lvx_func::FuncOp func) {
   SmallVector<Operation *> fmaOps;
   func.walk([&](Operation *op) {
-    if (isa<FfmadOp, FfmawOp, FfmsdOp, FfmswOp>(op))
+    if (hasTiedAccumulator(op))
       fmaOps.push_back(op);
   });
   for (Operation *op : fmaOps) {
@@ -373,7 +386,7 @@ static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
   // independent copy first, so merging `c` and `result` here can never
   // silently corrupt a value still needed elsewhere.
   func.walk([&](Operation *op) {
-    if (!isa<FfmadOp, FfmawOp, FfmsdOp, FfmswOp>(op))
+    if (!hasTiedAccumulator(op))
       return;
     Value c = op->getOperand(2);
     Value result = op->getResult(0);

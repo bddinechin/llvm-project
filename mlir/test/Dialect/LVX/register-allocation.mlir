@@ -200,3 +200,21 @@ lvx_func.func @ffma_accumulator_read_earlier(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>)
   %p = lvx.mv %3 : (!lvx.reg) -> !lvx.reg<r0>
   lvx_func.return %p : !lvx.reg<r0>
 }
+
+// `cmoved` is a predicated in-place move: `cmoved.cond $rZ? $rW = $rY` leaves
+// the destination alone when the guard fails, so the destination's prior value
+// is live into the op. The dialect models that as a 3-operand select, which is
+// what SSA requires, and operand #2 (the false-case value) must therefore land
+// in the result's register -- the same tie `ffma`'s accumulator has, and for
+// the same reason. Before this, `cmoved` was declared but not emittable at all.
+// CHECK-LABEL: lvx_func.func @cmove_tied
+// CHECK: %[[SEL:[0-9]+]] = lvx.cmoved dnez %{{[0-9]+}}, %{{[0-9]+}}, %[[F:[0-9]+]] : (!lvx.reg<r3>, !lvx.reg<r0>, !lvx.reg<[[R:r[0-9]+]]>) -> !lvx.reg<[[R]]>
+lvx_func.func @cmove_tied(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %c: !lvx.reg<r2>)
+    -> !lvx.reg<r0> {
+  %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
+  %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg
+  %2 = lvx.mv %c : (!lvx.reg<r2>) -> !lvx.reg
+  %3 = lvx.cmoved dnez %0, %1, %2 : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
+  %p = lvx.mv %3 : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %p : !lvx.reg<r0>
+}
