@@ -27,9 +27,6 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 // Base class for all LVX ops.
-class LVX_Op<string mnemonic, list<Trait> traits = []> :
-    Op<LVX_Dialect, mnemonic, traits>;
-
 //===----------------------------------------------------------------------===//
 // Register pseudo-ops: constant materialization and register-to-register
 // move (used e.g. to copy ABI-pinned argument registers into fresh virtual

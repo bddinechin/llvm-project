@@ -87,4 +87,12 @@ def LVX_RegType : LVX_Type<"Register", "reg"> {
 // restated.
 //===----------------------------------------------------------------------===//
 
+//===----------------------------------------------------------------------===//
+// The op base class. Here rather than in LVXOps.td because the generated
+// LVXInstrOps.td needs it too, and that file includes only this one.
+//===----------------------------------------------------------------------===//
+
+class LVX_Op<string mnemonic, list<Trait> traits = []> :
+    Op<LVX_Dialect, mnemonic, traits>;
+
 #endif // LVX_BASE
