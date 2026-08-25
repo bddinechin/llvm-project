@@ -260,50 +260,14 @@ class LVX_FloatTernaryOp<string mnemonic, list<Trait> traits = []> :
     }]>];
 }
 
-def LVX_FadddOp : LVX_FloatBinaryOp<"faddd"> {
-  let summary = "FADDD -- double-precision floating-point addition";
-}
-def LVX_FsbfdOp : LVX_FloatBinaryOp<"fsbfd"> {
-  let summary = "FSBFD -- double-precision floating-point subtraction";
-}
-def LVX_FmuldOp : LVX_FloatBinaryOp<"fmuld"> {
-  let summary = "FMULD -- double-precision floating-point multiplication";
-}
-def LVX_FdivdOp : LVX_FloatBinaryOp<"fdivd"> {
-  let summary = "FDIVD -- double-precision floating-point division";
-}
-def LVX_FfmadOp : LVX_FloatTernaryOp<"ffmad"> {
-  let summary = "FFMAD -- double-precision fused multiply-add: a*b+c";
-}
 // Real hardware's `f64_mulnAdd` negates the *product*, not the whole
 // expression: `result = c - a*b`, not `a*b - c` (confirmed against
 // lvx-mds Opcode.table's FFMSD execution semantics, which previously
 // disagreed with this summary -- an actual doc/semantics bug, not just a
 // missing feature, since a lowering pattern written against the old text
 // would compute the wrong sign).
-def LVX_FfmsdOp : LVX_FloatTernaryOp<"ffmsd"> {
-  let summary = "FFMSD -- double-precision fused multiply-subtract: c-a*b";
-}
 
-def LVX_FaddwOp : LVX_FloatBinaryOp<"faddw"> {
-  let summary = "FADDW -- single-precision floating-point addition";
-}
-def LVX_FsbfwOp : LVX_FloatBinaryOp<"fsbfw"> {
-  let summary = "FSBFW -- single-precision floating-point subtraction";
-}
-def LVX_FmulwOp : LVX_FloatBinaryOp<"fmulw"> {
-  let summary = "FMULW -- single-precision floating-point multiplication";
-}
-def LVX_FdivwOp : LVX_FloatBinaryOp<"fdivw"> {
-  let summary = "FDIVW -- single-precision floating-point division";
-}
-def LVX_FfmawOp : LVX_FloatTernaryOp<"ffmaw"> {
-  let summary = "FFMAW -- single-precision fused multiply-add: a*b+c";
-}
 // See LVX_FfmsdOp: same `c - a*b` correction applies here.
-def LVX_FfmswOp : LVX_FloatTernaryOp<"ffmsw"> {
-  let summary = "FFMSW -- single-precision fused multiply-subtract: c-a*b";
-}
 
 //===----------------------------------------------------------------------===//
 // Bit-counting and integer absolute/negate. The 32-bit forms are ALU_BWRW
@@ -338,14 +302,6 @@ class LVX_FloatMinMaxOp<string mnemonic> :
 // the -2019 one, arith.minnumf the -2008 one. Getting the pairing backwards
 // is invisible on every non-NaN input, which is precisely how it went
 // unnoticed in lvx-gcc until 2026-08-04 (validation/tests/micro/minmax.c).
-def LVX_FmindOp  : LVX_FloatMinMaxOp<"fmind">  { let summary = "FMIND -- IEEE-2019 minimum, propagates NaN"; }
-def LVX_FminwOp  : LVX_FloatMinMaxOp<"fminw">  { let summary = "FMINW -- IEEE-2019 minimum, propagates NaN"; }
-def LVX_FmaxdOp  : LVX_FloatMinMaxOp<"fmaxd">  { let summary = "FMAXD -- IEEE-2019 maximum, propagates NaN"; }
-def LVX_FmaxwOp  : LVX_FloatMinMaxOp<"fmaxw">  { let summary = "FMAXW -- IEEE-2019 maximum, propagates NaN"; }
-def LVX_FminndOp : LVX_FloatMinMaxOp<"fminnd"> { let summary = "FMINND -- IEEE-2008 minNum, returns the non-NaN operand"; }
-def LVX_FminnwOp : LVX_FloatMinMaxOp<"fminnw"> { let summary = "FMINNW -- IEEE-2008 minNum, returns the non-NaN operand"; }
-def LVX_FmaxndOp : LVX_FloatMinMaxOp<"fmaxnd"> { let summary = "FMAXND -- IEEE-2008 maxNum, returns the non-NaN operand"; }
-def LVX_FmaxnwOp : LVX_FloatMinMaxOp<"fmaxnw"> { let summary = "FMAXNW -- IEEE-2008 maxNum, returns the non-NaN operand"; }
 
 // Unary float ops with no modifier. `fabs`/`fneg` are sign-bit operations,
 // exact for every input including zeros and NaNs.
@@ -357,10 +313,6 @@ class LVX_FloatUnaryOp<string mnemonic> :
     "$operand attr-dict `:` functional-type($operand, $result)";
 }
 
-def LVX_FabsdOp : LVX_FloatUnaryOp<"fabsd"> { let summary = "FABSD -- 64-bit floating-point absolute value"; }
-def LVX_FabswOp : LVX_FloatUnaryOp<"fabsw"> { let summary = "FABSW -- 32-bit floating-point absolute value"; }
-def LVX_FnegdOp : LVX_FloatUnaryOp<"fnegd"> { let summary = "FNEGD -- 64-bit floating-point negation"; }
-def LVX_FnegwOp : LVX_FloatUnaryOp<"fnegw"> { let summary = "FNEGW -- 32-bit floating-point negation"; }
 
 // Unary float ops that *do* carry a rounding mode (`floatmode` in the real
 // encoding). `cs` -- the empty suffix -- means "use the mode currently in
@@ -379,10 +331,6 @@ class LVX_FloatUnaryModeOp<string mnemonic> :
     }]>];
 }
 
-def LVX_FsqrtdOp : LVX_FloatUnaryModeOp<"fsqrtd"> { let summary = "FSQRTD -- 64-bit floating-point square root"; }
-def LVX_FsqrtwOp : LVX_FloatUnaryModeOp<"fsqrtw"> { let summary = "FSQRTW -- 32-bit floating-point square root"; }
-def LVX_FrintdOp : LVX_FloatUnaryModeOp<"frintd"> { let summary = "FRINTD -- 64-bit float round to integral float"; }
-def LVX_FrintwOp : LVX_FloatUnaryModeOp<"frintw"> { let summary = "FRINTW -- 32-bit float round to integral float"; }
 
 //===----------------------------------------------------------------------===//
 // Comparisons. Real hardware writes a full register (0/1), not a flag bit.
@@ -390,23 +338,7 @@ def LVX_FrintwOp : LVX_FloatUnaryModeOp<"frintw"> { let summary = "FRINTW -- 32-
 
 
 
-def LVX_FcompdOp : LVX_Op<"fcompd", [Pure]> {
-  let summary = "FCOMPD -- double-precision floating-point comparison";
-  let arguments = (ins LVX_FloatCompAttr:$predicate,
-                       LVX_RegType:$lhs, LVX_RegType:$rhs);
-  let results = (outs LVX_RegType:$result);
-  let assemblyFormat =
-    "$predicate $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
-}
 
-def LVX_FcompwOp : LVX_Op<"fcompw", [Pure]> {
-  let summary = "FCOMPW -- single-precision floating-point comparison";
-  let arguments = (ins LVX_FloatCompAttr:$predicate,
-                       LVX_RegType:$lhs, LVX_RegType:$rhs);
-  let results = (outs LVX_RegType:$result);
-  let assemblyFormat =
-    "$predicate $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
-}
 
 //===----------------------------------------------------------------------===//
 // Conditional move (CMOVED/CMOVEQ). Per the ground truth

@@ -3058,6 +3058,333 @@ def LVX_LniorwOp : LVX_Op<"lniorw", [Pure]>{
   ];
 }
 
+// FPU:FNEGD -- register form, from FNEGD_registerW_registerZ_simple
+def LVX_FnegdOp : LVX_Op<"fnegd", [Pure]>{
+  let summary = "FNEGD -- Floating-Point Negate Double Word";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FNEGW -- register form, from FNEGW_registerW_registerZ_simple
+def LVX_FnegwOp : LVX_Op<"fnegw", [Pure]>{
+  let summary = "FNEGW -- Floating-Point Negate Word";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FNEGWP -- register form, from FNEGWP_registerW_registerZ_simple
+def LVX_FnegwpOp : LVX_Op<"fnegwp", [Pure]>{
+  let summary = "FNEGWP -- Floating-Point Negate Word Pair";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FNEGH -- register form, from FNEGH_registerW_registerZ_simple
+def LVX_FneghOp : LVX_Op<"fnegh", [Pure]>{
+  let summary = "FNEGH -- Floating-Point Negate Half Word";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FABSD -- register form, from FABSD_registerW_registerZ_simple
+def LVX_FabsdOp : LVX_Op<"fabsd", [Pure]>{
+  let summary = "FABSD -- Floating-Point Absolute Value Double Word";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FABSW -- register form, from FABSW_registerW_registerZ_simple
+def LVX_FabswOp : LVX_Op<"fabsw", [Pure]>{
+  let summary = "FABSW -- Floating-Point Absolute Value Word";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FABSWP -- register form, from FABSWP_registerW_registerZ_simple
+def LVX_FabswpOp : LVX_Op<"fabswp", [Pure]>{
+  let summary = "FABSWP -- Floating-Point Absolute Value Word Pair";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FABSH -- register form, from FABSH_registerW_registerZ_simple
+def LVX_FabshOp : LVX_Op<"fabsh", [Pure]>{
+  let summary = "FABSH -- Floating-Point Absolute Value Half Word";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSRECD -- register form, from FSRECD_registerW_registerZ_simple
+def LVX_FsrecdOp : LVX_Op<"fsrecd", [Pure]>{
+  let summary = "FSRECD -- Floating-Point Seed for Reciprocal Double Word";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSRECW -- register form, from FSRECW_registerW_registerZ_simple
+def LVX_FsrecwOp : LVX_Op<"fsrecw", [Pure]>{
+  let summary = "FSRECW -- Floating-Point Seed for Reciprocal Word";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSRECWP -- register form, from FSRECWP_registerW_registerZ_simple
+def LVX_FsrecwpOp : LVX_Op<"fsrecwp", [Pure]>{
+  let summary = "FSRECWP -- Floating-Point Seed for Reciprocal Word Pair";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSRSRD -- register form, from FSRSRD_registerW_registerZ_simple
+def LVX_FsrsrdOp : LVX_Op<"fsrsrd", [Pure]>{
+  let summary = "FSRSRD -- Floating-Point Seed for Reciprocal Square Root Double Word";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSRSRW -- register form, from FSRSRW_registerW_registerZ_simple
+def LVX_FsrsrwOp : LVX_Op<"fsrsrw", [Pure]>{
+  let summary = "FSRSRW -- Floating-Point Seed for Reciprocal Square Root Word";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSRSRWP -- register form, from FSRSRWP_registerW_registerZ_simple
+def LVX_FsrsrwpOp : LVX_Op<"fsrsrwp", [Pure]>{
+  let summary = "FSRSRWP -- Floating-Point Seed for Reciprocal Square Root Word Pair";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FCLASSD -- register form, from FCLASSD_registerW_registerZ_simple
+def LVX_FclassdOp : LVX_Op<"fclassd", [Pure]>{
+  let summary = "FCLASSD -- Floating-Point Classify Double Word";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FCLASSW -- register form, from FCLASSW_registerW_registerZ_simple
+def LVX_FclasswOp : LVX_Op<"fclassw", [Pure]>{
+  let summary = "FCLASSW -- Floating-Point Classify Word";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FCLASSWP -- register form, from FCLASSWP_registerW_registerZ_simple
+def LVX_FclasswpOp : LVX_Op<"fclasswp", [Pure]>{
+  let summary = "FCLASSWP -- Floating-Point Classify Word Pair";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FCLASSH -- register form, from FCLASSH_registerW_registerZ_simple
+def LVX_FclasshOp : LVX_Op<"fclassh", [Pure]>{
+  let summary = "FCLASSH -- Floating-Point Classify Half Word";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FWIDENWD -- register form, from FWIDENWD_mostsig_registerW_registerZ_simple
+def LVX_FwidenwdOp : LVX_Op<"fwidenwd", [Pure]>{
+  let summary = "FWIDENWD -- Floating Point Widen Word to Double Word";
+  let arguments = (ins UnitAttr:$m,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`m` $m^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FWIDENHW -- register form, from FWIDENHW_mostsig_registerW_registerZ_simple
+def LVX_FwidenhwOp : LVX_Op<"fwidenhw", [Pure]>{
+  let summary = "FWIDENHW -- Floating Point Widen Half Word to Word";
+  let arguments = (ins UnitAttr:$m,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`m` $m^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FWIDENHWP -- register form, from FWIDENHWP_mostsig_registerW_registerZ_simple
+def LVX_FwidenhwpOp : LVX_Op<"fwidenhwp", [Pure]>{
+  let summary = "FWIDENHWP -- Floating Point Widen Half Word to Word Pair";
+  let arguments = (ins UnitAttr:$m,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`m` $m^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FNARROWDW -- register form, from FNARROWDW_floatmode_registerW_registerZ_simple
+def LVX_FnarrowdwOp : LVX_Op<"fnarrowdw", [Pure]>{
+  let summary = "FNARROWDW -- Floating Point Narrow Double Word to Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FNARROWWH -- register form, from FNARROWWH_floatmode_registerW_registerZ_simple
+def LVX_FnarrowwhOp : LVX_Op<"fnarrowwh", [Pure]>{
+  let summary = "FNARROWWH -- Floating Point Narrow Word to Half Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
 // ALU:INSF -- immediate form, from INSF_registerW_registerZ_stopbit2_stopbit4_startbit_simple
 def LVX_InsfImmOp : LVX_Op<"insf", [Pure]>{
   let summary = "INSF -- Insert Bit Field into Word";
@@ -3558,6 +3885,807 @@ def LVX_CtzwOp : LVX_Op<"ctzw", [Pure]>{
   ];
 }
 
+// FPU:FCOMPD -- register form, from FCOMPD_floatcomp_registerW_registerZ_registerY_simple
+def LVX_FcompdOp : LVX_Op<"fcompd", [Pure]>{
+  let summary = "FCOMPD -- Floating-Point Compare Double Word";
+  let arguments = (ins LVX_FloatCompAttr:$floatcomp,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$floatcomp $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::lvx::FloatComp":$floatcomp, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::lvx::FloatCompAttr::get($_builder.getContext(), floatcomp), lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FCOMPD -- immediate form, from FCOMPD_floatcomp_registerW_registerZ_upper27_lower5_double
+def LVX_FcompdImmOp : LVX_Op<"fcompd_i", [Pure]>{
+  let summary = "FCOMPD -- Floating-Point Compare Double Word";
+  let arguments = (ins LVX_FloatCompAttr:$floatcomp,
+                       LVX_RegType:$operand,
+                       TypedAttrInterface:$upper27_lower5,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$floatcomp $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::lvx::FloatComp":$floatcomp, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
+      build($_builder, $_state, resultType, ::mlir::lvx::FloatCompAttr::get($_builder.getContext(), floatcomp), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FCOMPW -- register form, from FCOMPW_floatcomp_registerW_registerZ_registerY_simple
+def LVX_FcompwOp : LVX_Op<"fcompw", [Pure]>{
+  let summary = "FCOMPW -- Floating-Point Compare Word";
+  let arguments = (ins LVX_FloatCompAttr:$floatcomp,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$floatcomp $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::lvx::FloatComp":$floatcomp, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::lvx::FloatCompAttr::get($_builder.getContext(), floatcomp), lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FCOMPW -- immediate form, from FCOMPW_floatcomp_registerW_registerZ_upper27_lower5_double
+def LVX_FcompwImmOp : LVX_Op<"fcompw_i", [Pure]>{
+  let summary = "FCOMPW -- Floating-Point Compare Word";
+  let arguments = (ins LVX_FloatCompAttr:$floatcomp,
+                       LVX_RegType:$operand,
+                       TypedAttrInterface:$upper27_lower5,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$floatcomp $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::lvx::FloatComp":$floatcomp, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
+      build($_builder, $_state, resultType, ::mlir::lvx::FloatCompAttr::get($_builder.getContext(), floatcomp), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FCOMPH -- register form, from FCOMPH_floatcomp_registerW_registerZ_registerY_simple
+def LVX_FcomphOp : LVX_Op<"fcomph", [Pure]>{
+  let summary = "FCOMPH -- Floating-Point Compare Half Word";
+  let arguments = (ins LVX_FloatCompAttr:$floatcomp,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$floatcomp $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::lvx::FloatComp":$floatcomp, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::lvx::FloatCompAttr::get($_builder.getContext(), floatcomp), lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FCOMPH -- immediate form, from FCOMPH_floatcomp_registerW_registerZ_upper27_lower5_double
+def LVX_FcomphImmOp : LVX_Op<"fcomph_i", [Pure]>{
+  let summary = "FCOMPH -- Floating-Point Compare Half Word";
+  let arguments = (ins LVX_FloatCompAttr:$floatcomp,
+                       LVX_RegType:$operand,
+                       TypedAttrInterface:$upper27_lower5,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$floatcomp $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::lvx::FloatComp":$floatcomp, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
+      build($_builder, $_state, resultType, ::mlir::lvx::FloatCompAttr::get($_builder.getContext(), floatcomp), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMIND -- register form, from FMIND_registerW_registerZ_registerY_simple
+def LVX_FmindOp : LVX_Op<"fmind", [Pure]>{
+  let summary = "FMIND -- Floating-Point Minimum Double Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMINW -- register form, from FMINW_registerW_registerZ_registerY_simple
+def LVX_FminwOp : LVX_Op<"fminw", [Pure]>{
+  let summary = "FMINW -- Floating-Point Minimum Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMINH -- register form, from FMINH_registerW_registerZ_registerY_simple
+def LVX_FminhOp : LVX_Op<"fminh", [Pure]>{
+  let summary = "FMINH -- Floating-Point Minimum Half Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMINND -- register form, from FMINND_registerW_registerZ_registerY_simple
+def LVX_FminndOp : LVX_Op<"fminnd", [Pure]>{
+  let summary = "FMINND -- Floating-Point Minimum Number Double Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMINNW -- register form, from FMINNW_registerW_registerZ_registerY_simple
+def LVX_FminnwOp : LVX_Op<"fminnw", [Pure]>{
+  let summary = "FMINNW -- Floating-Point Minimum Number Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMINNH -- register form, from FMINNH_registerW_registerZ_registerY_simple
+def LVX_FminnhOp : LVX_Op<"fminnh", [Pure]>{
+  let summary = "FMINNH -- Floating-Point Minimum Number Half Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMAXD -- register form, from FMAXD_registerW_registerZ_registerY_simple
+def LVX_FmaxdOp : LVX_Op<"fmaxd", [Pure]>{
+  let summary = "FMAXD -- Floating-Point Maximum Double Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMAXW -- register form, from FMAXW_registerW_registerZ_registerY_simple
+def LVX_FmaxwOp : LVX_Op<"fmaxw", [Pure]>{
+  let summary = "FMAXW -- Floating-Point Maximum Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMAXH -- register form, from FMAXH_registerW_registerZ_registerY_simple
+def LVX_FmaxhOp : LVX_Op<"fmaxh", [Pure]>{
+  let summary = "FMAXH -- Floating-Point Maximum Half Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMAXND -- register form, from FMAXND_registerW_registerZ_registerY_simple
+def LVX_FmaxndOp : LVX_Op<"fmaxnd", [Pure]>{
+  let summary = "FMAXND -- Floating-Point Maximum Number Double Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMAXNW -- register form, from FMAXNW_registerW_registerZ_registerY_simple
+def LVX_FmaxnwOp : LVX_Op<"fmaxnw", [Pure]>{
+  let summary = "FMAXNW -- Floating-Point Maximum Number Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMAXNH -- register form, from FMAXNH_registerW_registerZ_registerY_simple
+def LVX_FmaxnhOp : LVX_Op<"fmaxnh", [Pure]>{
+  let summary = "FMAXNH -- Floating-Point Maximum Number Half Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSIGND -- register form, from FSIGND_registerW_registerZ_registerY_simple
+def LVX_FsigndOp : LVX_Op<"fsignd", [Pure]>{
+  let summary = "FSIGND -- Floating-Point Sign Transfer Double Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSIGNW -- register form, from FSIGNW_registerW_registerZ_registerY_simple
+def LVX_FsignwOp : LVX_Op<"fsignw", [Pure]>{
+  let summary = "FSIGNW -- Floating-Point Sign Transfer Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSIGNH -- register form, from FSIGNH_registerW_registerZ_registerY_simple
+def LVX_FsignhOp : LVX_Op<"fsignh", [Pure]>{
+  let summary = "FSIGNH -- Floating-Point Sign Transfer Half Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSIGNND -- register form, from FSIGNND_registerW_registerZ_registerY_simple
+def LVX_FsignndOp : LVX_Op<"fsignnd", [Pure]>{
+  let summary = "FSIGNND -- Floating-Point Sign Negate Transfer Double Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSIGNNW -- register form, from FSIGNNW_registerW_registerZ_registerY_simple
+def LVX_FsignnwOp : LVX_Op<"fsignnw", [Pure]>{
+  let summary = "FSIGNNW -- Floating-Point Sign Negate Transfer Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSIGNNH -- register form, from FSIGNNH_registerW_registerZ_registerY_simple
+def LVX_FsignnhOp : LVX_Op<"fsignnh", [Pure]>{
+  let summary = "FSIGNNH -- Floating-Point Sign Negate Transfer Half Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSIGNMD -- register form, from FSIGNMD_registerW_registerZ_registerY_simple
+def LVX_FsignmdOp : LVX_Op<"fsignmd", [Pure]>{
+  let summary = "FSIGNMD -- Floating-Point Sign Combine Transfer Double Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSIGNMW -- register form, from FSIGNMW_registerW_registerZ_registerY_simple
+def LVX_FsignmwOp : LVX_Op<"fsignmw", [Pure]>{
+  let summary = "FSIGNMW -- Floating-Point Sign Combine Transfer Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSIGNMH -- register form, from FSIGNMH_registerW_registerZ_registerY_simple
+def LVX_FsignmhOp : LVX_Op<"fsignmh", [Pure]>{
+  let summary = "FSIGNMH -- Floating-Point Sign Combine Transfer Half Word";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FLOATD -- register form, from FLOATD_floatmode_registerW_registerZ_simple
+def LVX_FloatdOp : LVX_Op<"floatd", [Pure]>{
+  let summary = "FLOATD -- Floating Point Conversion from Fixed-Point Double Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FLOATW -- register form, from FLOATW_floatmode_registerW_registerZ_simple
+def LVX_FloatwOp : LVX_Op<"floatw", [Pure]>{
+  let summary = "FLOATW -- Floating Point Conversion from Fixed-Point";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FLOATWP -- register form, from FLOATWP_floatmode_registerW_registerZ_simple
+def LVX_FloatwpOp : LVX_Op<"floatwp", [Pure]>{
+  let summary = "FLOATWP -- Floating Point Conversion from Fixed-Point Word Pair";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FLOATUD -- register form, from FLOATUD_floatmode_registerW_registerZ_simple
+def LVX_FloatudOp : LVX_Op<"floatud", [Pure]>{
+  let summary = "FLOATUD -- Floating Point Conversion from Unsigned Fixed-Point Double Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FLOATUW -- register form, from FLOATUW_floatmode_registerW_registerZ_simple
+def LVX_FloatuwOp : LVX_Op<"floatuw", [Pure]>{
+  let summary = "FLOATUW -- Floating Point Conversion from Unsigned Fixed-Point";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FLOATUWP -- register form, from FLOATUWP_floatmode_registerW_registerZ_simple
+def LVX_FloatuwpOp : LVX_Op<"floatuwp", [Pure]>{
+  let summary = "FLOATUWP -- Floating Point Conversion from Unsigned Fixed-Point Word Pair";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FLOATWD -- register form, from FLOATWD_floatmode_registerW_registerZ_simple
+def LVX_FloatwdOp : LVX_Op<"floatwd", [Pure]>{
+  let summary = "FLOATWD -- Floating Point Conversion from Fixed-Point Word to Double Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FLOATUWD -- register form, from FLOATUWD_floatmode_registerW_registerZ_simple
+def LVX_FloatuwdOp : LVX_Op<"floatuwd", [Pure]>{
+  let summary = "FLOATUWD -- Floating Point Conversion from Unsigned Fixed-Point Word to Double Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FLOATDW -- register form, from FLOATDW_floatmode_registerW_registerZ_simple
+def LVX_FloatdwOp : LVX_Op<"floatdw", [Pure]>{
+  let summary = "FLOATDW -- Floating Point Conversion from Fixed-Point Double Word to Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FLOATUDW -- register form, from FLOATUDW_floatmode_registerW_registerZ_simple
+def LVX_FloatudwOp : LVX_Op<"floatudw", [Pure]>{
+  let summary = "FLOATUDW -- Floating Point Conversion from Unsigned Fixed-Point Double Word to Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FIXEDD -- register form, from FIXEDD_floatmode_registerW_registerZ_simple
+def LVX_FixeddOp : LVX_Op<"fixedd", [Pure]>{
+  let summary = "FIXEDD -- Floating Point Conversion to Fixed-Point Double Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FIXEDW -- register form, from FIXEDW_floatmode_registerW_registerZ_simple
+def LVX_FixedwOp : LVX_Op<"fixedw", [Pure]>{
+  let summary = "FIXEDW -- Floating Point Conversion to Fixed-Point";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FIXEDWP -- register form, from FIXEDWP_floatmode_registerW_registerZ_simple
+def LVX_FixedwpOp : LVX_Op<"fixedwp", [Pure]>{
+  let summary = "FIXEDWP -- Floating Point Conversion to Fixed-Point Word Pair";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FIXEDUD -- register form, from FIXEDUD_floatmode_registerW_registerZ_simple
+def LVX_FixedudOp : LVX_Op<"fixedud", [Pure]>{
+  let summary = "FIXEDUD -- Floating Point Conversion to Unsigned Fixed-Point Double Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FIXEDUW -- register form, from FIXEDUW_floatmode_registerW_registerZ_simple
+def LVX_FixeduwOp : LVX_Op<"fixeduw", [Pure]>{
+  let summary = "FIXEDUW -- Floating Point Conversion to Unsigned Fixed-Point";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FIXEDUWP -- register form, from FIXEDUWP_floatmode_registerW_registerZ_simple
+def LVX_FixeduwpOp : LVX_Op<"fixeduwp", [Pure]>{
+  let summary = "FIXEDUWP -- Floating Point Conversion to Unsigned Fixed-Point Word Pair";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FIXEDWD -- register form, from FIXEDWD_floatmode_registerW_registerZ_simple
+def LVX_FixedwdOp : LVX_Op<"fixedwd", [Pure]>{
+  let summary = "FIXEDWD -- Floating Point Conversion from Word to Fixed-Point Double Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FIXEDUWD -- register form, from FIXEDUWD_floatmode_registerW_registerZ_simple
+def LVX_FixeduwdOp : LVX_Op<"fixeduwd", [Pure]>{
+  let summary = "FIXEDUWD -- Floating Point Conversion from Word to Unsigned Fixed-Point Double Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FIXEDDW -- register form, from FIXEDDW_floatmode_registerW_registerZ_simple
+def LVX_FixeddwOp : LVX_Op<"fixeddw", [Pure]>{
+  let summary = "FIXEDDW -- Floating Point Conversion from Double Word to Fixed-Point Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FIXEDUDW -- register form, from FIXEDUDW_floatmode_registerW_registerZ_simple
+def LVX_FixedudwOp : LVX_Op<"fixedudw", [Pure]>{
+  let summary = "FIXEDUDW -- Floating Point Conversion from Double Word to Unsigned Fixed-Point Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FRINTD -- register form, from FRINTD_floatmode_registerW_registerZ_simple
+def LVX_FrintdOp : LVX_Op<"frintd", [Pure]>{
+  let summary = "FRINTD -- Floating Point Round to Int Double Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FRINTW -- register form, from FRINTW_floatmode_registerW_registerZ_simple
+def LVX_FrintwOp : LVX_Op<"frintw", [Pure]>{
+  let summary = "FRINTW -- Floating Point Round to Int Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FRINTH -- register form, from FRINTH_floatmode_registerW_registerZ_simple
+def LVX_FrinthOp : LVX_Op<"frinth", [Pure]>{
+  let summary = "FRINTH -- Floating Point Round to Int Half Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSQRTD -- register form, from FSQRTD_floatmode_registerW_registerZ_simple
+def LVX_FsqrtdOp : LVX_Op<"fsqrtd", [Pure]>{
+  let summary = "FSQRTD -- Floating Point Square Root Double Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSQRTW -- register form, from FSQRTW_floatmode_registerW_registerZ_simple
+def LVX_FsqrtwOp : LVX_Op<"fsqrtw", [Pure]>{
+  let summary = "FSQRTW -- Floating Point Square Root Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSQRTH -- register form, from FSQRTH_floatmode_registerW_registerZ_simple
+def LVX_FsqrthOp : LVX_Op<"fsqrth", [Pure]>{
+  let summary = "FSQRTH -- Floating Point Square Root Half Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
 // ALU:MULD -- register form, from MULD_highmult_registerW_registerZ_registerY_simple
 def LVX_MuldOp : LVX_Op<"muld", [Pure, Commutative]>{
   let summary = "MULD -- Multiply Double Word";
@@ -3566,10 +4694,10 @@ def LVX_MuldOp : LVX_Op<"muld", [Pure, Commutative]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`` $highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "($highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3583,10 +4711,10 @@ def LVX_MuldImmOp : LVX_Op<"muld_i", [Pure, Commutative]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? ($highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3600,10 +4728,10 @@ def LVX_MulwOp : LVX_Op<"mulw", [Pure, Commutative]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3617,10 +4745,10 @@ def LVX_MulwImmOp : LVX_Op<"mulw_i", [Pure, Commutative]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3633,10 +4761,10 @@ def LVX_MulndOp : LVX_Op<"mulnd", [Pure]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`` $highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "($highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3650,10 +4778,10 @@ def LVX_MulndImmOp : LVX_Op<"mulnd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? ($highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3667,10 +4795,10 @@ def LVX_MulnwOp : LVX_Op<"mulnw", [Pure]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3684,10 +4812,10 @@ def LVX_MulnwImmOp : LVX_Op<"mulnw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3700,10 +4828,10 @@ def LVX_MulxdqOp : LVX_Op<"mulxdq", [Pure]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "(`` $widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "($widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
-    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultTypes, ::mlir::lvx::WideMultAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultTypes, widemult, lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3716,10 +4844,10 @@ def LVX_MulxwdOp : LVX_Op<"mulxwd", [Pure]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`` $widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "($widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::WideMultAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultType, widemult, lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3733,10 +4861,10 @@ def LVX_MulxwdImmOp : LVX_Op<"mulxwd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $widemult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? ($widemult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::WideMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultType, widemult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3749,10 +4877,10 @@ def LVX_MulnxdqOp : LVX_Op<"mulnxdq", [Pure]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "(`` $widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "($widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
-    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultTypes, ::mlir::lvx::WideMultAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultTypes, widemult, lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3765,10 +4893,10 @@ def LVX_MulnxwdOp : LVX_Op<"mulnxwd", [Pure]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`` $widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "($widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::WideMultAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultType, widemult, lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3782,10 +4910,10 @@ def LVX_MulnxwdImmOp : LVX_Op<"mulnxwd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $widemult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? ($widemult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::WideMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultType, widemult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3798,10 +4926,10 @@ def LVX_MadddOp : LVX_Op<"maddd", [Pure]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`` $highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "($highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3815,10 +4943,10 @@ def LVX_MadddImmOp : LVX_Op<"maddd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? ($highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3832,10 +4960,10 @@ def LVX_MaddwOp : LVX_Op<"maddw", [Pure]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3849,10 +4977,10 @@ def LVX_MaddwImmOp : LVX_Op<"maddw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3865,10 +4993,10 @@ def LVX_MaddxdqOp : LVX_Op<"maddxdq", [Pure]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "(`` $widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "($widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
-    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultTypes, ::mlir::lvx::WideMultAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultTypes, widemult, lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3881,10 +5009,10 @@ def LVX_MaddxwdOp : LVX_Op<"maddxwd", [Pure]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`` $widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "($widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::WideMultAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultType, widemult, lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3898,10 +5026,10 @@ def LVX_MaddxwdImmOp : LVX_Op<"maddxwd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $widemult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? ($widemult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::WideMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultType, widemult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3914,10 +5042,10 @@ def LVX_MsbfdOp : LVX_Op<"msbfd", [Pure]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`` $highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "($highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3931,10 +5059,10 @@ def LVX_MsbfdImmOp : LVX_Op<"msbfd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? ($highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3948,10 +5076,10 @@ def LVX_MsbfwOp : LVX_Op<"msbfw", [Pure]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3965,10 +5093,10 @@ def LVX_MsbfwImmOp : LVX_Op<"msbfw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3981,10 +5109,10 @@ def LVX_MsbfxdqOp : LVX_Op<"msbfxdq", [Pure]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "(`` $widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "($widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
-    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultTypes, ::mlir::lvx::WideMultAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultTypes, widemult, lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -3997,10 +5125,10 @@ def LVX_MsbfxwdOp : LVX_Op<"msbfxwd", [Pure]>{
                        LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`` $widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "($widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::WideMultAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultType, widemult, lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -4014,10 +5142,10 @@ def LVX_MsbfxwdImmOp : LVX_Op<"msbfxwd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $widemult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? ($widemult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::WideMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultType, widemult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -4200,6 +5328,385 @@ def LVX_CrclellwImmOp : LVX_Op<"crclellw_i", [Pure]>{
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FADDD -- register form, from FADDD_floatmode_registerW_registerZ_registerY_simple
+def LVX_FadddOp : LVX_Op<"faddd", [Pure]>{
+  let summary = "FADDD -- Floating-Point Add Double Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FADDW -- register form, from FADDW_floatmode_registerW_registerZ_registerY_simple
+def LVX_FaddwOp : LVX_Op<"faddw", [Pure]>{
+  let summary = "FADDW -- Floating-Point Add Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FADDH -- register form, from FADDH_floatmode_registerW_registerZ_registerY_simple
+def LVX_FaddhOp : LVX_Op<"faddh", [Pure]>{
+  let summary = "FADDH -- Floating-Point Add Half Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSBFD -- register form, from FSBFD_floatmode_registerW_registerZ_registerY_simple
+def LVX_FsbfdOp : LVX_Op<"fsbfd", [Pure]>{
+  let summary = "FSBFD -- Floating-Point Subtract From Double Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSBFW -- register form, from FSBFW_floatmode_registerW_registerZ_registerY_simple
+def LVX_FsbfwOp : LVX_Op<"fsbfw", [Pure]>{
+  let summary = "FSBFW -- Floating-Point Subtract From Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSBFH -- register form, from FSBFH_floatmode_registerW_registerZ_registerY_simple
+def LVX_FsbfhOp : LVX_Op<"fsbfh", [Pure]>{
+  let summary = "FSBFH -- Floating-Point Subtract From Half Word";
+  let arguments = (ins OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($floatmode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, floatmode, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMULD -- register form, from FMULD_fnegate_floatmode_registerW_registerZ_registerY_simple
+def LVX_FmuldOp : LVX_Op<"fmuld", [Pure]>{
+  let summary = "FMULD -- Floating-Point Multiply Double Word";
+  let arguments = (ins UnitAttr:$n,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`n` $n^)? ($floatmode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), floatmode, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMULW -- register form, from FMULW_fnegate_floatmode_registerW_registerZ_registerY_simple
+def LVX_FmulwOp : LVX_Op<"fmulw", [Pure]>{
+  let summary = "FMULW -- Floating-Point Multiply Word";
+  let arguments = (ins UnitAttr:$n,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`n` $n^)? ($floatmode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), floatmode, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMULH -- register form, from FMULH_fnegate_floatmode_registerW_registerZ_registerY_simple
+def LVX_FmulhOp : LVX_Op<"fmulh", [Pure]>{
+  let summary = "FMULH -- Floating-Point Multiply Half Word";
+  let arguments = (ins UnitAttr:$n,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`n` $n^)? ($floatmode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), floatmode, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FDIVD -- register form, from FDIVD_fnegate_floatmode_registerW_registerZ_registerY_simple
+def LVX_FdivdOp : LVX_Op<"fdivd", [Pure]>{
+  let summary = "FDIVD -- Floating-Point Divide Double Word";
+  let arguments = (ins UnitAttr:$n,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`n` $n^)? ($floatmode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), floatmode, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FDIVW -- register form, from FDIVW_fnegate_floatmode_registerW_registerZ_registerY_simple
+def LVX_FdivwOp : LVX_Op<"fdivw", [Pure]>{
+  let summary = "FDIVW -- Floating-Point Divide Word";
+  let arguments = (ins UnitAttr:$n,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`n` $n^)? ($floatmode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), floatmode, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FDIVH -- register form, from FDIVH_fnegate_floatmode_registerW_registerZ_registerY_simple
+def LVX_FdivhOp : LVX_Op<"fdivh", [Pure]>{
+  let summary = "FDIVH -- Floating-Point Divide Half Word";
+  let arguments = (ins UnitAttr:$n,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`n` $n^)? ($floatmode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), floatmode, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FFMAD -- register form, from FFMAD_fnegate_floatmode_registerW_registerZ_registerY_simple
+def LVX_FfmadOp : LVX_Op<"ffmad", [Pure]>{
+  let summary = "FFMAD -- Floating-Point Fused Multiply Add Double Word";
+  let arguments = (ins UnitAttr:$n,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`n` $n^)? ($floatmode^)? $a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), floatmode, a, b, c, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FFMAW -- register form, from FFMAW_fnegate_floatmode_registerW_registerZ_registerY_simple
+def LVX_FfmawOp : LVX_Op<"ffmaw", [Pure]>{
+  let summary = "FFMAW -- Floating-Point Fused Multiply Add Word";
+  let arguments = (ins UnitAttr:$n,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`n` $n^)? ($floatmode^)? $a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), floatmode, a, b, c, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FFMAH -- register form, from FFMAH_fnegate_floatmode_registerW_registerZ_registerY_simple
+def LVX_FfmahOp : LVX_Op<"ffmah", [Pure]>{
+  let summary = "FFMAH -- Floating-Point Fused Multiply Add Half Word";
+  let arguments = (ins UnitAttr:$n,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`n` $n^)? ($floatmode^)? $a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), floatmode, a, b, c, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FFMSD -- register form, from FFMSD_fnegate_floatmode_registerW_registerZ_registerY_simple
+def LVX_FfmsdOp : LVX_Op<"ffmsd", [Pure]>{
+  let summary = "FFMSD -- Floating-Point Fused Multiply Subtract From Double Word";
+  let arguments = (ins UnitAttr:$n,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`n` $n^)? ($floatmode^)? $a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), floatmode, a, b, c, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FFMSW -- register form, from FFMSW_fnegate_floatmode_registerW_registerZ_registerY_simple
+def LVX_FfmswOp : LVX_Op<"ffmsw", [Pure]>{
+  let summary = "FFMSW -- Floating-Point Fused Multiply Subtract From Word";
+  let arguments = (ins UnitAttr:$n,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`n` $n^)? ($floatmode^)? $a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), floatmode, a, b, c, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FFMSH -- register form, from FFMSH_fnegate_floatmode_registerW_registerZ_registerY_simple
+def LVX_FfmshOp : LVX_Op<"ffmsh", [Pure]>{
+  let summary = "FFMSH -- Floating-Point Fused Multiply Subtract From Half Word";
+  let arguments = (ins UnitAttr:$n,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`n` $n^)? ($floatmode^)? $a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), floatmode, a, b, c, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FADDWC -- register form, from FADDWC_conjugate_imultiply_floatmode_registerW_registerZ_registerY_simple
+def LVX_FaddwcOp : LVX_Op<"faddwc", [Pure]>{
+  let summary = "FADDWC -- Floating-Point Add to Word Complex";
+  let arguments = (ins UnitAttr:$c,
+                       UnitAttr:$mi,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`mi` $mi^)? (`c` $c^)? ($floatmode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), ::mlir::UnitAttr(), floatmode, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FSBFWC -- register form, from FSBFWC_conjugate_imultiply_floatmode_registerW_registerZ_registerY_simple
+def LVX_FsbfwcOp : LVX_Op<"fsbfwc", [Pure]>{
+  let summary = "FSBFWC -- Floating-Point Subtract from Word Complex";
+  let arguments = (ins UnitAttr:$c,
+                       UnitAttr:$mi,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`mi` $mi^)? (`c` $c^)? ($floatmode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), ::mlir::UnitAttr(), floatmode, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FMULWC -- register form, from FMULWC_conjugate_imultiply_floatmode_registerW_registerZ_registerY_simple
+def LVX_FmulwcOp : LVX_Op<"fmulwc", [Pure]>{
+  let summary = "FMULWC -- Floating-Point Multiply Word Complex";
+  let arguments = (ins UnitAttr:$c,
+                       UnitAttr:$mi,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`mi` $mi^)? (`c` $c^)? ($floatmode^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), ::mlir::UnitAttr(), floatmode, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// FPU:FFMAWC -- register form, from FFMAWC_conjugate_imultiply_floatmode_registerW_registerZ_registerY_simple
+def LVX_FfmawcOp : LVX_Op<"ffmawc", [Pure]>{
+  let summary = "FFMAWC -- Floating-Point Multiply Add Word Complex";
+  let arguments = (ins UnitAttr:$c,
+                       UnitAttr:$mi,
+                       OptionalAttr<LVX_FloatModeAttr>:$floatmode,
+                       LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$cReg,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`mi` $mi^)? (`c` $c^)? ($floatmode^)? $a `,` $b `,` $cReg attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($cReg)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$cReg, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), ::mlir::UnitAttr(), floatmode, a, b, cReg, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }

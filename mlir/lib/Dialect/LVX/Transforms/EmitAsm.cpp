@@ -387,19 +387,18 @@ private:
         .Case([&](SwOp op) { return emitStore(op, "sw", op.getValue(), op.getBase(), op.getOffset()); })
         .Case([&](SdOp op) { return emitStore(op, "sd", op.getValue(), op.getBase(), op.getOffset()); })
         // Unary float ops carrying a rounding-mode suffix.
-        .Case([&](FsqrtdOp op) { return emitUnaryMode(op, "fsqrtd", op.getMode()); })
-        .Case([&](FsqrtwOp op) { return emitUnaryMode(op, "fsqrtw", op.getMode()); })
-        .Case([&](FrintdOp op) { return emitUnaryMode(op, "frintd", op.getMode()); })
-        .Case([&](FrintwOp op) { return emitUnaryMode(op, "frintw", op.getMode()); })
+        .Case([&](FsqrtdOp op) { return emitUnaryMode(op, "fsqrtd", op.getFloatmode()); })
+        .Case([&](FsqrtwOp op) { return emitUnaryMode(op, "fsqrtw", op.getFloatmode()); })
+        .Case([&](FrintdOp op) { return emitUnaryMode(op, "frintd", op.getFloatmode()); })
+        .Case([&](FrintwOp op) { return emitUnaryMode(op, "frintw", op.getFloatmode()); })
         // Comparisons (dotted predicate).
-        // compd/compw are generated and name this attribute after the MDS
-        // modifier (`intcomp`); fcompd/fcompw are still hand-written and call
-        // it `predicate`. The split is temporary -- it closes when FPU is
-        // generated too.
+        // All four comparisons are generated now and name the attribute
+        // after the MDS modifier -- `intcomp` for the integer pair,
+        // `floatcomp` for the float pair.
         .Case([&](CompdOp op) { return emitCompare(op, "compd", stringifyIntComp(op.getIntcomp())); })
         .Case([&](CompwOp op) { return emitCompare(op, "compw", stringifyIntComp(op.getIntcomp())); })
-        .Case([&](FcompdOp op) { return emitCompare(op, "fcompd", stringifyFloatComp(op.getPredicate())); })
-        .Case([&](FcompwOp op) { return emitCompare(op, "fcompw", stringifyFloatComp(op.getPredicate())); })
+        .Case([&](FcompdOp op) { return emitCompare(op, "fcompd", stringifyFloatComp(op.getFloatcomp())); })
+        .Case([&](FcompwOp op) { return emitCompare(op, "fcompw", stringifyFloatComp(op.getFloatcomp())); })
         // "Subtract FROM" opcodes: real hardware's operand order is the
         // reverse of this dialect's `$lhs, $rhs` -- see
         // emitBinarySubtractFrom's comment.
