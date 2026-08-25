@@ -177,7 +177,7 @@ struct FoldEorAllOnesToNot : public OpRewritePattern<EorOp> {
   }
 };
 
-using FoldEorToNotD = FoldEorAllOnesToNot<EorddOp, NotdOp>;
+using FoldEorToNotD = FoldEorAllOnesToNot<EordOp, NotdOp>;
 using FoldEorToNotW = FoldEorAllOnesToNot<EorwOp, NotwOp>;
 
 /// `zxwd(wop)` -> `wop`.
@@ -193,7 +193,7 @@ struct DropRedundantZxwd : public OpRewritePattern<ZxwdOp> {
   using OpRewritePattern::OpRewritePattern;
   LogicalResult matchAndRewrite(ZxwdOp op,
                                 PatternRewriter &rewriter) const override {
-    Operation *src = op.getIn().getDefiningOp();
+    Operation *src = op.getOperand().getDefiningOp();
     if (!src || !carriesSignExtW(src))
       return failure();
     // If it is set to sign-extend, the zxwd is doing real work.
@@ -204,7 +204,7 @@ struct DropRedundantZxwd : public OpRewritePattern<ZxwdOp> {
     // value is the same unpinned `!lvx.reg`, so this is not a restriction
     // in practice; it stops the pattern from forging invalid IR if it is
     // ever run somewhere else.
-    if (op.getOut().getType() != src->getResult(0).getType())
+    if (op.getResult().getType() != src->getResult(0).getType())
       return failure();
     rewriter.replaceOp(op, src->getResult(0));
     return success();
@@ -219,12 +219,12 @@ struct FoldSxwdIntoW : public OpRewritePattern<SxwdOp> {
   using OpRewritePattern::OpRewritePattern;
   LogicalResult matchAndRewrite(SxwdOp op,
                                 PatternRewriter &rewriter) const override {
-    Operation *src = op.getIn().getDefiningOp();
+    Operation *src = op.getOperand().getDefiningOp();
     if (!src || !carriesSignExtW(src) || src->hasAttr("sx"))
       return failure();
     if (!src->hasOneUse())
       return failure();
-    if (op.getOut().getType() != src->getResult(0).getType())
+    if (op.getResult().getType() != src->getResult(0).getType())
       return failure();
     rewriter.modifyOpInPlace(
         src, [&] { src->setAttr("sx", rewriter.getUnitAttr()); });

@@ -392,8 +392,12 @@ private:
         .Case([&](FrintdOp op) { return emitUnaryMode(op, "frintd", op.getMode()); })
         .Case([&](FrintwOp op) { return emitUnaryMode(op, "frintw", op.getMode()); })
         // Comparisons (dotted predicate).
-        .Case([&](CompdOp op) { return emitCompare(op, "compd", stringifyIntComp(op.getPredicate())); })
-        .Case([&](CompwOp op) { return emitCompare(op, "compw", stringifyIntComp(op.getPredicate())); })
+        // compd/compw are generated and name this attribute after the MDS
+        // modifier (`intcomp`); fcompd/fcompw are still hand-written and call
+        // it `predicate`. The split is temporary -- it closes when FPU is
+        // generated too.
+        .Case([&](CompdOp op) { return emitCompare(op, "compd", stringifyIntComp(op.getIntcomp())); })
+        .Case([&](CompwOp op) { return emitCompare(op, "compw", stringifyIntComp(op.getIntcomp())); })
         .Case([&](FcompdOp op) { return emitCompare(op, "fcompd", stringifyFloatComp(op.getPredicate())); })
         .Case([&](FcompwOp op) { return emitCompare(op, "fcompw", stringifyFloatComp(op.getPredicate())); })
         // "Subtract FROM" opcodes: real hardware's operand order is the
