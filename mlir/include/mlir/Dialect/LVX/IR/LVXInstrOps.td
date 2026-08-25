@@ -92,7 +92,7 @@ def LVX_AbddImmOp : LVX_Op<"abdd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -124,7 +124,7 @@ def LVX_AbdwImmOp : LVX_Op<"abdw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -155,7 +155,7 @@ def LVX_AbdsdImmOp : LVX_Op<"abdsd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -187,7 +187,7 @@ def LVX_AbdswImmOp : LVX_Op<"abdsw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -218,7 +218,7 @@ def LVX_AbdudImmOp : LVX_Op<"abdud_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -250,7 +250,7 @@ def LVX_AbduwImmOp : LVX_Op<"abduw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -281,7 +281,7 @@ def LVX_AddqImmOp : LVX_Op<"addq_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
     OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultTypes, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -311,7 +311,7 @@ def LVX_AdddImmOp : LVX_Op<"addd_i", [Pure, Commutative]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -343,7 +343,7 @@ def LVX_AddwImmOp : LVX_Op<"addw_i", [Pure, Commutative]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -374,7 +374,7 @@ def LVX_AddsdImmOp : LVX_Op<"addsd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -406,7 +406,7 @@ def LVX_AddswImmOp : LVX_Op<"addsw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -437,7 +437,7 @@ def LVX_AddusdImmOp : LVX_Op<"addusd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -469,7 +469,7 @@ def LVX_AdduswImmOp : LVX_Op<"addusw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -500,7 +500,7 @@ def LVX_SbfqImmOp : LVX_Op<"sbfq_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
     OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultTypes, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -530,7 +530,7 @@ def LVX_SbfdImmOp : LVX_Op<"sbfd_i", [Pure]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -562,7 +562,7 @@ def LVX_SbfwImmOp : LVX_Op<"sbfw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -593,7 +593,7 @@ def LVX_SbfsdImmOp : LVX_Op<"sbfsd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -625,7 +625,7 @@ def LVX_SbfswImmOp : LVX_Op<"sbfsw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -656,7 +656,7 @@ def LVX_SbfusdImmOp : LVX_Op<"sbfusd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -688,7 +688,7 @@ def LVX_SbfuswImmOp : LVX_Op<"sbfusw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -718,7 +718,7 @@ def LVX_MindImmOp : LVX_Op<"mind_i", [Pure]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -750,7 +750,7 @@ def LVX_MinwImmOp : LVX_Op<"minw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -780,7 +780,7 @@ def LVX_MaxdImmOp : LVX_Op<"maxd_i", [Pure]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -812,7 +812,7 @@ def LVX_MaxwImmOp : LVX_Op<"maxw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -842,7 +842,7 @@ def LVX_MinudImmOp : LVX_Op<"minud_i", [Pure]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -874,7 +874,7 @@ def LVX_MinuwImmOp : LVX_Op<"minuw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -904,7 +904,7 @@ def LVX_MaxudImmOp : LVX_Op<"maxud_i", [Pure]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -936,7 +936,7 @@ def LVX_MaxuwImmOp : LVX_Op<"maxuw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -967,7 +967,7 @@ def LVX_AndqImmOp : LVX_Op<"andq_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
     OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultTypes, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -997,7 +997,7 @@ def LVX_AnddImmOp : LVX_Op<"andd_i", [Pure, Commutative]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -1029,7 +1029,7 @@ def LVX_AndwImmOp : LVX_Op<"andw_i", [Pure, Commutative]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -1060,7 +1060,7 @@ def LVX_NandqImmOp : LVX_Op<"nandq_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
     OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultTypes, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -1090,7 +1090,7 @@ def LVX_NanddImmOp : LVX_Op<"nandd_i", [Pure]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -1122,7 +1122,7 @@ def LVX_NandwImmOp : LVX_Op<"nandw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -1153,7 +1153,7 @@ def LVX_IorqImmOp : LVX_Op<"iorq_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
     OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultTypes, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -1183,7 +1183,7 @@ def LVX_IordImmOp : LVX_Op<"iord_i", [Pure, Commutative]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -1215,7 +1215,7 @@ def LVX_IorwImmOp : LVX_Op<"iorw_i", [Pure, Commutative]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -1246,7 +1246,7 @@ def LVX_NiorqImmOp : LVX_Op<"niorq_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
     OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultTypes, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -1276,7 +1276,7 @@ def LVX_NiordImmOp : LVX_Op<"niord_i", [Pure]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -1308,7 +1308,7 @@ def LVX_NiorwImmOp : LVX_Op<"niorw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -1339,7 +1339,7 @@ def LVX_EorqImmOp : LVX_Op<"eorq_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
     OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultTypes, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -1369,7 +1369,7 @@ def LVX_EordImmOp : LVX_Op<"eord_i", [Pure, Commutative]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -1401,7 +1401,7 @@ def LVX_EorwImmOp : LVX_Op<"eorw_i", [Pure, Commutative]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -1432,7 +1432,7 @@ def LVX_NeorqImmOp : LVX_Op<"neorq_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
     OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultTypes, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -1462,7 +1462,7 @@ def LVX_NeordImmOp : LVX_Op<"neord_i", [Pure]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -1494,7 +1494,7 @@ def LVX_NeorwImmOp : LVX_Op<"neorw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -1525,7 +1525,7 @@ def LVX_AndnqImmOp : LVX_Op<"andnq_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
     OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultTypes, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -1555,7 +1555,7 @@ def LVX_AndndImmOp : LVX_Op<"andnd_i", [Pure]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -1587,7 +1587,7 @@ def LVX_AndnwImmOp : LVX_Op<"andnw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -1618,7 +1618,7 @@ def LVX_IornqImmOp : LVX_Op<"iornq_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
     OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultTypes, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -1648,7 +1648,7 @@ def LVX_IorndImmOp : LVX_Op<"iornd_i", [Pure]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -1680,7 +1680,7 @@ def LVX_IornwImmOp : LVX_Op<"iornw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -1710,7 +1710,7 @@ def LVX_SrldImmOp : LVX_Op<"srld_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -1742,7 +1742,7 @@ def LVX_SrlwImmOp : LVX_Op<"srlw_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -1772,7 +1772,7 @@ def LVX_SradImmOp : LVX_Op<"srad_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -1804,7 +1804,7 @@ def LVX_SrawImmOp : LVX_Op<"sraw_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -1834,7 +1834,7 @@ def LVX_SrsdImmOp : LVX_Op<"srsd_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -1866,7 +1866,7 @@ def LVX_SrswImmOp : LVX_Op<"srsw_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -1896,7 +1896,7 @@ def LVX_SlldImmOp : LVX_Op<"slld_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -1928,7 +1928,7 @@ def LVX_SllwImmOp : LVX_Op<"sllw_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -1958,7 +1958,7 @@ def LVX_SlsdImmOp : LVX_Op<"slsd_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -1990,7 +1990,7 @@ def LVX_SlswImmOp : LVX_Op<"slsw_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -2020,7 +2020,7 @@ def LVX_SlusdImmOp : LVX_Op<"slusd_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -2052,7 +2052,7 @@ def LVX_SluswImmOp : LVX_Op<"slusw_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -2082,7 +2082,7 @@ def LVX_RoldImmOp : LVX_Op<"rold_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -2114,7 +2114,7 @@ def LVX_RolwImmOp : LVX_Op<"rolw_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -2144,7 +2144,7 @@ def LVX_RordImmOp : LVX_Op<"rord_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -2176,7 +2176,7 @@ def LVX_RorwImmOp : LVX_Op<"rorw_i", [Pure]>{
                        TypedAttrInterface:$unsigned6,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $unsigned6 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$unsigned6), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, unsigned6, ::mlir::lvx::FormatAttr());
@@ -2206,7 +2206,7 @@ def LVX_Sbmm8dImmOp : LVX_Op<"sbmm8d_i", [Pure]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -2236,7 +2236,7 @@ def LVX_Sbmmt8dImmOp : LVX_Op<"sbmmt8d_i", [Pure]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -2267,7 +2267,7 @@ def LVX_Sbmm8eordImmOp : LVX_Op<"sbmm8eord_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2298,7 +2298,7 @@ def LVX_Sbmmt8eordImmOp : LVX_Op<"sbmmt8eord_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2330,7 +2330,7 @@ def LVX_AvgwImmOp : LVX_Op<"avgw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2362,7 +2362,7 @@ def LVX_AvguwImmOp : LVX_Op<"avguw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2394,7 +2394,7 @@ def LVX_AvgrwImmOp : LVX_Op<"avgrw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2426,7 +2426,7 @@ def LVX_AvgruwImmOp : LVX_Op<"avgruw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2457,7 +2457,7 @@ def LVX_SigndImmOp : LVX_Op<"signd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2489,7 +2489,7 @@ def LVX_SignwImmOp : LVX_Op<"signw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2520,7 +2520,7 @@ def LVX_SignsdImmOp : LVX_Op<"signsd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2552,7 +2552,7 @@ def LVX_SignswImmOp : LVX_Op<"signsw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2583,7 +2583,7 @@ def LVX_Addx2dImmOp : LVX_Op<"addx2d_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2615,7 +2615,7 @@ def LVX_Addx2wImmOp : LVX_Op<"addx2w_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2646,7 +2646,7 @@ def LVX_Addx4dImmOp : LVX_Op<"addx4d_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2678,7 +2678,7 @@ def LVX_Addx4wImmOp : LVX_Op<"addx4w_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2709,7 +2709,7 @@ def LVX_Addx8dImmOp : LVX_Op<"addx8d_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2741,7 +2741,7 @@ def LVX_Addx8wImmOp : LVX_Op<"addx8w_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2772,7 +2772,7 @@ def LVX_Addx16dImmOp : LVX_Op<"addx16d_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2804,7 +2804,7 @@ def LVX_Addx16wImmOp : LVX_Op<"addx16w_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2835,7 +2835,7 @@ def LVX_Addx32dImmOp : LVX_Op<"addx32d_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2867,7 +2867,7 @@ def LVX_Addx32wImmOp : LVX_Op<"addx32w_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2898,7 +2898,7 @@ def LVX_Addx64dImmOp : LVX_Op<"addx64d_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -2930,7 +2930,7 @@ def LVX_Addx64wImmOp : LVX_Op<"addx64w_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -3066,7 +3066,7 @@ def LVX_InsfImmOp : LVX_Op<"insf", [Pure]>{
                        TypedAttrInterface:$startbit,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $stopbit2_stopbit4 `,` $startbit attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$stopbit2_stopbit4, "::mlir::TypedAttr":$startbit), [{
       build($_builder, $_state, resultType, operand, stopbit2_stopbit4, startbit, ::mlir::lvx::FormatAttr());
@@ -3082,7 +3082,7 @@ def LVX_ExtfzImmOp : LVX_Op<"extfz", [Pure]>{
                        TypedAttrInterface:$startbit,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $stopbit2_stopbit4 `,` $startbit attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$stopbit2_stopbit4, "::mlir::TypedAttr":$startbit), [{
       build($_builder, $_state, resultType, operand, stopbit2_stopbit4, startbit, ::mlir::lvx::FormatAttr());
@@ -3098,7 +3098,7 @@ def LVX_ExtfsImmOp : LVX_Op<"extfs", [Pure]>{
                        TypedAttrInterface:$startbit,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $stopbit2_stopbit4 `,` $startbit attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$stopbit2_stopbit4, "::mlir::TypedAttr":$startbit), [{
       build($_builder, $_state, resultType, operand, stopbit2_stopbit4, startbit, ::mlir::lvx::FormatAttr());
@@ -3146,7 +3146,7 @@ def LVX_CompdImmOp : LVX_Op<"compd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$intcomp $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$intcomp $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::lvx::IntComp":$intcomp, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::lvx::IntCompAttr::get($_builder.getContext(), intcomp), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -3180,7 +3180,7 @@ def LVX_CompwImmOp : LVX_Op<"compw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? $intcomp $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? $intcomp $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::lvx::IntComp":$intcomp, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::lvx::IntCompAttr::get($_builder.getContext(), intcomp), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -3233,7 +3233,7 @@ def LVX_CmovedImmOp : LVX_Op<"cmoved_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $cmovecond $test `,` $trueValue `,` $falseValue attr-dict `:` `(` qualified(type($test)) `,` qualified(type($trueValue)) `,` qualified(type($falseValue)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $cmovecond $test `,` $upper27_lower5 `,` $trueValue `,` $falseValue attr-dict `:` `(` qualified(type($test)) `,` qualified(type($trueValue)) `,` qualified(type($falseValue)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::lvx::BcuCond":$cmovecond, "::mlir::Value":$test, "::mlir::Value":$trueValue, "::mlir::Value":$falseValue, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::lvx::BcuCondAttr::get($_builder.getContext(), cmovecond), ::mlir::UnitAttr(), test, trueValue, falseValue, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -3247,7 +3247,7 @@ def LVX_MakedImmOp : LVX_Op<"maked", [Pure]>{
   let arguments = (ins TypedAttrInterface:$signed16,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = " attr-dict `:` `(`  `)` `->` qualified(type($result))";
+  let assemblyFormat = "$signed16 attr-dict `:` `(`  `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::TypedAttr":$signed16), [{
       build($_builder, $_state, resultType, signed16, ::mlir::lvx::FormatAttr());
@@ -3261,7 +3261,7 @@ def LVX_PcrelImmOp : LVX_Op<"pcrel", [Pure]>{
   let arguments = (ins TypedAttrInterface:$signed16,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = " attr-dict `:` `(`  `)` `->` qualified(type($result))";
+  let assemblyFormat = "$signed16 attr-dict `:` `(`  `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::TypedAttr":$signed16), [{
       build($_builder, $_state, resultType, signed16, ::mlir::lvx::FormatAttr());
@@ -3583,7 +3583,7 @@ def LVX_MuldImmOp : LVX_Op<"muld_i", [Pure, Commutative]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $highmult^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -3617,7 +3617,7 @@ def LVX_MulwImmOp : LVX_Op<"mulw_i", [Pure, Commutative]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -3650,7 +3650,7 @@ def LVX_MulndImmOp : LVX_Op<"mulnd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $highmult^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -3684,7 +3684,7 @@ def LVX_MulnwImmOp : LVX_Op<"mulnw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -3733,7 +3733,7 @@ def LVX_MulxwdImmOp : LVX_Op<"mulxwd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $widemult^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? (`` $widemult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::lvx::WideMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -3782,7 +3782,7 @@ def LVX_MulnxwdImmOp : LVX_Op<"mulnxwd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $widemult^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? (`` $widemult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::lvx::WideMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -3815,7 +3815,7 @@ def LVX_MadddImmOp : LVX_Op<"maddd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $highmult^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -3849,7 +3849,7 @@ def LVX_MaddwImmOp : LVX_Op<"maddw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -3898,7 +3898,7 @@ def LVX_MaddxwdImmOp : LVX_Op<"maddxwd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $widemult^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? (`` $widemult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::lvx::WideMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -3931,7 +3931,7 @@ def LVX_MsbfdImmOp : LVX_Op<"msbfd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $highmult^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -3965,7 +3965,7 @@ def LVX_MsbfwImmOp : LVX_Op<"msbfw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? (`` $highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::lvx::HighMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -4014,7 +4014,7 @@ def LVX_MsbfxwdImmOp : LVX_Op<"msbfxwd_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? (`` $widemult^)? $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? (`` $widemult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, ::mlir::lvx::WideMultAttr(), ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -4106,7 +4106,7 @@ def LVX_CrcbelmwImmOp : LVX_Op<"crcbelmw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -4136,7 +4136,7 @@ def LVX_CrcbellwImmOp : LVX_Op<"crcbellw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -4166,7 +4166,7 @@ def LVX_CrclelmwImmOp : LVX_Op<"crclelmw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -4196,7 +4196,7 @@ def LVX_CrclellwImmOp : LVX_Op<"crclellw_i", [Pure]>{
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
       build($_builder, $_state, resultType, operand, upper27_lower5, ::mlir::lvx::FormatAttr());
@@ -4241,7 +4241,7 @@ def LVX_Sbmm8ImmOp : LVX_Op<"sbmm8_i", [Pure]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
@@ -4271,7 +4271,7 @@ def LVX_Sbmmt8ImmOp : LVX_Op<"sbmmt8_i", [Pure]>{
                        TypedAttrInterface:$signed10,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$operand `,` $signed10 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$signed10), [{
       build($_builder, $_state, resultType, operand, signed10, ::mlir::lvx::FormatAttr());
