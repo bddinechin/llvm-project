@@ -124,6 +124,34 @@ def LVX_BreakImmOp : LVX_Op<"break">{
   ];
 }
 
+// BCU:SCALL -- register form, from SCALL_registerZ_simple
+def LVX_ScallOp : LVX_Op<"scall">{
+  let summary = "SCALL -- System Call";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$operand), [{
+      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:SCALL -- immediate form, from SCALL_sysnumber_simple
+def LVX_ScallImmOp : LVX_Op<"scall_i">{
+  let summary = "SCALL -- System Call";
+  let arguments = (ins TypedAttrInterface:$sysnumber,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$sysnumber attr-dict";
+  let builders = [
+    OpBuilder<(ins "::mlir::TypedAttr":$sysnumber), [{
+      build($_builder, $_state, sysnumber, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
 // BCU:IGET -- register form, from IGET_registerZ_simple
 def LVX_IgetOp : LVX_Op<"iget">{
   let summary = "IGET -- Indirect Get System Register";
