@@ -509,7 +509,7 @@ static Value insertPrologueEpilogue(lvx_func::FuncOp func, unsigned frameSize,
 
   if (raOffset) {
     auto raOffsetAttr =
-        builder.getSI32IntegerAttr(static_cast<int32_t>(*raOffset));
+        builder.getI64IntegerAttr(*raOffset);
     Value raVal = builder.create<GetraOp>(loc, raScratchTy);
     builder.create<SdOp>(loc, raVal, spBase, raOffsetAttr);
   }
@@ -519,7 +519,7 @@ static Value insertPrologueEpilogue(lvx_func::FuncOp func, unsigned frameSize,
   // incoming register so the `lvx.sd` has an operand to store.
   for (auto [reg, offset] : calleeSaved) {
     Type regTy = RegisterType::get(ctx, reg);
-    auto offsetAttr = builder.getSI32IntegerAttr(static_cast<int32_t>(offset));
+    auto offsetAttr = builder.getI64IntegerAttr(offset);
     Value live = builder.create<RegLiveInOp>(loc, regTy);
     builder.create<SdOp>(loc, live, spBase, offsetAttr);
   }
@@ -531,12 +531,12 @@ static Value insertPrologueEpilogue(lvx_func::FuncOp func, unsigned frameSize,
     for (auto [reg, offset] : calleeSaved) {
       Type regTy = RegisterType::get(ctx, reg);
       auto offsetAttr =
-          builder.getSI32IntegerAttr(static_cast<int32_t>(offset));
+          builder.getI64IntegerAttr(offset);
       builder.create<LdOp>(ret.getLoc(), regTy, spBase, offsetAttr);
     }
     if (raOffset) {
       auto raOffsetAttr =
-          builder.getSI32IntegerAttr(static_cast<int32_t>(*raOffset));
+          builder.getI64IntegerAttr(*raOffset);
       Value raVal = builder.create<LdOp>(ret.getLoc(), raScratchTy, spBase,
                                          raOffsetAttr);
       builder.create<SetraOp>(ret.getLoc(), raVal);
@@ -567,8 +567,7 @@ static LogicalResult rewriteSpills(MLIRContext *ctx, ArrayRef<AllocItem> items,
     // lvx-mlir/docs/RegisterAllocation.md, "What remains a hard error".
     assert(!item.isGroup() && "coalesced group reached spill rewrite");
     Value v = item.values.front();
-    auto offsetAttr = builder.getSI32IntegerAttr(
-        static_cast<int32_t>(*item.spillOffset));
+    auto offsetAttr = builder.getI64IntegerAttr(*item.spillOffset);
 
     // Snapshot uses before inserting the store, which itself uses `v` --
     // otherwise the store would show up as one more "use" to reload.

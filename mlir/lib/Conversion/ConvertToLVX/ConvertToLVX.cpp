@@ -665,7 +665,7 @@ struct MemRefLoadToLVX : public OpConversionPattern<memref::LoadOp> {
     if (failed(address))
       return rewriter.notifyMatchFailure(
           op, "unsupported memref layout for address linearization");
-    auto zeroOffset = rewriter.getSI32IntegerAttr(0);
+    auto zeroOffset = rewriter.getI64IntegerAttr(0);
     unsigned bits = getScalarBitWidth(memrefType.getElementType());
     Value result;
     if (bits <= 8)
@@ -694,7 +694,7 @@ struct MemRefStoreToLVX : public OpConversionPattern<memref::StoreOp> {
     if (failed(address))
       return rewriter.notifyMatchFailure(
           op, "unsupported memref layout for address linearization");
-    auto zeroOffset = rewriter.getSI32IntegerAttr(0);
+    auto zeroOffset = rewriter.getI64IntegerAttr(0);
     unsigned bits = getScalarBitWidth(memrefType.getElementType());
     if (bits <= 8)
       rewriter.replaceOpWithNewOp<lvx::SbOp>(op, adaptor.getValue(), *address, zeroOffset);

@@ -40,10 +40,10 @@ lvx_func.func @float_ops(%a: !lvx.reg, %b: !lvx.reg, %c: !lvx.reg) -> !lvx.reg {
 
 // CHECK-LABEL: func @memory_ops
 lvx_func.func @memory_ops(%base: !lvx.reg, %val: !lvx.reg) -> !lvx.reg {
-  // CHECK: lvx.ld %{{.*}}, 8 : (!lvx.reg) -> !lvx.reg
-  %0 = lvx.ld %base, 8 : (!lvx.reg) -> !lvx.reg
-  // CHECK: lvx.sd %{{.*}}, %{{.*}}, 16 : (!lvx.reg, !lvx.reg)
-  lvx.sd %val, %base, 16 : (!lvx.reg, !lvx.reg)
+  // CHECK: lvx.ld %{{.*}}, 8 : i64 : (!lvx.reg) -> !lvx.reg
+  %0 = lvx.ld %base, 8 : i64 : (!lvx.reg) -> !lvx.reg
+  // CHECK: lvx.sd %{{.*}}, %{{.*}}, 16 : i64 : (!lvx.reg, !lvx.reg)
+  lvx.sd %val, %base, 16 : i64 : (!lvx.reg, !lvx.reg)
   lvx_func.return %0 : !lvx.reg
 }
 

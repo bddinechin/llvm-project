@@ -122,15 +122,15 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: %1 = lvx.li 16 : i64 : !lvx.reg<r61>
 // CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
 // CHECK-NEXT: %3 = lvx.getra : !lvx.reg<r61>
-// CHECK-NEXT: lvx.sd %3, %2, 0 : (!lvx.reg<r61>, !lvx.reg<r12>)
+// CHECK-NEXT: lvx.sd %3, %2, 0 : i64 : (!lvx.reg<r61>, !lvx.reg<r12>)
 // CHECK-NEXT: %4 = lvx.reg_live_in : !lvx.reg<r14>
-// CHECK-NEXT: lvx.sd %4, %2, 8 : (!lvx.reg<r14>, !lvx.reg<r12>)
+// CHECK-NEXT: lvx.sd %4, %2, 8 : i64 : (!lvx.reg<r14>, !lvx.reg<r12>)
 // CHECK-NEXT: %5 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r14>
 // CHECK-NEXT: %6 = lvx_func.call @callee(%arg0) : (!lvx.reg<r0>) -> !lvx.reg<r0>
 // CHECK-NEXT: %7 = lvx.addd %5, %6 : (!lvx.reg<r14>, !lvx.reg<r0>) -> !lvx.reg<r1>
 // CHECK-NEXT: %8 = lvx.mv %7 : (!lvx.reg<r1>) -> !lvx.reg<r0>
-// CHECK-NEXT: %9 = lvx.ld %2, 8 : (!lvx.reg<r12>) -> !lvx.reg<r14>
-// CHECK-NEXT: %10 = lvx.ld %2, 0 : (!lvx.reg<r12>) -> !lvx.reg<r61>
+// CHECK-NEXT: %9 = lvx.ld %2, 8 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r14>
+// CHECK-NEXT: %10 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
 // CHECK-NEXT: lvx.setra %10 : !lvx.reg<r61>
 // CHECK-NEXT: %11 = lvx.li 16 : i64 : !lvx.reg<r61>
 // CHECK-NEXT: %12 = lvx.addd %2, %11 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>

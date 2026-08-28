@@ -349,38 +349,18 @@ class LVX_FloatUnaryModeOp<string mnemonic> :
 
 
 //===----------------------------------------------------------------------===//
-// Memory ops: base register + signed 10-bit immediate offset (LSU_LSBO /
-// LSU_SSBO). No memref types here -- address linearization from `memref`
-// happens in the ConvertToLVX lowering pass, before these ops are created.
+// Memory ops are generated: see LVXInstrOps.td. `lvx.ld`/`lvx.sd` and the
+// narrower widths keep the shapes the hand-written ops had -- ($base,
+// $offset) and ($value, $base, $offset) -- because the description states
+// those roles (`%1: Offset, %2: Base, %3: Stored`) and the generator names
+// and orders the operands from them rather than positionally. The generated
+// ops gain the real `variant` modifier (`ld.s`/`ld.u`/`ld.us`), a register-
+// offset form spelled `lvx.ld_r`/`lvx.sd_r`, and an `$offset` that is a
+// TypedAttrInterface rather than an SI32Attr.
+//
+// No memref types here -- address linearization from `memref` happens in the
+// ConvertToLVX lowering pass, before these ops are created.
 //===----------------------------------------------------------------------===//
-
-class LVX_LoadOp<string mnemonic> :
-    LVX_Op<mnemonic>,
-    Arguments<(ins LVX_RegType:$base, SI32Attr:$offset)>,
-    Results<(outs LVX_RegType:$result)> {
-  let assemblyFormat =
-    "$base `,` $offset attr-dict `:` functional-type($base, $result)";
-}
-
-def LVX_LbzOp : LVX_LoadOp<"lbz"> { let summary = "LBZ -- load byte, zero-extend"; }
-def LVX_LbsOp : LVX_LoadOp<"lbs"> { let summary = "LBS -- load byte, sign-extend"; }
-def LVX_LhzOp : LVX_LoadOp<"lhz"> { let summary = "LHZ -- load half-word, zero-extend"; }
-def LVX_LhsOp : LVX_LoadOp<"lhs"> { let summary = "LHS -- load half-word, sign-extend"; }
-def LVX_LwzOp : LVX_LoadOp<"lwz"> { let summary = "LWZ -- load word, zero-extend"; }
-def LVX_LwsOp : LVX_LoadOp<"lws"> { let summary = "LWS -- load word, sign-extend"; }
-def LVX_LdOp  : LVX_LoadOp<"ld">  { let summary = "LD -- load double word"; }
-
-class LVX_StoreOp<string mnemonic> :
-    LVX_Op<mnemonic>,
-    Arguments<(ins LVX_RegType:$value, LVX_RegType:$base, SI32Attr:$offset)> {
-  let assemblyFormat =
-    "$value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
-}
-
-def LVX_SbOp : LVX_StoreOp<"sb"> { let summary = "SB -- store byte"; }
-def LVX_ShOp : LVX_StoreOp<"sh"> { let summary = "SH -- store half-word"; }
-def LVX_SwOp : LVX_StoreOp<"sw"> { let summary = "SW -- store word"; }
-def LVX_SdOp : LVX_StoreOp<"sd"> { let summary = "SD -- store double word"; }
 
 //===----------------------------------------------------------------------===//
 // Control flow: unconditional/direct jump primitives (BCU_UB). Structured

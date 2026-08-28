@@ -13,13 +13,13 @@
 // CHECK-NEXT: %1 = lvx.li 16 : i64 : !lvx.reg<r61>
 // CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
 // CHECK-NEXT: %3 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r61>
-// CHECK-NEXT: lvx.sd %3, %2, 0 : (!lvx.reg<r61>, !lvx.reg<r12>)
+// CHECK-NEXT: lvx.sd %3, %2, 0 : i64 : (!lvx.reg<r61>, !lvx.reg<r12>)
 // CHECK-NEXT: %4 = lvx.mv %arg1 : (!lvx.reg<r1>) -> !lvx.reg<r0>
-// CHECK-NEXT: %5 = lvx.ld %2, 0 : (!lvx.reg<r12>) -> !lvx.reg<r61>
+// CHECK-NEXT: %5 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
 // CHECK-NEXT: %6 = lvx.addd %5, %4 : (!lvx.reg<r61>, !lvx.reg<r0>) -> !lvx.reg<r61>
-// CHECK-NEXT: lvx.sd %6, %2, 8 : (!lvx.reg<r61>, !lvx.reg<r12>)
-// CHECK-NEXT: %7 = lvx.ld %2, 0 : (!lvx.reg<r12>) -> !lvx.reg<r61>
-// CHECK-NEXT: %8 = lvx.ld %2, 8 : (!lvx.reg<r12>) -> !lvx.reg<r62>
+// CHECK-NEXT: lvx.sd %6, %2, 8 : i64 : (!lvx.reg<r61>, !lvx.reg<r12>)
+// CHECK-NEXT: %7 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
+// CHECK-NEXT: %8 = lvx.ld %2, 8 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r62>
 // CHECK-NEXT: %9 = lvx.muld %8, %7 : (!lvx.reg<r62>, !lvx.reg<r61>) -> !lvx.reg<r0>
 // CHECK-NEXT: %10 = lvx.mv %9 : (!lvx.reg<r0>) -> !lvx.reg<r0>
 // CHECK-NEXT: %11 = lvx.li 16 : i64 : !lvx.reg<r61>
@@ -40,14 +40,14 @@ lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // it -- the value stored at offset 8 is only reloaded in `^bb1`, the one at
 // offset 16 only in `^bb2`.
 // CHECK-LABEL: lvx_func.func @branches
-// CHECK: lvx.sd %{{[0-9]+}}, %{{[0-9]+}}, 8 : (!lvx.reg<r61>, !lvx.reg<r12>)
-// CHECK: lvx.sd %{{[0-9]+}}, %{{[0-9]+}}, 16 : (!lvx.reg<r61>, !lvx.reg<r12>)
+// CHECK: lvx.sd %{{[0-9]+}}, %{{[0-9]+}}, 8 : i64 : (!lvx.reg<r61>, !lvx.reg<r12>)
+// CHECK: lvx.sd %{{[0-9]+}}, %{{[0-9]+}}, 16 : i64 : (!lvx.reg<r61>, !lvx.reg<r12>)
 // CHECK: ^bb1:
-// CHECK-NEXT: %{{[0-9]+}} = lvx.ld %{{[0-9]+}}, 8 : (!lvx.reg<r12>) -> !lvx.reg<r61>
+// CHECK-NEXT: %{{[0-9]+}} = lvx.ld %{{[0-9]+}}, 8 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
 // CHECK-NEXT: %{{[0-9]+}} = lvx.mv %{{.*}} : (!lvx.reg<r61>) -> !lvx.reg<r0>
 // CHECK: lvx_func.return
 // CHECK: ^bb2:
-// CHECK-NEXT: %{{[0-9]+}} = lvx.ld %{{[0-9]+}}, 16 : (!lvx.reg<r12>) -> !lvx.reg<r61>
+// CHECK-NEXT: %{{[0-9]+}} = lvx.ld %{{[0-9]+}}, 16 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
 // CHECK-NEXT: %{{[0-9]+}} = lvx.mv %{{.*}} : (!lvx.reg<r61>) -> !lvx.reg<r0>
 // CHECK: lvx_func.return
 lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {

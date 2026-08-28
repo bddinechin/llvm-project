@@ -250,24 +250,52 @@ private:
     return success();
   }
 
+  /// The generated memory ops carry their displacement as a
+  /// `TypedAttrInterface` -- the shape every generated immediate has, since
+  /// MDS states an immediate's width, not an MLIR attribute kind -- where
+  /// the hand-written ones used an `SI32Attr` and handed out a plain
+  /// `int32_t`. The assembler wants an integer, so unwrap it here rather
+  /// than at each of the eleven call sites, and reject anything else loudly:
+  /// a symbol-reference displacement is legal in the ISA and this pass has
+  /// no encoding for it yet.
+  FailureOr<int64_t> displacement(Operation *op, TypedAttr offset) {
+    auto intAttr = dyn_cast_or_null<IntegerAttr>(offset);
+    if (!intAttr)
+      return op->emitError(
+          "lvx-emit-asm: memory displacement is not an integer attribute");
+    return intAttr.getValue().getSExtValue();
+  }
+
+  /// The real `variant` modifier on a load: bare, `.s` (speculative), `.u`
+  /// (uncached) or `.us`. Absent is the hardware default and prints as the
+  /// plain mnemonic, exactly as `withSx` handles `signextw`.
+  static std::string withVariant(std::optional<Variant> variant,
+                                 StringRef mnemonic) {
+    if (!variant)
+      return mnemonic.str();
+    return (mnemonic + "." + stringifyVariant(*variant)).str();
+  }
+
   LogicalResult emitLoad(Operation *op, StringRef mnemonic, Value base,
-                        int32_t offset) {
+                        TypedAttr offset, std::optional<Variant> variant) {
     FailureOr<std::string> rd = reg(op->getResult(0));
     FailureOr<std::string> rb = reg(base);
-    if (failed(rd) || failed(rb))
+    FailureOr<int64_t> disp = displacement(op, offset);
+    if (failed(rd) || failed(rb) || failed(disp))
       return failure();
-    os << "\t" << mnemonic << " " << *rd << " = " << offset << "[" << *rb
-       << "]\n\t;;\n";
+    os << "\t" << withVariant(variant, mnemonic) << " " << *rd << " = " << *disp
+       << "[" << *rb << "]\n\t;;\n";
     return success();
   }
 
   LogicalResult emitStore(Operation *op, StringRef mnemonic, Value value,
-                         Value base, int32_t offset) {
+                         Value base, TypedAttr offset) {
     FailureOr<std::string> rv = reg(value);
     FailureOr<std::string> rb = reg(base);
-    if (failed(rv) || failed(rb))
+    FailureOr<int64_t> disp = displacement(op, offset);
+    if (failed(rv) || failed(rb) || failed(disp))
       return failure();
-    os << "\t" << mnemonic << " " << offset << "[" << *rb << "] = " << *rv
+    os << "\t" << mnemonic << " " << *disp << "[" << *rb << "] = " << *rv
        << "\n\t;;\n";
     return success();
   }
@@ -375,13 +403,13 @@ private:
           return success();
         })
         // Memory.
-        .Case([&](LbzOp op) { return emitLoad(op, "lbz", op.getBase(), op.getOffset()); })
-        .Case([&](LbsOp op) { return emitLoad(op, "lbs", op.getBase(), op.getOffset()); })
-        .Case([&](LhzOp op) { return emitLoad(op, "lhz", op.getBase(), op.getOffset()); })
-        .Case([&](LhsOp op) { return emitLoad(op, "lhs", op.getBase(), op.getOffset()); })
-        .Case([&](LwzOp op) { return emitLoad(op, "lwz", op.getBase(), op.getOffset()); })
-        .Case([&](LwsOp op) { return emitLoad(op, "lws", op.getBase(), op.getOffset()); })
-        .Case([&](LdOp op) { return emitLoad(op, "ld", op.getBase(), op.getOffset()); })
+        .Case([&](LbzOp op) { return emitLoad(op, "lbz", op.getBase(), op.getOffset(), op.getVariant()); })
+        .Case([&](LbsOp op) { return emitLoad(op, "lbs", op.getBase(), op.getOffset(), op.getVariant()); })
+        .Case([&](LhzOp op) { return emitLoad(op, "lhz", op.getBase(), op.getOffset(), op.getVariant()); })
+        .Case([&](LhsOp op) { return emitLoad(op, "lhs", op.getBase(), op.getOffset(), op.getVariant()); })
+        .Case([&](LwzOp op) { return emitLoad(op, "lwz", op.getBase(), op.getOffset(), op.getVariant()); })
+        .Case([&](LwsOp op) { return emitLoad(op, "lws", op.getBase(), op.getOffset(), op.getVariant()); })
+        .Case([&](LdOp op) { return emitLoad(op, "ld", op.getBase(), op.getOffset(), op.getVariant()); })
         .Case([&](SbOp op) { return emitStore(op, "sb", op.getValue(), op.getBase(), op.getOffset()); })
         .Case([&](ShOp op) { return emitStore(op, "sh", op.getValue(), op.getBase(), op.getOffset()); })
         .Case([&](SwOp op) { return emitStore(op, "sw", op.getValue(), op.getBase(), op.getOffset()); })

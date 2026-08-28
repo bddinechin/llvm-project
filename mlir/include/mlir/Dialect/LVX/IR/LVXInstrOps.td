@@ -38,6 +38,3785 @@ def LVX_FormatAttr : I64EnumAttr<
   let cppNamespace = "::mlir::lvx";
 }
 
+// LSU:LBZ -- register form, from LBZ_variant_registerW_registerY_registerZ_simple
+def LVX_LbzRegOp : LVX_Op<"lbz_r">{
+  let summary = "LBZ -- Load Byte Zero Extended";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($offset)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultType, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LBZ -- immediate form, from LBZ_variant_registerW_signed10_registerZ_simple
+def LVX_LbzOp : LVX_Op<"lbz">{
+  let summary = "LBZ -- Load Byte Zero Extended";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::TypedAttr":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultType, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LBS -- register form, from LBS_variant_registerW_registerY_registerZ_simple
+def LVX_LbsRegOp : LVX_Op<"lbs_r">{
+  let summary = "LBS -- Load Byte Sign Extended";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($offset)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultType, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LBS -- immediate form, from LBS_variant_registerW_signed10_registerZ_simple
+def LVX_LbsOp : LVX_Op<"lbs">{
+  let summary = "LBS -- Load Byte Sign Extended";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::TypedAttr":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultType, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LHZ -- register form, from LHZ_variant_registerW_registerY_registerZ_simple
+def LVX_LhzRegOp : LVX_Op<"lhz_r">{
+  let summary = "LHZ -- Load Half Word Zero Extended";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($offset)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultType, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LHZ -- immediate form, from LHZ_variant_registerW_signed10_registerZ_simple
+def LVX_LhzOp : LVX_Op<"lhz">{
+  let summary = "LHZ -- Load Half Word Zero Extended";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::TypedAttr":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultType, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LHS -- register form, from LHS_variant_registerW_registerY_registerZ_simple
+def LVX_LhsRegOp : LVX_Op<"lhs_r">{
+  let summary = "LHS -- Load Half Word Sign Extended";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($offset)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultType, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LHS -- immediate form, from LHS_variant_registerW_signed10_registerZ_simple
+def LVX_LhsOp : LVX_Op<"lhs">{
+  let summary = "LHS -- Load Half Word Sign Extended";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::TypedAttr":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultType, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LWZ -- register form, from LWZ_variant_registerW_registerY_registerZ_simple
+def LVX_LwzRegOp : LVX_Op<"lwz_r">{
+  let summary = "LWZ -- Load Word Zero Extended";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($offset)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultType, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LWZ -- immediate form, from LWZ_variant_registerW_signed10_registerZ_simple
+def LVX_LwzOp : LVX_Op<"lwz">{
+  let summary = "LWZ -- Load Word Zero Extended";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::TypedAttr":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultType, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LWS -- register form, from LWS_variant_registerW_registerY_registerZ_simple
+def LVX_LwsRegOp : LVX_Op<"lws_r">{
+  let summary = "LWS -- Load Word Sign Extended";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($offset)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultType, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LWS -- immediate form, from LWS_variant_registerW_signed10_registerZ_simple
+def LVX_LwsOp : LVX_Op<"lws">{
+  let summary = "LWS -- Load Word Sign Extended";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::TypedAttr":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultType, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LD -- register form, from LD_variant_registerW_registerY_registerZ_simple
+def LVX_LdRegOp : LVX_Op<"ld_r">{
+  let summary = "LD -- Load Double Word";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($offset)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultType, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LD -- immediate form, from LD_variant_registerW_signed10_registerZ_simple
+def LVX_LdOp : LVX_Op<"ld">{
+  let summary = "LD -- Load Double Word";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::TypedAttr":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultType, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LQ -- register form, from LQ_variant_registerM_registerY_registerZ_simple
+def LVX_LqRegOp : LVX_Op<"lq_r">{
+  let summary = "LQ -- Load Quadruple Word";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$lo, LVX_RegType:$hi);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($offset)) `)` `->` `(` qualified(type($lo)) `,` qualified(type($hi)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$base, "::mlir::Value":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultTypes, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LQ -- immediate form, from LQ_variant_registerM_signed10_registerZ_simple
+def LVX_LqOp : LVX_Op<"lq">{
+  let summary = "LQ -- Load Quadruple Word";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$lo, LVX_RegType:$hi);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `)` `->` `(` qualified(type($lo)) `,` qualified(type($hi)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$base, "::mlir::TypedAttr":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultTypes, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LO -- register form, from LO_variant_registerN_registerY_registerZ_simple
+def LVX_LoRegOp : LVX_Op<"lo_r">{
+  let summary = "LO -- Load Octuple Word";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$x, LVX_RegType:$y, LVX_RegType:$z, LVX_RegType:$t);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($offset)) `)` `->` `(` qualified(type($x)) `,` qualified(type($y)) `,` qualified(type($z)) `,` qualified(type($t)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$base, "::mlir::Value":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultTypes, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:LO -- immediate form, from LO_variant_registerN_signed10_registerZ_simple
+def LVX_LoOp : LVX_Op<"lo">{
+  let summary = "LO -- Load Octuple Word";
+  let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$x, LVX_RegType:$y, LVX_RegType:$z, LVX_RegType:$t);
+  let assemblyFormat = "($variant^)? $base `,` $offset attr-dict `:` `(` qualified(type($base)) `)` `->` `(` qualified(type($x)) `,` qualified(type($y)) `,` qualified(type($z)) `,` qualified(type($t)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$base, "::mlir::TypedAttr":$offset, CArg<"::mlir::lvx::VariantAttr", "{}">:$variant), [{
+      build($_builder, $_state, resultTypes, variant, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:SB -- register form, from SB_registerY_registerZ_registerT_simple
+def LVX_SbRegOp : LVX_Op<"sb_r">{
+  let summary = "SB -- Store Byte";
+  let arguments = (ins LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `,` qualified(type($offset)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::Value":$offset), [{
+      build($_builder, $_state, value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:SB -- immediate form, from SB_signed10_registerZ_registerT_simple
+def LVX_SbOp : LVX_Op<"sb">{
+  let summary = "SB -- Store Byte";
+  let arguments = (ins LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:SH -- register form, from SH_registerY_registerZ_registerT_simple
+def LVX_ShRegOp : LVX_Op<"sh_r">{
+  let summary = "SH -- Store Half Word";
+  let arguments = (ins LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `,` qualified(type($offset)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::Value":$offset), [{
+      build($_builder, $_state, value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:SH -- immediate form, from SH_signed10_registerZ_registerT_simple
+def LVX_ShOp : LVX_Op<"sh">{
+  let summary = "SH -- Store Half Word";
+  let arguments = (ins LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:SW -- register form, from SW_registerY_registerZ_registerT_simple
+def LVX_SwRegOp : LVX_Op<"sw_r">{
+  let summary = "SW -- Store Word";
+  let arguments = (ins LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `,` qualified(type($offset)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::Value":$offset), [{
+      build($_builder, $_state, value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:SW -- immediate form, from SW_signed10_registerZ_registerT_simple
+def LVX_SwOp : LVX_Op<"sw">{
+  let summary = "SW -- Store Word";
+  let arguments = (ins LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:SD -- register form, from SD_registerY_registerZ_registerT_simple
+def LVX_SdRegOp : LVX_Op<"sd_r">{
+  let summary = "SD -- Store Double Word";
+  let arguments = (ins LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `,` qualified(type($offset)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::Value":$offset), [{
+      build($_builder, $_state, value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:SD -- immediate form, from SD_signed10_registerZ_registerT_simple
+def LVX_SdOp : LVX_Op<"sd">{
+  let summary = "SD -- Store Double Word";
+  let arguments = (ins LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:SQ -- register form, from SQ_registerY_registerZ_registerU_simple
+def LVX_SqRegOp : LVX_Op<"sq_r">{
+  let summary = "SQ -- Store Quadruple Word";
+  let arguments = (ins LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `,` qualified(type($offset)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::Value":$offset), [{
+      build($_builder, $_state, value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:SQ -- immediate form, from SQ_signed10_registerZ_registerU_simple
+def LVX_SqOp : LVX_Op<"sq">{
+  let summary = "SQ -- Store Quadruple Word";
+  let arguments = (ins LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:SO -- register form, from SO_registerY_registerZ_registerV_simple
+def LVX_SoRegOp : LVX_Op<"so_r">{
+  let summary = "SO -- Store Octuple Word";
+  let arguments = (ins LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `,` qualified(type($offset)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::Value":$offset), [{
+      build($_builder, $_state, value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:SO -- immediate form, from SO_signed10_registerZ_registerV_simple
+def LVX_SoOp : LVX_Op<"so">{
+  let summary = "SO -- Store Octuple Word";
+  let arguments = (ins LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ACSWAPB -- register form, from ACSWAPB_boolcas_coherency_registerW_registerZ_registerO_simple
+def LVX_AcswapbOp : LVX_Op<"acswapb">{
+  let summary = "ACSWAPB -- Atomic Compare and Swap Byte";
+  let arguments = (ins UnitAttr:$v,
+                       UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? (`v` $v^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ACSWAPB -- immediate form, from ACSWAPB_boolcas_coherency_registerW_offset27_registerZ_registerO_double
+def LVX_AcswapbImmOp : LVX_Op<"acswapb_i">{
+  let summary = "ACSWAPB -- Atomic Compare and Swap Byte";
+  let arguments = (ins UnitAttr:$v,
+                       UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? (`v` $v^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ACSWAPH -- register form, from ACSWAPH_boolcas_coherency_registerW_registerZ_registerO_simple
+def LVX_AcswaphOp : LVX_Op<"acswaph">{
+  let summary = "ACSWAPH -- Atomic Compare and Swap Half Word";
+  let arguments = (ins UnitAttr:$v,
+                       UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? (`v` $v^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ACSWAPH -- immediate form, from ACSWAPH_boolcas_coherency_registerW_offset27_registerZ_registerO_double
+def LVX_AcswaphImmOp : LVX_Op<"acswaph_i">{
+  let summary = "ACSWAPH -- Atomic Compare and Swap Half Word";
+  let arguments = (ins UnitAttr:$v,
+                       UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? (`v` $v^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ACSWAPW -- register form, from ACSWAPW_boolcas_coherency_registerW_registerZ_registerO_simple
+def LVX_AcswapwOp : LVX_Op<"acswapw">{
+  let summary = "ACSWAPW -- Atomic Compare and Swap Word";
+  let arguments = (ins UnitAttr:$v,
+                       UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? (`v` $v^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ACSWAPW -- immediate form, from ACSWAPW_boolcas_coherency_registerW_offset27_registerZ_registerO_double
+def LVX_AcswapwImmOp : LVX_Op<"acswapw_i">{
+  let summary = "ACSWAPW -- Atomic Compare and Swap Word";
+  let arguments = (ins UnitAttr:$v,
+                       UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? (`v` $v^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ACSWAPD -- register form, from ACSWAPD_boolcas_coherency_registerW_registerZ_registerO_simple
+def LVX_AcswapdOp : LVX_Op<"acswapd">{
+  let summary = "ACSWAPD -- Atomic Compare and Swap Double Word";
+  let arguments = (ins UnitAttr:$v,
+                       UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? (`v` $v^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ACSWAPD -- immediate form, from ACSWAPD_boolcas_coherency_registerW_offset27_registerZ_registerO_double
+def LVX_AcswapdImmOp : LVX_Op<"acswapd_i">{
+  let summary = "ACSWAPD -- Atomic Compare and Swap Double Word";
+  let arguments = (ins UnitAttr:$v,
+                       UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? (`v` $v^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ACSWAPQ -- register form, from ACSWAPQ_boolcas_coherency_registerM_registerZ_registerQ_simple
+def LVX_AcswapqOp : LVX_Op<"acswapq">{
+  let summary = "ACSWAPQ -- Atomic Compare and Swap Quadruple Word";
+  let arguments = (ins UnitAttr:$v,
+                       UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
+  let assemblyFormat = "(`g` $g^)? (`v` $v^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, resultTypes, ::mlir::UnitAttr(), ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ACSWAPQ -- immediate form, from ACSWAPQ_boolcas_coherency_registerM_offset27_registerZ_registerQ_double
+def LVX_AcswapqImmOp : LVX_Op<"acswapq_i">{
+  let summary = "ACSWAPQ -- Atomic Compare and Swap Quadruple Word";
+  let arguments = (ins UnitAttr:$v,
+                       UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
+  let assemblyFormat = "(`g` $g^)? (`v` $v^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultTypes, ::mlir::UnitAttr(), ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALB -- register form, from ALB_coherency_registerW_registerZ_simple
+def LVX_AlbOp : LVX_Op<"alb">{
+  let summary = "ALB -- Atomic Load Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALB -- immediate form, from ALB_coherency_registerW_offset27_registerZ_double
+def LVX_AlbImmOp : LVX_Op<"alb_i">{
+  let summary = "ALB -- Atomic Load Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $offset `,` $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALH -- register form, from ALH_coherency_registerW_registerZ_simple
+def LVX_AlhOp : LVX_Op<"alh">{
+  let summary = "ALH -- Atomic Load Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALH -- immediate form, from ALH_coherency_registerW_offset27_registerZ_double
+def LVX_AlhImmOp : LVX_Op<"alh_i">{
+  let summary = "ALH -- Atomic Load Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $offset `,` $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALW -- register form, from ALW_coherency_registerW_registerZ_simple
+def LVX_AlwOp : LVX_Op<"alw">{
+  let summary = "ALW -- Atomic Load Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALW -- immediate form, from ALW_coherency_registerW_offset27_registerZ_double
+def LVX_AlwImmOp : LVX_Op<"alw_i">{
+  let summary = "ALW -- Atomic Load Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $offset `,` $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALD -- register form, from ALD_coherency_registerW_registerZ_simple
+def LVX_AldOp : LVX_Op<"ald">{
+  let summary = "ALD -- Atomic Load Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALD -- immediate form, from ALD_coherency_registerW_offset27_registerZ_double
+def LVX_AldImmOp : LVX_Op<"ald_i">{
+  let summary = "ALD -- Atomic Load Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $offset `,` $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALCLRB -- register form, from ALCLRB_coherency_registerW_registerZ_simple
+def LVX_AlclrbOp : LVX_Op<"alclrb">{
+  let summary = "ALCLRB -- Atomic Load and Clear Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALCLRB -- immediate form, from ALCLRB_coherency_registerW_offset27_registerZ_double
+def LVX_AlclrbImmOp : LVX_Op<"alclrb_i">{
+  let summary = "ALCLRB -- Atomic Load and Clear Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $offset `,` $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALCLRH -- register form, from ALCLRH_coherency_registerW_registerZ_simple
+def LVX_AlclrhOp : LVX_Op<"alclrh">{
+  let summary = "ALCLRH -- Atomic Load and Clear Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALCLRH -- immediate form, from ALCLRH_coherency_registerW_offset27_registerZ_double
+def LVX_AlclrhImmOp : LVX_Op<"alclrh_i">{
+  let summary = "ALCLRH -- Atomic Load and Clear Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $offset `,` $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALCLRW -- register form, from ALCLRW_coherency_registerW_registerZ_simple
+def LVX_AlclrwOp : LVX_Op<"alclrw">{
+  let summary = "ALCLRW -- Atomic Load and Clear Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALCLRW -- immediate form, from ALCLRW_coherency_registerW_offset27_registerZ_double
+def LVX_AlclrwImmOp : LVX_Op<"alclrw_i">{
+  let summary = "ALCLRW -- Atomic Load and Clear Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $offset `,` $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALCLRD -- register form, from ALCLRD_coherency_registerW_registerZ_simple
+def LVX_AlclrdOp : LVX_Op<"alclrd">{
+  let summary = "ALCLRD -- Atomic Load and Clear Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALCLRD -- immediate form, from ALCLRD_coherency_registerW_offset27_registerZ_double
+def LVX_AlclrdImmOp : LVX_Op<"alclrd_i">{
+  let summary = "ALCLRD -- Atomic Load and Clear Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $offset `,` $base attr-dict `:` `(` qualified(type($base)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASWAPB -- register form, from ASWAPB_coherency_registerZ_registerT_simple
+def LVX_AswapbOp : LVX_Op<"aswapb">{
+  let summary = "ASWAPB -- Atomic Swap Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASWAPB -- immediate form, from ASWAPB_coherency_offset27_registerZ_registerT_double
+def LVX_AswapbImmOp : LVX_Op<"aswapb_i">{
+  let summary = "ASWAPB -- Atomic Swap Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASWAPH -- register form, from ASWAPH_coherency_registerZ_registerT_simple
+def LVX_AswaphOp : LVX_Op<"aswaph">{
+  let summary = "ASWAPH -- Atomic Swap Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASWAPH -- immediate form, from ASWAPH_coherency_offset27_registerZ_registerT_double
+def LVX_AswaphImmOp : LVX_Op<"aswaph_i">{
+  let summary = "ASWAPH -- Atomic Swap Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASWAPW -- register form, from ASWAPW_coherency_registerZ_registerT_simple
+def LVX_AswapwOp : LVX_Op<"aswapw">{
+  let summary = "ASWAPW -- Atomic Swap Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASWAPW -- immediate form, from ASWAPW_coherency_offset27_registerZ_registerT_double
+def LVX_AswapwImmOp : LVX_Op<"aswapw_i">{
+  let summary = "ASWAPW -- Atomic Swap Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASWAPD -- register form, from ASWAPD_coherency_registerZ_registerT_simple
+def LVX_AswapdOp : LVX_Op<"aswapd">{
+  let summary = "ASWAPD -- Atomic Swap Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASWAPD -- immediate form, from ASWAPD_coherency_offset27_registerZ_registerT_double
+def LVX_AswapdImmOp : LVX_Op<"aswapd_i">{
+  let summary = "ASWAPD -- Atomic Swap Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASB -- register form, from ASB_coherency_registerZ_registerT_simple
+def LVX_AsbOp : LVX_Op<"asb">{
+  let summary = "ASB -- Atomic Store Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASB -- immediate form, from ASB_coherency_offset27_registerZ_registerT_double
+def LVX_AsbImmOp : LVX_Op<"asb_i">{
+  let summary = "ASB -- Atomic Store Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASH -- register form, from ASH_coherency_registerZ_registerT_simple
+def LVX_AshOp : LVX_Op<"ash">{
+  let summary = "ASH -- Atomic Store Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASH -- immediate form, from ASH_coherency_offset27_registerZ_registerT_double
+def LVX_AshImmOp : LVX_Op<"ash_i">{
+  let summary = "ASH -- Atomic Store Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASW -- register form, from ASW_coherency_registerZ_registerT_simple
+def LVX_AswOp : LVX_Op<"asw">{
+  let summary = "ASW -- Atomic Store Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASW -- immediate form, from ASW_coherency_offset27_registerZ_registerT_double
+def LVX_AswImmOp : LVX_Op<"asw_i">{
+  let summary = "ASW -- Atomic Store Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASD -- register form, from ASD_coherency_registerZ_registerT_simple
+def LVX_AsdOp : LVX_Op<"asd">{
+  let summary = "ASD -- Atomic Store Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASD -- immediate form, from ASD_coherency_offset27_registerZ_registerT_double
+def LVX_AsdImmOp : LVX_Op<"asd_i">{
+  let summary = "ASD -- Atomic Store Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALADDB -- register form, from ALADDB_coherency_registerZ_registerT_simple
+def LVX_AladdbOp : LVX_Op<"aladdb">{
+  let summary = "ALADDB -- Atomic Load and Add Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALADDB -- immediate form, from ALADDB_coherency_offset27_registerZ_registerT_double
+def LVX_AladdbImmOp : LVX_Op<"aladdb_i">{
+  let summary = "ALADDB -- Atomic Load and Add Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALADDH -- register form, from ALADDH_coherency_registerZ_registerT_simple
+def LVX_AladdhOp : LVX_Op<"aladdh">{
+  let summary = "ALADDH -- Atomic Load and Add Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALADDH -- immediate form, from ALADDH_coherency_offset27_registerZ_registerT_double
+def LVX_AladdhImmOp : LVX_Op<"aladdh_i">{
+  let summary = "ALADDH -- Atomic Load and Add Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALADDW -- register form, from ALADDW_coherency_registerZ_registerT_simple
+def LVX_AladdwOp : LVX_Op<"aladdw">{
+  let summary = "ALADDW -- Atomic Load and Add Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALADDW -- immediate form, from ALADDW_coherency_offset27_registerZ_registerT_double
+def LVX_AladdwImmOp : LVX_Op<"aladdw_i">{
+  let summary = "ALADDW -- Atomic Load and Add Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALADDD -- register form, from ALADDD_coherency_registerZ_registerT_simple
+def LVX_AladddOp : LVX_Op<"aladdd">{
+  let summary = "ALADDD -- Atomic Load and Add Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALADDD -- immediate form, from ALADDD_coherency_offset27_registerZ_registerT_double
+def LVX_AladddImmOp : LVX_Op<"aladdd_i">{
+  let summary = "ALADDD -- Atomic Load and Add Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALANDB -- register form, from ALANDB_coherency_registerZ_registerT_simple
+def LVX_AlandbOp : LVX_Op<"alandb">{
+  let summary = "ALANDB -- Atomic Load and AND Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALANDB -- immediate form, from ALANDB_coherency_offset27_registerZ_registerT_double
+def LVX_AlandbImmOp : LVX_Op<"alandb_i">{
+  let summary = "ALANDB -- Atomic Load and AND Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALANDH -- register form, from ALANDH_coherency_registerZ_registerT_simple
+def LVX_AlandhOp : LVX_Op<"alandh">{
+  let summary = "ALANDH -- Atomic Load and AND Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALANDH -- immediate form, from ALANDH_coherency_offset27_registerZ_registerT_double
+def LVX_AlandhImmOp : LVX_Op<"alandh_i">{
+  let summary = "ALANDH -- Atomic Load and AND Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALANDW -- register form, from ALANDW_coherency_registerZ_registerT_simple
+def LVX_AlandwOp : LVX_Op<"alandw">{
+  let summary = "ALANDW -- Atomic Load and AND Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALANDW -- immediate form, from ALANDW_coherency_offset27_registerZ_registerT_double
+def LVX_AlandwImmOp : LVX_Op<"alandw_i">{
+  let summary = "ALANDW -- Atomic Load and AND Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALANDD -- register form, from ALANDD_coherency_registerZ_registerT_simple
+def LVX_AlanddOp : LVX_Op<"alandd">{
+  let summary = "ALANDD -- Atomic Load and AND Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALANDD -- immediate form, from ALANDD_coherency_offset27_registerZ_registerT_double
+def LVX_AlanddImmOp : LVX_Op<"alandd_i">{
+  let summary = "ALANDD -- Atomic Load and AND Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALIORB -- register form, from ALIORB_coherency_registerZ_registerT_simple
+def LVX_AliorbOp : LVX_Op<"aliorb">{
+  let summary = "ALIORB -- Atomic Load and IOR Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALIORB -- immediate form, from ALIORB_coherency_offset27_registerZ_registerT_double
+def LVX_AliorbImmOp : LVX_Op<"aliorb_i">{
+  let summary = "ALIORB -- Atomic Load and IOR Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALIORH -- register form, from ALIORH_coherency_registerZ_registerT_simple
+def LVX_AliorhOp : LVX_Op<"aliorh">{
+  let summary = "ALIORH -- Atomic Load and IOR Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALIORH -- immediate form, from ALIORH_coherency_offset27_registerZ_registerT_double
+def LVX_AliorhImmOp : LVX_Op<"aliorh_i">{
+  let summary = "ALIORH -- Atomic Load and IOR Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALIORW -- register form, from ALIORW_coherency_registerZ_registerT_simple
+def LVX_AliorwOp : LVX_Op<"aliorw">{
+  let summary = "ALIORW -- Atomic Load and IOR Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALIORW -- immediate form, from ALIORW_coherency_offset27_registerZ_registerT_double
+def LVX_AliorwImmOp : LVX_Op<"aliorw_i">{
+  let summary = "ALIORW -- Atomic Load and IOR Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALIORD -- register form, from ALIORD_coherency_registerZ_registerT_simple
+def LVX_AliordOp : LVX_Op<"aliord">{
+  let summary = "ALIORD -- Atomic Load and IOR Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALIORD -- immediate form, from ALIORD_coherency_offset27_registerZ_registerT_double
+def LVX_AliordImmOp : LVX_Op<"aliord_i">{
+  let summary = "ALIORD -- Atomic Load and IOR Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALEORB -- register form, from ALEORB_coherency_registerZ_registerT_simple
+def LVX_AleorbOp : LVX_Op<"aleorb">{
+  let summary = "ALEORB -- Atomic Load and EOR Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALEORB -- immediate form, from ALEORB_coherency_offset27_registerZ_registerT_double
+def LVX_AleorbImmOp : LVX_Op<"aleorb_i">{
+  let summary = "ALEORB -- Atomic Load and EOR Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALEORH -- register form, from ALEORH_coherency_registerZ_registerT_simple
+def LVX_AleorhOp : LVX_Op<"aleorh">{
+  let summary = "ALEORH -- Atomic Load and EOR Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALEORH -- immediate form, from ALEORH_coherency_offset27_registerZ_registerT_double
+def LVX_AleorhImmOp : LVX_Op<"aleorh_i">{
+  let summary = "ALEORH -- Atomic Load and EOR Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALEORW -- register form, from ALEORW_coherency_registerZ_registerT_simple
+def LVX_AleorwOp : LVX_Op<"aleorw">{
+  let summary = "ALEORW -- Atomic Load and EOR Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALEORW -- immediate form, from ALEORW_coherency_offset27_registerZ_registerT_double
+def LVX_AleorwImmOp : LVX_Op<"aleorw_i">{
+  let summary = "ALEORW -- Atomic Load and EOR Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALEORD -- register form, from ALEORD_coherency_registerZ_registerT_simple
+def LVX_AleordOp : LVX_Op<"aleord">{
+  let summary = "ALEORD -- Atomic Load and EOR Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALEORD -- immediate form, from ALEORD_coherency_offset27_registerZ_registerT_double
+def LVX_AleordImmOp : LVX_Op<"aleord_i">{
+  let summary = "ALEORD -- Atomic Load and EOR Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMINB -- register form, from ALMINB_coherency_registerZ_registerT_simple
+def LVX_AlminbOp : LVX_Op<"alminb">{
+  let summary = "ALMINB -- Atomic Load and MIN Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMINB -- immediate form, from ALMINB_coherency_offset27_registerZ_registerT_double
+def LVX_AlminbImmOp : LVX_Op<"alminb_i">{
+  let summary = "ALMINB -- Atomic Load and MIN Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMINH -- register form, from ALMINH_coherency_registerZ_registerT_simple
+def LVX_AlminhOp : LVX_Op<"alminh">{
+  let summary = "ALMINH -- Atomic Load and MIN Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMINH -- immediate form, from ALMINH_coherency_offset27_registerZ_registerT_double
+def LVX_AlminhImmOp : LVX_Op<"alminh_i">{
+  let summary = "ALMINH -- Atomic Load and MIN Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMINW -- register form, from ALMINW_coherency_registerZ_registerT_simple
+def LVX_AlminwOp : LVX_Op<"alminw">{
+  let summary = "ALMINW -- Atomic Load and MIN Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMINW -- immediate form, from ALMINW_coherency_offset27_registerZ_registerT_double
+def LVX_AlminwImmOp : LVX_Op<"alminw_i">{
+  let summary = "ALMINW -- Atomic Load and MIN Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMIND -- register form, from ALMIND_coherency_registerZ_registerT_simple
+def LVX_AlmindOp : LVX_Op<"almind">{
+  let summary = "ALMIND -- Atomic Load and MIN Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMIND -- immediate form, from ALMIND_coherency_offset27_registerZ_registerT_double
+def LVX_AlmindImmOp : LVX_Op<"almind_i">{
+  let summary = "ALMIND -- Atomic Load and MIN Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXB -- register form, from ALMAXB_coherency_registerZ_registerT_simple
+def LVX_AlmaxbOp : LVX_Op<"almaxb">{
+  let summary = "ALMAXB -- Atomic Load and MAX Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXB -- immediate form, from ALMAXB_coherency_offset27_registerZ_registerT_double
+def LVX_AlmaxbImmOp : LVX_Op<"almaxb_i">{
+  let summary = "ALMAXB -- Atomic Load and MAX Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXH -- register form, from ALMAXH_coherency_registerZ_registerT_simple
+def LVX_AlmaxhOp : LVX_Op<"almaxh">{
+  let summary = "ALMAXH -- Atomic Load and MAX Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXH -- immediate form, from ALMAXH_coherency_offset27_registerZ_registerT_double
+def LVX_AlmaxhImmOp : LVX_Op<"almaxh_i">{
+  let summary = "ALMAXH -- Atomic Load and MAX Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXW -- register form, from ALMAXW_coherency_registerZ_registerT_simple
+def LVX_AlmaxwOp : LVX_Op<"almaxw">{
+  let summary = "ALMAXW -- Atomic Load and MAX Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXW -- immediate form, from ALMAXW_coherency_offset27_registerZ_registerT_double
+def LVX_AlmaxwImmOp : LVX_Op<"almaxw_i">{
+  let summary = "ALMAXW -- Atomic Load and MAX Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXD -- register form, from ALMAXD_coherency_registerZ_registerT_simple
+def LVX_AlmaxdOp : LVX_Op<"almaxd">{
+  let summary = "ALMAXD -- Atomic Load and MAX Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXD -- immediate form, from ALMAXD_coherency_offset27_registerZ_registerT_double
+def LVX_AlmaxdImmOp : LVX_Op<"almaxd_i">{
+  let summary = "ALMAXD -- Atomic Load and MAX Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMINUB -- register form, from ALMINUB_coherency_registerZ_registerT_simple
+def LVX_AlminubOp : LVX_Op<"alminub">{
+  let summary = "ALMINUB -- Atomic Load and MIN Unsigned Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMINUB -- immediate form, from ALMINUB_coherency_offset27_registerZ_registerT_double
+def LVX_AlminubImmOp : LVX_Op<"alminub_i">{
+  let summary = "ALMINUB -- Atomic Load and MIN Unsigned Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMINUH -- register form, from ALMINUH_coherency_registerZ_registerT_simple
+def LVX_AlminuhOp : LVX_Op<"alminuh">{
+  let summary = "ALMINUH -- Atomic Load and MIN Unsigned Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMINUH -- immediate form, from ALMINUH_coherency_offset27_registerZ_registerT_double
+def LVX_AlminuhImmOp : LVX_Op<"alminuh_i">{
+  let summary = "ALMINUH -- Atomic Load and MIN Unsigned Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMINUW -- register form, from ALMINUW_coherency_registerZ_registerT_simple
+def LVX_AlminuwOp : LVX_Op<"alminuw">{
+  let summary = "ALMINUW -- Atomic Load and MIN Unsigned Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMINUW -- immediate form, from ALMINUW_coherency_offset27_registerZ_registerT_double
+def LVX_AlminuwImmOp : LVX_Op<"alminuw_i">{
+  let summary = "ALMINUW -- Atomic Load and MIN Unsigned Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMINUD -- register form, from ALMINUD_coherency_registerZ_registerT_simple
+def LVX_AlminudOp : LVX_Op<"alminud">{
+  let summary = "ALMINUD -- Atomic Load and MIN Unsigned Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMINUD -- immediate form, from ALMINUD_coherency_offset27_registerZ_registerT_double
+def LVX_AlminudImmOp : LVX_Op<"alminud_i">{
+  let summary = "ALMINUD -- Atomic Load and MIN Unsigned Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXUB -- register form, from ALMAXUB_coherency_registerZ_registerT_simple
+def LVX_AlmaxubOp : LVX_Op<"almaxub">{
+  let summary = "ALMAXUB -- Atomic Load and MAX Unsigned Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXUB -- immediate form, from ALMAXUB_coherency_offset27_registerZ_registerT_double
+def LVX_AlmaxubImmOp : LVX_Op<"almaxub_i">{
+  let summary = "ALMAXUB -- Atomic Load and MAX Unsigned Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXUH -- register form, from ALMAXUH_coherency_registerZ_registerT_simple
+def LVX_AlmaxuhOp : LVX_Op<"almaxuh">{
+  let summary = "ALMAXUH -- Atomic Load and MAX Unsigned Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXUH -- immediate form, from ALMAXUH_coherency_offset27_registerZ_registerT_double
+def LVX_AlmaxuhImmOp : LVX_Op<"almaxuh_i">{
+  let summary = "ALMAXUH -- Atomic Load and MAX Unsigned Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXUW -- register form, from ALMAXUW_coherency_registerZ_registerT_simple
+def LVX_AlmaxuwOp : LVX_Op<"almaxuw">{
+  let summary = "ALMAXUW -- Atomic Load and MAX Unsigned Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXUW -- immediate form, from ALMAXUW_coherency_offset27_registerZ_registerT_double
+def LVX_AlmaxuwImmOp : LVX_Op<"almaxuw_i">{
+  let summary = "ALMAXUW -- Atomic Load and MAX Unsigned Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXUD -- register form, from ALMAXUD_coherency_registerZ_registerT_simple
+def LVX_AlmaxudOp : LVX_Op<"almaxud">{
+  let summary = "ALMAXUD -- Atomic Load and MAX Unsigned Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALMAXUD -- immediate form, from ALMAXUD_coherency_offset27_registerZ_registerT_double
+def LVX_AlmaxudImmOp : LVX_Op<"almaxud_i">{
+  let summary = "ALMAXUD -- Atomic Load and MAX Unsigned Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALDUSB -- register form, from ALDUSB_coherency_registerZ_registerT_simple
+def LVX_AldusbOp : LVX_Op<"aldusb">{
+  let summary = "ALDUSB -- Atomic Load and Decrement Unsigned Saturating Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALDUSB -- immediate form, from ALDUSB_coherency_offset27_registerZ_registerT_double
+def LVX_AldusbImmOp : LVX_Op<"aldusb_i">{
+  let summary = "ALDUSB -- Atomic Load and Decrement Unsigned Saturating Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALDUSH -- register form, from ALDUSH_coherency_registerZ_registerT_simple
+def LVX_AldushOp : LVX_Op<"aldush">{
+  let summary = "ALDUSH -- Atomic Load and DUS Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALDUSH -- immediate form, from ALDUSH_coherency_offset27_registerZ_registerT_double
+def LVX_AldushImmOp : LVX_Op<"aldush_i">{
+  let summary = "ALDUSH -- Atomic Load and DUS Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALDUSW -- register form, from ALDUSW_coherency_registerZ_registerT_simple
+def LVX_AlduswOp : LVX_Op<"aldusw">{
+  let summary = "ALDUSW -- Atomic Load and DUS Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALDUSW -- immediate form, from ALDUSW_coherency_offset27_registerZ_registerT_double
+def LVX_AlduswImmOp : LVX_Op<"aldusw_i">{
+  let summary = "ALDUSW -- Atomic Load and DUS Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALDUSD -- register form, from ALDUSD_coherency_registerZ_registerT_simple
+def LVX_AldusdOp : LVX_Op<"aldusd">{
+  let summary = "ALDUSD -- Atomic Load and DUS Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ALDUSD -- immediate form, from ALDUSD_coherency_offset27_registerZ_registerT_double
+def LVX_AldusdImmOp : LVX_Op<"aldusd_i">{
+  let summary = "ALDUSD -- Atomic Load and DUS Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$base,
+                       LVX_RegType:$result,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASADDB -- register form, from ASADDB_coherency_registerZ_registerT_simple
+def LVX_AsaddbOp : LVX_Op<"asaddb">{
+  let summary = "ASADDB -- Atomic Store Add Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASADDB -- immediate form, from ASADDB_coherency_offset27_registerZ_registerT_double
+def LVX_AsaddbImmOp : LVX_Op<"asaddb_i">{
+  let summary = "ASADDB -- Atomic Store Add Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASADDH -- register form, from ASADDH_coherency_registerZ_registerT_simple
+def LVX_AsaddhOp : LVX_Op<"asaddh">{
+  let summary = "ASADDH -- Atomic Store Add Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASADDH -- immediate form, from ASADDH_coherency_offset27_registerZ_registerT_double
+def LVX_AsaddhImmOp : LVX_Op<"asaddh_i">{
+  let summary = "ASADDH -- Atomic Store Add Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASADDW -- register form, from ASADDW_coherency_registerZ_registerT_simple
+def LVX_AsaddwOp : LVX_Op<"asaddw">{
+  let summary = "ASADDW -- Atomic Store Add Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASADDW -- immediate form, from ASADDW_coherency_offset27_registerZ_registerT_double
+def LVX_AsaddwImmOp : LVX_Op<"asaddw_i">{
+  let summary = "ASADDW -- Atomic Store Add Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASADDD -- register form, from ASADDD_coherency_registerZ_registerT_simple
+def LVX_AsadddOp : LVX_Op<"asaddd">{
+  let summary = "ASADDD -- Atomic Store Add Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASADDD -- immediate form, from ASADDD_coherency_offset27_registerZ_registerT_double
+def LVX_AsadddImmOp : LVX_Op<"asaddd_i">{
+  let summary = "ASADDD -- Atomic Store Add Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASANDB -- register form, from ASANDB_coherency_registerZ_registerT_simple
+def LVX_AsandbOp : LVX_Op<"asandb">{
+  let summary = "ASANDB -- Atomic Store AND Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASANDB -- immediate form, from ASANDB_coherency_offset27_registerZ_registerT_double
+def LVX_AsandbImmOp : LVX_Op<"asandb_i">{
+  let summary = "ASANDB -- Atomic Store AND Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASANDH -- register form, from ASANDH_coherency_registerZ_registerT_simple
+def LVX_AsandhOp : LVX_Op<"asandh">{
+  let summary = "ASANDH -- Atomic Store AND Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASANDH -- immediate form, from ASANDH_coherency_offset27_registerZ_registerT_double
+def LVX_AsandhImmOp : LVX_Op<"asandh_i">{
+  let summary = "ASANDH -- Atomic Store AND Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASANDW -- register form, from ASANDW_coherency_registerZ_registerT_simple
+def LVX_AsandwOp : LVX_Op<"asandw">{
+  let summary = "ASANDW -- Atomic Store AND Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASANDW -- immediate form, from ASANDW_coherency_offset27_registerZ_registerT_double
+def LVX_AsandwImmOp : LVX_Op<"asandw_i">{
+  let summary = "ASANDW -- Atomic Store AND Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASANDD -- register form, from ASANDD_coherency_registerZ_registerT_simple
+def LVX_AsanddOp : LVX_Op<"asandd">{
+  let summary = "ASANDD -- Atomic Store AND Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASANDD -- immediate form, from ASANDD_coherency_offset27_registerZ_registerT_double
+def LVX_AsanddImmOp : LVX_Op<"asandd_i">{
+  let summary = "ASANDD -- Atomic Store AND Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASIORB -- register form, from ASIORB_coherency_registerZ_registerT_simple
+def LVX_AsiorbOp : LVX_Op<"asiorb">{
+  let summary = "ASIORB -- Atomic Store IOR Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASIORB -- immediate form, from ASIORB_coherency_offset27_registerZ_registerT_double
+def LVX_AsiorbImmOp : LVX_Op<"asiorb_i">{
+  let summary = "ASIORB -- Atomic Store IOR Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASIORH -- register form, from ASIORH_coherency_registerZ_registerT_simple
+def LVX_AsiorhOp : LVX_Op<"asiorh">{
+  let summary = "ASIORH -- Atomic Store IOR Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASIORH -- immediate form, from ASIORH_coherency_offset27_registerZ_registerT_double
+def LVX_AsiorhImmOp : LVX_Op<"asiorh_i">{
+  let summary = "ASIORH -- Atomic Store IOR Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASIORW -- register form, from ASIORW_coherency_registerZ_registerT_simple
+def LVX_AsiorwOp : LVX_Op<"asiorw">{
+  let summary = "ASIORW -- Atomic Store IOR Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASIORW -- immediate form, from ASIORW_coherency_offset27_registerZ_registerT_double
+def LVX_AsiorwImmOp : LVX_Op<"asiorw_i">{
+  let summary = "ASIORW -- Atomic Store IOR Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASIORD -- register form, from ASIORD_coherency_registerZ_registerT_simple
+def LVX_AsiordOp : LVX_Op<"asiord">{
+  let summary = "ASIORD -- Atomic Store IOR Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASIORD -- immediate form, from ASIORD_coherency_offset27_registerZ_registerT_double
+def LVX_AsiordImmOp : LVX_Op<"asiord_i">{
+  let summary = "ASIORD -- Atomic Store IOR Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASEORB -- register form, from ASEORB_coherency_registerZ_registerT_simple
+def LVX_AseorbOp : LVX_Op<"aseorb">{
+  let summary = "ASEORB -- Atomic Store EOR Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASEORB -- immediate form, from ASEORB_coherency_offset27_registerZ_registerT_double
+def LVX_AseorbImmOp : LVX_Op<"aseorb_i">{
+  let summary = "ASEORB -- Atomic Store EOR Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASEORH -- register form, from ASEORH_coherency_registerZ_registerT_simple
+def LVX_AseorhOp : LVX_Op<"aseorh">{
+  let summary = "ASEORH -- Atomic Store EOR Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASEORH -- immediate form, from ASEORH_coherency_offset27_registerZ_registerT_double
+def LVX_AseorhImmOp : LVX_Op<"aseorh_i">{
+  let summary = "ASEORH -- Atomic Store EOR Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASEORW -- register form, from ASEORW_coherency_registerZ_registerT_simple
+def LVX_AseorwOp : LVX_Op<"aseorw">{
+  let summary = "ASEORW -- Atomic Store EOR Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASEORW -- immediate form, from ASEORW_coherency_offset27_registerZ_registerT_double
+def LVX_AseorwImmOp : LVX_Op<"aseorw_i">{
+  let summary = "ASEORW -- Atomic Store EOR Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASEORD -- register form, from ASEORD_coherency_registerZ_registerT_simple
+def LVX_AseordOp : LVX_Op<"aseord">{
+  let summary = "ASEORD -- Atomic Store EOR Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASEORD -- immediate form, from ASEORD_coherency_offset27_registerZ_registerT_double
+def LVX_AseordImmOp : LVX_Op<"aseord_i">{
+  let summary = "ASEORD -- Atomic Store EOR Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMINB -- register form, from ASMINB_coherency_registerZ_registerT_simple
+def LVX_AsminbOp : LVX_Op<"asminb">{
+  let summary = "ASMINB -- Atomic Store MIN Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMINB -- immediate form, from ASMINB_coherency_offset27_registerZ_registerT_double
+def LVX_AsminbImmOp : LVX_Op<"asminb_i">{
+  let summary = "ASMINB -- Atomic Store MIN Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMINH -- register form, from ASMINH_coherency_registerZ_registerT_simple
+def LVX_AsminhOp : LVX_Op<"asminh">{
+  let summary = "ASMINH -- Atomic Store MIN Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMINH -- immediate form, from ASMINH_coherency_offset27_registerZ_registerT_double
+def LVX_AsminhImmOp : LVX_Op<"asminh_i">{
+  let summary = "ASMINH -- Atomic Store MIN Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMINW -- register form, from ASMINW_coherency_registerZ_registerT_simple
+def LVX_AsminwOp : LVX_Op<"asminw">{
+  let summary = "ASMINW -- Atomic Store MIN Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMINW -- immediate form, from ASMINW_coherency_offset27_registerZ_registerT_double
+def LVX_AsminwImmOp : LVX_Op<"asminw_i">{
+  let summary = "ASMINW -- Atomic Store MIN Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMIND -- register form, from ASMIND_coherency_registerZ_registerT_simple
+def LVX_AsmindOp : LVX_Op<"asmind">{
+  let summary = "ASMIND -- Atomic Store MIN Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMIND -- immediate form, from ASMIND_coherency_offset27_registerZ_registerT_double
+def LVX_AsmindImmOp : LVX_Op<"asmind_i">{
+  let summary = "ASMIND -- Atomic Store MIN Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXB -- register form, from ASMAXB_coherency_registerZ_registerT_simple
+def LVX_AsmaxbOp : LVX_Op<"asmaxb">{
+  let summary = "ASMAXB -- Atomic Store MAX Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXB -- immediate form, from ASMAXB_coherency_offset27_registerZ_registerT_double
+def LVX_AsmaxbImmOp : LVX_Op<"asmaxb_i">{
+  let summary = "ASMAXB -- Atomic Store MAX Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXH -- register form, from ASMAXH_coherency_registerZ_registerT_simple
+def LVX_AsmaxhOp : LVX_Op<"asmaxh">{
+  let summary = "ASMAXH -- Atomic Store MAX Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXH -- immediate form, from ASMAXH_coherency_offset27_registerZ_registerT_double
+def LVX_AsmaxhImmOp : LVX_Op<"asmaxh_i">{
+  let summary = "ASMAXH -- Atomic Store MAX Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXW -- register form, from ASMAXW_coherency_registerZ_registerT_simple
+def LVX_AsmaxwOp : LVX_Op<"asmaxw">{
+  let summary = "ASMAXW -- Atomic Store MAX Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXW -- immediate form, from ASMAXW_coherency_offset27_registerZ_registerT_double
+def LVX_AsmaxwImmOp : LVX_Op<"asmaxw_i">{
+  let summary = "ASMAXW -- Atomic Store MAX Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXD -- register form, from ASMAXD_coherency_registerZ_registerT_simple
+def LVX_AsmaxdOp : LVX_Op<"asmaxd">{
+  let summary = "ASMAXD -- Atomic Store MAX Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXD -- immediate form, from ASMAXD_coherency_offset27_registerZ_registerT_double
+def LVX_AsmaxdImmOp : LVX_Op<"asmaxd_i">{
+  let summary = "ASMAXD -- Atomic Store MAX Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMINUB -- register form, from ASMINUB_coherency_registerZ_registerT_simple
+def LVX_AsminubOp : LVX_Op<"asminub">{
+  let summary = "ASMINUB -- Atomic Store MIN Unsigned Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMINUB -- immediate form, from ASMINUB_coherency_offset27_registerZ_registerT_double
+def LVX_AsminubImmOp : LVX_Op<"asminub_i">{
+  let summary = "ASMINUB -- Atomic Store MIN Unsigned Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMINUH -- register form, from ASMINUH_coherency_registerZ_registerT_simple
+def LVX_AsminuhOp : LVX_Op<"asminuh">{
+  let summary = "ASMINUH -- Atomic Store MIN Unsigned Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMINUH -- immediate form, from ASMINUH_coherency_offset27_registerZ_registerT_double
+def LVX_AsminuhImmOp : LVX_Op<"asminuh_i">{
+  let summary = "ASMINUH -- Atomic Store MIN Unsigned Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMINUW -- register form, from ASMINUW_coherency_registerZ_registerT_simple
+def LVX_AsminuwOp : LVX_Op<"asminuw">{
+  let summary = "ASMINUW -- Atomic Store MIN Unsigned Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMINUW -- immediate form, from ASMINUW_coherency_offset27_registerZ_registerT_double
+def LVX_AsminuwImmOp : LVX_Op<"asminuw_i">{
+  let summary = "ASMINUW -- Atomic Store MIN Unsigned Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMINUD -- register form, from ASMINUD_coherency_registerZ_registerT_simple
+def LVX_AsminudOp : LVX_Op<"asminud">{
+  let summary = "ASMINUD -- Atomic Store MIN Unsigned Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMINUD -- immediate form, from ASMINUD_coherency_offset27_registerZ_registerT_double
+def LVX_AsminudImmOp : LVX_Op<"asminud_i">{
+  let summary = "ASMINUD -- Atomic Store MIN Unsigned Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXUB -- register form, from ASMAXUB_coherency_registerZ_registerT_simple
+def LVX_AsmaxubOp : LVX_Op<"asmaxub">{
+  let summary = "ASMAXUB -- Atomic Store MAX Unsigned Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXUB -- immediate form, from ASMAXUB_coherency_offset27_registerZ_registerT_double
+def LVX_AsmaxubImmOp : LVX_Op<"asmaxub_i">{
+  let summary = "ASMAXUB -- Atomic Store MAX Unsigned Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXUH -- register form, from ASMAXUH_coherency_registerZ_registerT_simple
+def LVX_AsmaxuhOp : LVX_Op<"asmaxuh">{
+  let summary = "ASMAXUH -- Atomic Store MAX Unsigned Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXUH -- immediate form, from ASMAXUH_coherency_offset27_registerZ_registerT_double
+def LVX_AsmaxuhImmOp : LVX_Op<"asmaxuh_i">{
+  let summary = "ASMAXUH -- Atomic Store MAX Unsigned Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXUW -- register form, from ASMAXUW_coherency_registerZ_registerT_simple
+def LVX_AsmaxuwOp : LVX_Op<"asmaxuw">{
+  let summary = "ASMAXUW -- Atomic Store MAX Unsigned Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXUW -- immediate form, from ASMAXUW_coherency_offset27_registerZ_registerT_double
+def LVX_AsmaxuwImmOp : LVX_Op<"asmaxuw_i">{
+  let summary = "ASMAXUW -- Atomic Store MAX Unsigned Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXUD -- register form, from ASMAXUD_coherency_registerZ_registerT_simple
+def LVX_AsmaxudOp : LVX_Op<"asmaxud">{
+  let summary = "ASMAXUD -- Atomic Store MAX Unsigned Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASMAXUD -- immediate form, from ASMAXUD_coherency_offset27_registerZ_registerT_double
+def LVX_AsmaxudImmOp : LVX_Op<"asmaxud_i">{
+  let summary = "ASMAXUD -- Atomic Store MAX Unsigned Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASDUSB -- register form, from ASDUSB_coherency_registerZ_registerT_simple
+def LVX_AsdusbOp : LVX_Op<"asdusb">{
+  let summary = "ASDUSB -- Atomic Store Decrement Unsigned Saturating Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASDUSB -- immediate form, from ASDUSB_coherency_offset27_registerZ_registerT_double
+def LVX_AsdusbImmOp : LVX_Op<"asdusb_i">{
+  let summary = "ASDUSB -- Atomic Store Decrement Unsigned Saturating Byte";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASDUSH -- register form, from ASDUSH_coherency_registerZ_registerT_simple
+def LVX_AsdushOp : LVX_Op<"asdush">{
+  let summary = "ASDUSH -- Atomic Store DUS Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASDUSH -- immediate form, from ASDUSH_coherency_offset27_registerZ_registerT_double
+def LVX_AsdushImmOp : LVX_Op<"asdush_i">{
+  let summary = "ASDUSH -- Atomic Store DUS Half Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASDUSW -- register form, from ASDUSW_coherency_registerZ_registerT_simple
+def LVX_AsduswOp : LVX_Op<"asdusw">{
+  let summary = "ASDUSW -- Atomic Store DUS Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASDUSW -- immediate form, from ASDUSW_coherency_offset27_registerZ_registerT_double
+def LVX_AsduswImmOp : LVX_Op<"asdusw_i">{
+  let summary = "ASDUSW -- Atomic Store DUS Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASDUSD -- register form, from ASDUSD_coherency_registerZ_registerT_simple
+def LVX_AsdusdOp : LVX_Op<"asdusd">{
+  let summary = "ASDUSD -- Atomic Store DUS Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:ASDUSD -- immediate form, from ASDUSD_coherency_offset27_registerZ_registerT_double
+def LVX_AsdusdImmOp : LVX_Op<"asdusd_i">{
+  let summary = "ASDUSD -- Atomic Store DUS Double Word";
+  let arguments = (ins UnitAttr:$g,
+                       LVX_RegType:$value,
+                       LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "(`g` $g^)? $value `,` $base `,` $offset attr-dict `:` `(` qualified(type($value)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, ::mlir::UnitAttr(), value, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:DTOUCHL -- register form, from DTOUCHL_registerY_registerZ_simple
+def LVX_DtouchlRegOp : LVX_Op<"dtouchl_r">{
+  let summary = "DTOUCHL -- Data Cache Touch Line";
+  let arguments = (ins LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$base `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($offset)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$offset), [{
+      build($_builder, $_state, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:DTOUCHL -- immediate form, from DTOUCHL_signed10_registerZ_simple
+def LVX_DtouchlOp : LVX_Op<"dtouchl">{
+  let summary = "DTOUCHL -- Data Cache Touch Line";
+  let arguments = (ins LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$base `,` $offset attr-dict `:` `(` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:DINVALL -- register form, from DINVALL_registerY_registerZ_simple
+def LVX_DinvallRegOp : LVX_Op<"dinvall_r">{
+  let summary = "DINVALL -- Data Cache Invalidate Line";
+  let arguments = (ins LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$base `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($offset)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$offset), [{
+      build($_builder, $_state, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:DINVALL -- immediate form, from DINVALL_signed10_registerZ_simple
+def LVX_DinvallOp : LVX_Op<"dinvall">{
+  let summary = "DINVALL -- Data Cache Invalidate Line";
+  let arguments = (ins LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$base `,` $offset attr-dict `:` `(` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:DINVALSW -- register form, from DINVALSW_cachelev_registerY_registerZ_simple
+def LVX_DinvalswOp : LVX_Op<"dinvalsw">{
+  let summary = "DINVALSW -- Data Cache Invalidate Line by Set and Way";
+  let arguments = (ins LVX_CacheLevAttr:$cachelev,
+                       LVX_RegType:$test,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$cachelev $test `,` $base attr-dict `:` `(` qualified(type($test)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::lvx::CacheLev":$cachelev, "::mlir::Value":$test, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::lvx::CacheLevAttr::get($_builder.getContext(), cachelev), test, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:DPURGEL -- register form, from DPURGEL_registerY_registerZ_simple
+def LVX_DpurgelRegOp : LVX_Op<"dpurgel_r">{
+  let summary = "DPURGEL -- Data Cache Purge Line";
+  let arguments = (ins LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$base `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($offset)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$offset), [{
+      build($_builder, $_state, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:DPURGEL -- immediate form, from DPURGEL_signed10_registerZ_simple
+def LVX_DpurgelOp : LVX_Op<"dpurgel">{
+  let summary = "DPURGEL -- Data Cache Purge Line";
+  let arguments = (ins LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$base `,` $offset attr-dict `:` `(` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:DPURGESW -- register form, from DPURGESW_cachelev_registerY_registerZ_simple
+def LVX_DpurgeswOp : LVX_Op<"dpurgesw">{
+  let summary = "DPURGESW -- Data Cache Purge Line by Set and Way";
+  let arguments = (ins LVX_CacheLevAttr:$cachelev,
+                       LVX_RegType:$test,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$cachelev $test `,` $base attr-dict `:` `(` qualified(type($test)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::lvx::CacheLev":$cachelev, "::mlir::Value":$test, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::lvx::CacheLevAttr::get($_builder.getContext(), cachelev), test, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:DFLUSHL -- register form, from DFLUSHL_registerY_registerZ_simple
+def LVX_DflushlRegOp : LVX_Op<"dflushl_r">{
+  let summary = "DFLUSHL -- Data Cache Flush Line";
+  let arguments = (ins LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$base `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($offset)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$offset), [{
+      build($_builder, $_state, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:DFLUSHL -- immediate form, from DFLUSHL_signed10_registerZ_simple
+def LVX_DflushlOp : LVX_Op<"dflushl">{
+  let summary = "DFLUSHL -- Data Cache Flush Line";
+  let arguments = (ins LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$base `,` $offset attr-dict `:` `(` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:DFLUSHSW -- register form, from DFLUSHSW_cachelev_registerY_registerZ_simple
+def LVX_DflushswOp : LVX_Op<"dflushsw">{
+  let summary = "DFLUSHSW -- Data Cache Flush Line by Set and Way";
+  let arguments = (ins LVX_CacheLevAttr:$cachelev,
+                       LVX_RegType:$test,
+                       LVX_RegType:$base,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$cachelev $test `,` $base attr-dict `:` `(` qualified(type($test)) `,` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::lvx::CacheLev":$cachelev, "::mlir::Value":$test, "::mlir::Value":$base), [{
+      build($_builder, $_state, ::mlir::lvx::CacheLevAttr::get($_builder.getContext(), cachelev), test, base, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:I1INVALS -- register form, from I1INVALS_registerY_registerZ_simple
+def LVX_I1invalsRegOp : LVX_Op<"i1invals_r">{
+  let summary = "I1INVALS -- Instruction Cache 1 Invalidate Set";
+  let arguments = (ins LVX_RegType:$base,
+                       LVX_RegType:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$base `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($offset)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$offset), [{
+      build($_builder, $_state, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:I1INVALS -- immediate form, from I1INVALS_signed10_registerZ_simple
+def LVX_I1invalsOp : LVX_Op<"i1invals">{
+  let summary = "I1INVALS -- Instruction Cache 1 Invalidate Set";
+  let arguments = (ins LVX_RegType:$base,
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$base `,` $offset attr-dict `:` `(` qualified(type($base)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, base, offset, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:D1INVAL -- register form, from D1INVAL_simple
+def LVX_D1invalOp : LVX_Op<"d1inval">{
+  let summary = "D1INVAL -- Data Cache 1 Invalidate";
+  let arguments = (ins OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "attr-dict";
+}
+
+// LSU:I1INVAL -- register form, from I1INVAL_simple
+def LVX_I1invalOp : LVX_Op<"i1inval">{
+  let summary = "I1INVAL -- Instruction Cache 1 Invalidate";
+  let arguments = (ins OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "attr-dict";
+}
+
+// LSU:FENCE -- register form, from FENCE_accesses_simple
+def LVX_FenceOp : LVX_Op<"fence">{
+  let summary = "FENCE -- Memory Fence";
+  let arguments = (ins OptionalAttr<LVX_AccessesAttr>:$accesses,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "($accesses^)? attr-dict";
+  let builders = [
+    OpBuilder<(ins CArg<"::mlir::lvx::AccessesAttr", "{}">:$accesses), [{
+      build($_builder, $_state, accesses, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// ALU:NOP -- register form, from NOP_simple
+def LVX_NopOp : LVX_Op<"nop">{
+  let summary = "NOP -- No Operation";
+  let arguments = (ins OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "attr-dict";
+}
+
 // ALU:STSUD -- register form, from STSUD_registerW_registerZ_registerY_simple
 def LVX_StsudOp : LVX_Op<"stsud", [Pure]>{
   let summary = "STSUD -- Subtract, Test and Shift Unsigned Double Word";
@@ -5707,6 +9486,20 @@ def LVX_FfmawcOp : LVX_Op<"ffmawc", [Pure]>{
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$cReg, CArg<"::mlir::lvx::FloatModeAttr", "{}">:$floatmode), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), ::mlir::UnitAttr(), floatmode, a, b, cReg, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// LSU:COPYO -- register form, from COPYO_registerN_registerR_simple
+def LVX_CopyoOp : LVX_Op<"copyo">{
+  let summary = "COPYO -- Copy Octuple Word";
+  let arguments = (ins LVX_RegType:$value,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$x, LVX_RegType:$y, LVX_RegType:$z, LVX_RegType:$t);
+  let assemblyFormat = "$value attr-dict `:` `(` qualified(type($value)) `)` `->` `(` qualified(type($x)) `,` qualified(type($y)) `,` qualified(type($z)) `,` qualified(type($t)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$value), [{
+      build($_builder, $_state, resultTypes, value, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
