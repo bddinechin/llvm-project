@@ -38,6 +38,209 @@ def LVX_FormatAttr : I64EnumAttr<
   let cppNamespace = "::mlir::lvx";
 }
 
+// BCU:AWAIT -- register form, from AWAIT_simple
+def LVX_AwaitOp : LVX_Op<"await">{
+  let summary = "AWAIT -- Wait for any event or interrupt.";
+  let arguments = (ins OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "attr-dict";
+}
+
+// BCU:SLEEP -- register form, from SLEEP_simple
+def LVX_SleepOp : LVX_Op<"sleep">{
+  let summary = "SLEEP -- Wait for an eligible interrupt.";
+  let arguments = (ins OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "attr-dict";
+}
+
+// BCU:STOP -- register form, from STOP_simple
+def LVX_StopOp : LVX_Op<"stop">{
+  let summary = "STOP -- Wait for power controller wake-up.";
+  let arguments = (ins OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "attr-dict";
+}
+
+// BCU:BARRIER -- register form, from BARRIER_simple
+def LVX_BarrierOp : LVX_Op<"barrier">{
+  let summary = "BARRIER -- Instruction Pipeline Barrier";
+  let arguments = (ins OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "attr-dict";
+}
+
+// BCU:TLBREAD -- register form, from TLBREAD_simple
+def LVX_TlbreadOp : LVX_Op<"tlbread">{
+  let summary = "TLBREAD -- Read TLB Entry";
+  let arguments = (ins OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "attr-dict";
+}
+
+// BCU:TLBPROBE -- register form, from TLBPROBE_simple
+def LVX_TlbprobeOp : LVX_Op<"tlbprobe">{
+  let summary = "TLBPROBE -- Probe TLB";
+  let arguments = (ins OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "attr-dict";
+}
+
+// BCU:TLBWRITE -- register form, from TLBWRITE_simple
+def LVX_TlbwriteOp : LVX_Op<"tlbwrite">{
+  let summary = "TLBWRITE -- TLB Entry Write";
+  let arguments = (ins OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "attr-dict";
+}
+
+// BCU:TLBDINVAL -- register form, from TLBDINVAL_simple
+def LVX_TlbdinvalOp : LVX_Op<"tlbdinval">{
+  let summary = "TLBDINVAL -- Invalidate Data Micro-TLB.";
+  let arguments = (ins OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "attr-dict";
+}
+
+// BCU:TLBIINVAL -- register form, from TLBIINVAL_simple
+def LVX_TlbiinvalOp : LVX_Op<"tlbiinval">{
+  let summary = "TLBIINVAL -- Invalidate Instruction Micro-TLB.";
+  let arguments = (ins OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "attr-dict";
+}
+
+// BCU:BREAK -- immediate form, from BREAK_brknumber_simple
+def LVX_BreakImmOp : LVX_Op<"break">{
+  let summary = "BREAK -- Debugger Breakpoint";
+  let arguments = (ins TypedAttrInterface:$brknumber,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$brknumber attr-dict";
+  let builders = [
+    OpBuilder<(ins "::mlir::TypedAttr":$brknumber), [{
+      build($_builder, $_state, brknumber, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:IGET -- register form, from IGET_registerZ_simple
+def LVX_IgetOp : LVX_Op<"iget">{
+  let summary = "IGET -- Indirect Get System Register";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$operand), [{
+      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:CSRRW -- immediate form, from CSRRW_registerZ_csrnumber_simple
+def LVX_CsrrwImmOp : LVX_Op<"csrrw">{
+  let summary = "CSRRW -- RISC-V CSR Read/Write (atomic) of the fcsr view of Compute Status";
+  let arguments = (ins TypedAttrInterface:$csrnumber,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$csrnumber attr-dict `:` `(`  `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::TypedAttr":$csrnumber), [{
+      build($_builder, $_state, resultType, csrnumber, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:CSRRS -- immediate form, from CSRRS_registerZ_csrnumber_simple
+def LVX_CsrrsImmOp : LVX_Op<"csrrs">{
+  let summary = "CSRRS -- RISC-V CSR Read/Set (atomic) of the fcsr view of Compute Status";
+  let arguments = (ins TypedAttrInterface:$csrnumber,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$csrnumber attr-dict `:` `(`  `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::TypedAttr":$csrnumber), [{
+      build($_builder, $_state, resultType, csrnumber, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:CSRRC -- immediate form, from CSRRC_registerZ_csrnumber_simple
+def LVX_CsrrcImmOp : LVX_Op<"csrrc">{
+  let summary = "CSRRC -- RISC-V CSR Read/Clear (atomic) of the fcsr view of Compute Status";
+  let arguments = (ins TypedAttrInterface:$csrnumber,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$csrnumber attr-dict `:` `(`  `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::TypedAttr":$csrnumber), [{
+      build($_builder, $_state, resultType, csrnumber, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:WAITIT -- register form, from WAITIT_registerZ_simple
+def LVX_WaititOp : LVX_Op<"waitit">{
+  let summary = "WAITIT -- Wait for Interrupt";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$operand), [{
+      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:SYNCGROUP -- register form, from SYNCGROUP_registerZ_simple
+def LVX_SyncgroupOp : LVX_Op<"syncgroup">{
+  let summary = "SYNCGROUP -- Synchronize Group of Cores";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$operand), [{
+      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:GUARD -- immediate form, from GUARD_execpred_registerZ_activate_simple
+def LVX_GuardImmOp : LVX_Op<"guard">{
+  let summary = "GUARD -- Guarded execution prefix.";
+  let arguments = (ins LVX_BcuCondAttr:$execpred,
+                       LVX_RegType:$operand,
+                       TypedAttrInterface:$activate,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$execpred $operand `,` $activate attr-dict `:` `(` qualified(type($operand)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::lvx::BcuCond":$execpred, "::mlir::Value":$operand, "::mlir::TypedAttr":$activate), [{
+      build($_builder, $_state, ::mlir::lvx::BcuCondAttr::get($_builder.getContext(), execpred), operand, activate, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:BLEND -- immediate form, from BLEND_lanetodo_lanesize_registerZ_activate_simple
+def LVX_BlendImmOp : LVX_Op<"blend">{
+  let summary = "BLEND -- Blended execution prefix";
+  let arguments = (ins LVX_LaneTodoAttr:$lanetodo,
+                       OptionalAttr<LVX_LaneSizeAttr>:$lanesize,
+                       LVX_RegType:$operand,
+                       TypedAttrInterface:$activate,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$lanetodo ($lanesize^)? $operand `,` $activate attr-dict `:` `(` qualified(type($operand)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::lvx::LaneTodo":$lanetodo, "::mlir::Value":$operand, "::mlir::TypedAttr":$activate, CArg<"::mlir::lvx::LaneSizeAttr", "{}">:$lanesize), [{
+      build($_builder, $_state, ::mlir::lvx::LaneTodoAttr::get($_builder.getContext(), lanetodo), lanesize, operand, activate, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
 // LSU:LBZ -- register form, from LBZ_variant_registerW_registerY_registerZ_simple
 def LVX_LbzRegOp : LVX_Op<"lbz_r">{
   let summary = "LBZ -- Load Byte Zero Extended";
@@ -9608,6 +9811,14 @@ def LVX_CopydOp : LVX_Op<"copyd", [Pure]>{
   ];
 }
 
+// BCU:ERROP -- register form, from ERROP_simple
+def LVX_ErropOp : LVX_Op<"errop">{
+  let summary = "ERROP -- Error opcode.";
+  let arguments = (ins OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "attr-dict";
+}
+
 // ALU:ZXBD -- register form, from ZXBD_registerW_registerZ_simple
 def LVX_ZxbdOp : LVX_Op<"zxbd", [Pure]>{
   let summary = "ZXBD -- Zero Extend Byte to Double Word";
@@ -9703,6 +9914,90 @@ def LVX_CopywOp : LVX_Op<"copyw", [Pure]>{
   let builders = [
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
       build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:FRCSR -- register form, from FRCSR_registerZ_simple
+def LVX_FrcsrOp : LVX_Op<"frcsr">{
+  let summary = "FRCSR -- Read \texttt{fcsr} (pseudo of \texttt{csrrs} on \texttt{fcsr})";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$operand), [{
+      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:FSCSR -- register form, from FSCSR_registerZ_simple
+def LVX_FscsrOp : LVX_Op<"fscsr">{
+  let summary = "FSCSR -- Write \texttt{fcsr} (pseudo of \texttt{csrrw} on \texttt{fcsr})";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$operand), [{
+      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:FRFLAGS -- register form, from FRFLAGS_registerZ_simple
+def LVX_FrflagsOp : LVX_Op<"frflags">{
+  let summary = "FRFLAGS -- Read \texttt{fflags} (pseudo of \texttt{csrrs} on \texttt{fflags})";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$operand), [{
+      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:FSFLAGS -- register form, from FSFLAGS_registerZ_simple
+def LVX_FsflagsOp : LVX_Op<"fsflags">{
+  let summary = "FSFLAGS -- Write \texttt{fflags} (pseudo of \texttt{csrrw} on \texttt{fflags})";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$operand), [{
+      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:FRRM -- register form, from FRRM_registerZ_simple
+def LVX_FrrmOp : LVX_Op<"frrm">{
+  let summary = "FRRM -- Read \texttt{frm} (pseudo of \texttt{csrrs} on \texttt{frm})";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$operand), [{
+      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:FSRM -- register form, from FSRM_registerZ_simple
+def LVX_FsrmOp : LVX_Op<"fsrm">{
+  let summary = "FSRM -- Write \texttt{frm} (pseudo of \texttt{csrrw} on \texttt{frm})";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$operand), [{
+      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
