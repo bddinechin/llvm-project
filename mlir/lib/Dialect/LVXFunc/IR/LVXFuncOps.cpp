@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
+#include "mlir/Dialect/LVX/IR/LVXConvention.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Interfaces/FunctionImplementation.h"
 
@@ -16,10 +17,11 @@
 using namespace mlir;
 using namespace mlir::lvx_func;
 
-// Per lvx-mds/lvx-refs' `Convention-lvx_v1-regular`: 12 argument
-// registers ($r0-$r11) and 4 result registers ($r0-$r3).
-static constexpr unsigned kMaxAbiArgRegs = 12;
-static constexpr unsigned kMaxAbiResultRegs = 4;
+// Per lvx-mds/lvx-refs' `Convention-lvx_v1-regular`, read from the generated
+// LVXConvention.inc rather than transcribed: 12 argument registers
+// ($r0-$r11) and 4 result registers ($r0-$r3).
+static constexpr unsigned kMaxAbiArgRegs = lvx::kNumAbiArgRegs;
+static constexpr unsigned kMaxAbiResultRegs = lvx::kNumAbiResultRegs;
 
 //===----------------------------------------------------------------------===//
 // FuncOp

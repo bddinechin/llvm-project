@@ -14,6 +14,7 @@
 #include "mlir/Dialect/Index/IR/IndexDialect.h"
 #include "mlir/Dialect/Index/IR/IndexOps.h"
 #include "mlir/Dialect/LVX/IR/LVX.h"
+#include "mlir/Dialect/LVX/IR/LVXConvention.h"
 #include "mlir/Dialect/LVXCF/IR/LVXCF.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
 #include "mlir/Dialect/LVXSCF/IR/LVXSCF.h"
@@ -39,9 +40,25 @@ using mlir::lvx::IntComp;
 using mlir::lvx::RegisterType;
 using mlir::lvx::Register;
 
-// Per lvx-mds/lvx-refs' Convention.table, `Convention-lvx_v1-regular`.
-static constexpr unsigned kMaxAbiArgRegs = 12;
-static constexpr unsigned kMaxAbiResultRegs = 4;
+// Per lvx-mds/lvx-refs' Convention.table, `Convention-lvx_v1-regular`, read
+// from the generated LVXConvention.inc rather than transcribed.
+static constexpr unsigned kMaxAbiArgRegs = lvx::kNumAbiArgRegs;
+static constexpr unsigned kMaxAbiResultRegs = lvx::kNumAbiResultRegs;
+
+// The n-th argument/result register. These used to be `static_cast<Register>(n)`
+// -- correct only because `Convention-lvx_v1-regular` happens to start both
+// sets at $r0 and run them contiguously. Nothing in the ABI promises that, and
+// a description that reordered or renumbered either set would have left every
+// call site here compiling and silently passing arguments in the wrong
+// registers, which is precisely the failure a generated table removes.
+static lvx::Register abiArgReg(unsigned n) {
+  assert(n < lvx::kNumAbiArgRegs && "argument index beyond the ABI's capacity");
+  return lvx::kAbiArgRegs[n];
+}
+static lvx::Register abiResultReg(unsigned n) {
+  assert(n < lvx::kNumAbiResultRegs && "result index beyond the ABI's capacity");
+  return lvx::kAbiResultRegs[n];
+}
 
 namespace {
 
@@ -793,12 +810,10 @@ struct FuncFuncToLVX : public OpConversionPattern<func::FuncOp> {
 
     SmallVector<Type> pinnedArgTypes;
     for (unsigned i = 0; i < op.getNumArguments(); ++i)
-      pinnedArgTypes.push_back(
-          RegisterType::get(ctx, static_cast<Register>(i)));
+      pinnedArgTypes.push_back(RegisterType::get(ctx, abiArgReg(i)));
     SmallVector<Type> pinnedResultTypes;
     for (unsigned i = 0; i < op.getNumResults(); ++i)
-      pinnedResultTypes.push_back(
-          RegisterType::get(ctx, static_cast<Register>(i)));
+      pinnedResultTypes.push_back(RegisterType::get(ctx, abiResultReg(i)));
     auto newFuncType =
         rewriter.getFunctionType(pinnedArgTypes, pinnedResultTypes);
 
@@ -867,14 +882,13 @@ struct CallToLVX : public OpConversionPattern<func::CallOp> {
 
     SmallVector<Value> pinnedOperands;
     for (auto [idx, operand] : llvm::enumerate(adaptor.getOperands())) {
-      Type pinnedTy = RegisterType::get(ctx, static_cast<Register>(idx));
+      Type pinnedTy = RegisterType::get(ctx, abiArgReg(idx));
       pinnedOperands.push_back(
           rewriter.create<lvx::MvOp>(loc, pinnedTy, operand));
     }
     SmallVector<Type> pinnedResultTypes;
     for (unsigned i = 0; i < op.getNumResults(); ++i)
-      pinnedResultTypes.push_back(
-          RegisterType::get(ctx, static_cast<Register>(i)));
+      pinnedResultTypes.push_back(RegisterType::get(ctx, abiResultReg(i)));
     auto call = rewriter.create<lvx_func::CallOp>(
         loc, op.getCallee(), pinnedResultTypes, pinnedOperands);
 
@@ -899,7 +913,7 @@ struct ReturnToLVX : public OpConversionPattern<func::ReturnOp> {
     MLIRContext *ctx = getContext();
     SmallVector<Value> pinnedOperands;
     for (auto [idx, operand] : llvm::enumerate(adaptor.getOperands())) {
-      Type pinnedTy = RegisterType::get(ctx, static_cast<Register>(idx));
+      Type pinnedTy = RegisterType::get(ctx, abiResultReg(idx));
       pinnedOperands.push_back(
           rewriter.create<lvx::MvOp>(op.getLoc(), pinnedTy, operand));
     }

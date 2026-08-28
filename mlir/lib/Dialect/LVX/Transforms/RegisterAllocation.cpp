@@ -22,6 +22,9 @@
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
 #include "mlir/Dialect/LVX/Transforms/ScratchRegisters.h"
+#include "mlir/Dialect/LVX/IR/LVXConvention.h"
+
+#include <array>
 
 #include "mlir/Dialect/LVX/Analysis/LiveIntervals.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
@@ -73,50 +76,73 @@ struct AllocItem {
 
 //===----------------------------------------------------------------------===//
 // Register pool: preference order per lvx-mlir/docs/RegisterAllocation.md
-// ("Allocation order"), derived from lvx-mds/lvx-refs' Convention.table,
-// `Convention-lvx_v1-regular`. R12 (stack pointer) and R13 (local/TLS) are
-// always reserved and never appear here.
+// ("Allocation order"), BUILT from `Convention-lvx_v1-regular` rather than
+// transcribed from it -- the sets come from the generated LVXConvention.inc.
+//
+// The membership is the ABI's and the order is this pass's, and keeping the
+// two apart is the point. What the convention says is which registers a
+// caller must save and which a callee must preserve; what this pass decides
+// is that a caller-saved register is the better first choice, because using a
+// callee-saved one costs a prologue/epilogue save/restore pair that
+// `collectCalleeSavedToSave` below has to emit. Reserved registers (R12, the
+// stack pointer, and R13) and the spill scratch (see ScratchRegisters.h) are
+// excluded; the ABI has no opinion about either exclusion, so both are stated
+// here.
 //===----------------------------------------------------------------------===//
 
-static const Register kFullOrder[] = {
-    // Argument/result registers first.
-    Register::r0, Register::r1, Register::r2, Register::r3, Register::r4,
-    Register::r5, Register::r6, Register::r7, Register::r8, Register::r9,
-    Register::r10, Register::r11,
-    // Remaining caller-saved scratch.
-    Register::r15, Register::r16, Register::r17,
-    Register::r32, Register::r33, Register::r34, Register::r35,
-    Register::r36, Register::r37, Register::r38, Register::r39,
-    Register::r40, Register::r41, Register::r42, Register::r43,
-    Register::r44, Register::r45, Register::r46, Register::r47,
-    Register::r48, Register::r49, Register::r50, Register::r51,
-    Register::r52, Register::r53, Register::r54, Register::r55,
-    Register::r56, Register::r57, Register::r58, Register::r59,
-    Register::r60,
-    // Callee-saved last -- using one costs a prologue/epilogue save/restore
-    // pair, which `collectCalleeSavedToSave` below now emits.
-    Register::r14,
-    Register::r18, Register::r19, Register::r20, Register::r21,
-    Register::r22, Register::r23, Register::r24, Register::r25,
-    Register::r26, Register::r27, Register::r28, Register::r29,
-    Register::r30, Register::r31,
-};
+// Every scratch register is caller-saved, so removing them removes that many
+// entries from the caller set and none from the callee set. ScratchRegisters.h
+// asserts the same thing for its own reasons; stated again here because this
+// arithmetic is wrong without it, and an off-by-N in a constexpr array bound
+// reports as "__builtin_unreachable() is not a constant expression".
+static_assert(isIn(kScratchRegs[0], kCallerSavedRegs) &&
+                  isIn(kScratchRegs[1], kCallerSavedRegs) &&
+                  isIn(kScratchRegs[2], kCallerSavedRegs),
+              "the scratch registers must all be caller-saved");
+
+static constexpr unsigned kAllocatableCount =
+    kNumCallerSavedRegs - kNumScratchRegs + kNumCalleeSavedRegs;
+
+/// Caller-saved first (in the convention's own order, which runs $r0-$r11 --
+/// the argument/result registers -- ahead of the rest), then callee-saved.
+static constexpr std::array<Register, kAllocatableCount> makeFullOrder() {
+  std::array<Register, kAllocatableCount> order{};
+  unsigned n = 0;
+  for (Register r : kCallerSavedRegs)
+    if (!isIn(r, kScratchRegs))
+      order[n++] = r;
+  for (Register r : kCalleeSavedRegs)
+    order[n++] = r;
+  return order;
+}
+
+static constexpr std::array<Register, kAllocatableCount> kFullOrderStorage =
+    makeFullOrder();
+static constexpr ArrayRef<Register> kFullOrder(kFullOrderStorage);
 
 // The callee-saved suffix of kFullOrder, in the same relative order --
 // used for items whose range straddles a call.
-static const Register *const kCalleeSavedOrder = kFullOrder + 44;
-static constexpr unsigned kCalleeSavedCount = 15;
-static_assert(std::size(kFullOrder) == 59,
+static constexpr unsigned kCalleeSavedCount = kNumCalleeSavedRegs;
+static constexpr const Register *kCalleeSavedOrder =
+    kFullOrderStorage.data() + (kAllocatableCount - kCalleeSavedCount);
+
+static_assert(kAllocatableCount == 59,
               "expected 59 allocatable GPRs (all but R12/R13 and the 3 "
               "spill-scratch registers below)");
+// The reserved registers must not have reached the pool. The convention says
+// they are reserved; it does not say they are absent from `caller`/`callee`,
+// and in fact R12/R13 are in neither -- so this asserts the coincidence the
+// pool relies on rather than assuming it.
+static_assert(!isIn(kStackReg, kCallerSavedRegs) &&
+                  !isIn(kStackReg, kCalleeSavedRegs) &&
+                  !isIn(kLocalReg, kCallerSavedRegs) &&
+                  !isIn(kLocalReg, kCalleeSavedRegs),
+              "a reserved register appears in the allocation pool");
 
 /// True if `r` is callee-saved per `Convention-lvx_v1-regular`'s `callee`
 /// set (R14, R18-R31), i.e. the caller's value in it must be preserved
 /// across this function.
-static bool isCalleeSaved(Register r) {
-  return llvm::is_contained(
-      ArrayRef<Register>(kCalleeSavedOrder, kCalleeSavedCount), r);
-}
+static bool isCalleeSaved(Register r) { return isIn(r, kCalleeSavedRegs); }
 
 //===----------------------------------------------------------------------===//
 // Spill scratch registers: reserved out of the general pool above (never
@@ -495,7 +521,7 @@ static Value insertPrologueEpilogue(lvx_func::FuncOp func, unsigned frameSize,
                                     ArrayRef<std::pair<Register, unsigned>>
                                         calleeSaved,
                                     MLIRContext *ctx) {
-  Type r12Ty = RegisterType::get(ctx, Register::r12);
+  Type r12Ty = RegisterType::get(ctx, kStackReg);
   Type raScratchTy = RegisterType::get(ctx, kSpillScratchRegs[0]);
   OpBuilder builder(ctx);
 
@@ -706,7 +732,7 @@ struct LVXAllocateRegistersPass
       ArrayRef<Register> order =
           item.crossesCall
               ? ArrayRef<Register>(kCalleeSavedOrder, kCalleeSavedCount)
-              : ArrayRef<Register>(kFullOrder);
+              : kFullOrder;
       if (std::optional<Register> reg =
               pickFree(order, this->maxRegisters, inUse)) {
         item.assigned = *reg;

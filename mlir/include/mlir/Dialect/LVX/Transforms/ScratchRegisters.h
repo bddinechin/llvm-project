@@ -36,7 +36,7 @@
 #ifndef MLIR_DIALECT_LVX_TRANSFORMS_SCRATCHREGISTERS_H
 #define MLIR_DIALECT_LVX_TRANSFORMS_SCRATCHREGISTERS_H
 
-#include "mlir/Dialect/LVX/IR/LVX.h"
+#include "mlir/Dialect/LVX/IR/LVXConvention.h"
 
 namespace mlir {
 namespace lvx {
@@ -58,6 +58,20 @@ inline constexpr Register kScratchReg = kScratchRegs[0];
 /// Must stay even/odd adjacent -- see the header comment.
 inline constexpr Register kScratchPairLo = kScratchRegs[1];
 inline constexpr Register kScratchPairHi = kScratchRegs[2];
+
+// The two invariants from the header comment, now checked against the
+// generated convention instead of being asserted in prose. The first one
+// was violated once -- R29-R31 are callee-saved -- and the compiler had no
+// way to notice; it does now.
+static_assert(isIn(kScratchRegs[0], kCallerSavedRegs) &&
+                  isIn(kScratchRegs[1], kCallerSavedRegs) &&
+                  isIn(kScratchRegs[2], kCallerSavedRegs),
+              "a scratch register is callee-saved: every spilling function "
+              "would clobber a register its caller is entitled to get back");
+static_assert(static_cast<unsigned>(kScratchPairLo) % 2 == 0 &&
+                  static_cast<unsigned>(kScratchPairHi) ==
+                      static_cast<unsigned>(kScratchPairLo) + 1,
+              "the divmod scratch pair is not an even/odd aligned pair");
 
 } // namespace lvx
 } // namespace mlir
