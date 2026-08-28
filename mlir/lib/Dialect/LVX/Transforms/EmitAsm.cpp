@@ -388,20 +388,11 @@ private:
         // $ra save/restore (lvx-mlir/docs/RegisterAllocation.md, "Return-
         // address save/restore"): real `get`/`set` on the RA system
         // register, confirmed via the real lvx-mbr-as/lvx-mbr-objdump.
-        .Case([&](GetraOp op) {
-          FailureOr<std::string> rd = reg(op.getResult());
-          if (failed(rd))
-            return failure();
-          os << "\tget " << *rd << " = $ra\n\t;;\n";
-          return success();
-        })
-        .Case([&](SetraOp op) {
-          FailureOr<std::string> rs = reg(op.getSource());
-          if (failed(rs))
-            return failure();
-          os << "\tset $ra = " << *rs << "\n\t;;\n";
-          return success();
-        })
+        // `lvx.get`/`lvx.set` need no case of their own: both are one
+        // result and one operand, so the arity dispatch below prints
+        // `get $rN = $ra` and `set $ra = $rN` from the operand types. They
+        // replaced the hand-written `lvx.getra`/`lvx.setra` pseudos, which
+        // existed only because `!lvx.reg` could not name $ra (O5).
         // Memory.
         .Case([&](LbzOp op) { return emitLoad(op, "lbz", op.getBase(), op.getOffset(), op.getVariant()); })
         .Case([&](LbsOp op) { return emitLoad(op, "lbs", op.getBase(), op.getOffset(), op.getVariant()); })

@@ -103,10 +103,14 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // `@caller` itself executes a call, so it's non-leaf and gets a
 // prologue/epilogue purely for $ra even though nothing is spilled here
 // (lvx-mlir/docs/RegisterAllocation.md, "Return-address save/restore"): $ra is
-// snapshotted (`lvx.getra` + `lvx.sd`, both r61) right after the frame is
-// established, and restored (`lvx.ld` + `lvx.setra`) right before the
-// epilogue's stack-pointer restore -- otherwise `@callee`'s own `call`
-// would silently overwrite `@caller`'s $ra before its own `ret` uses it.
+// snapshotted (`lvx.get` off an `lvx.reg_live_in : !lvx.reg<ra>`, then
+// `lvx.sd`, both r61) right after the frame is established, and restored
+// (`lvx.ld` + `lvx.set`) right before the epilogue's stack-pointer restore
+// -- otherwise `@callee`'s own `call` would silently overwrite `@caller`'s
+// $ra before its own `ret` uses it. Those two were the hand-written
+// `lvx.getra`/`lvx.setra` pseudos until the register enum could name a
+// system register (design document O5); they are generated ops now, and
+// `lvx.set`'s result IS $ra rather than the op having none.
 //
 // This also exercises the callee-saved save/restore: `%live` above is
 // forced into r14, which is callee-saved, so the caller's own r14 has to
@@ -121,20 +125,21 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: %0 = lvx.sp : !lvx.reg<r12>
 // CHECK-NEXT: %1 = lvx.li 16 : i64 : !lvx.reg<r61>
 // CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
-// CHECK-NEXT: %3 = lvx.getra : !lvx.reg<r61>
-// CHECK-NEXT: lvx.sd %3, %2, 0 : i64 : (!lvx.reg<r61>, !lvx.reg<r12>)
-// CHECK-NEXT: %4 = lvx.reg_live_in : !lvx.reg<r14>
-// CHECK-NEXT: lvx.sd %4, %2, 8 : i64 : (!lvx.reg<r14>, !lvx.reg<r12>)
-// CHECK-NEXT: %5 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r14>
-// CHECK-NEXT: %6 = lvx_func.call @callee(%arg0) : (!lvx.reg<r0>) -> !lvx.reg<r0>
-// CHECK-NEXT: %7 = lvx.addd %5, %6 : (!lvx.reg<r14>, !lvx.reg<r0>) -> !lvx.reg<r1>
-// CHECK-NEXT: %8 = lvx.mv %7 : (!lvx.reg<r1>) -> !lvx.reg<r0>
-// CHECK-NEXT: %9 = lvx.ld %2, 8 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r14>
-// CHECK-NEXT: %10 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
-// CHECK-NEXT: lvx.setra %10 : !lvx.reg<r61>
-// CHECK-NEXT: %11 = lvx.li 16 : i64 : !lvx.reg<r61>
-// CHECK-NEXT: %12 = lvx.addd %2, %11 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
-// CHECK-NEXT: lvx_func.return %8 : !lvx.reg<r0>
+// CHECK-NEXT: %3 = lvx.reg_live_in : !lvx.reg<ra>
+// CHECK-NEXT: %4 = lvx.get %3 : (!lvx.reg<ra>) -> !lvx.reg<r61>
+// CHECK-NEXT: lvx.sd %4, %2, 0 : i64 : (!lvx.reg<r61>, !lvx.reg<r12>)
+// CHECK-NEXT: %5 = lvx.reg_live_in : !lvx.reg<r14>
+// CHECK-NEXT: lvx.sd %5, %2, 8 : i64 : (!lvx.reg<r14>, !lvx.reg<r12>)
+// CHECK-NEXT: %6 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r14>
+// CHECK-NEXT: %7 = lvx_func.call @callee(%arg0) : (!lvx.reg<r0>) -> !lvx.reg<r0>
+// CHECK-NEXT: %8 = lvx.addd %6, %7 : (!lvx.reg<r14>, !lvx.reg<r0>) -> !lvx.reg<r1>
+// CHECK-NEXT: %9 = lvx.mv %8 : (!lvx.reg<r1>) -> !lvx.reg<r0>
+// CHECK-NEXT: %10 = lvx.ld %2, 8 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r14>
+// CHECK-NEXT: %11 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
+// CHECK-NEXT: %12 = lvx.set %11 : (!lvx.reg<r61>) -> !lvx.reg<ra>
+// CHECK-NEXT: %13 = lvx.li 16 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %14 = lvx.addd %2, %13 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
+// CHECK-NEXT: lvx_func.return %9 : !lvx.reg<r0>
 lvx_func.func private @callee(!lvx.reg<r0>) -> !lvx.reg<r0>
 lvx_func.func @caller(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %live = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg

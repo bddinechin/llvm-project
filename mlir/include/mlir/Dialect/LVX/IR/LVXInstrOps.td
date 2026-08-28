@@ -152,6 +152,50 @@ def LVX_ScallImmOp : LVX_Op<"scall_i">{
   ];
 }
 
+// BCU:WFXL -- register form, from WFXL_systemT2_registerZ_simple
+def LVX_WfxlOp : LVX_Op<"wfxl">{
+  let summary = "WFXL -- Effects on Least Significant Word System Register";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:WFXM -- register form, from WFXM_systemT2_registerZ_simple
+def LVX_WfxmOp : LVX_Op<"wfxm">{
+  let summary = "WFXM -- Word Effects on Most Significant Word System Register";
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)`";
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, lhs, rhs, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:GET -- register form, from GET_registerZ_systemS2_simple
+def LVX_GetOp : LVX_Op<"get">{
+  let summary = "GET -- Get System Register";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
 // BCU:IGET -- register form, from IGET_registerZ_simple
 def LVX_IgetOp : LVX_Op<"iget">{
   let summary = "IGET -- Indirect Get System Register";
@@ -162,6 +206,34 @@ def LVX_IgetOp : LVX_Op<"iget">{
   let builders = [
     OpBuilder<(ins "::mlir::Value":$operand), [{
       build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:SET -- register form, from SET_systemT3_registerZ_simple
+def LVX_SetOp : LVX_Op<"set">{
+  let summary = "SET -- Set System Register";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    }]>
+  ];
+}
+
+// BCU:RSWAP -- register form, from RSWAP_registerZ_systemS4_simple
+def LVX_RswapOp : LVX_Op<"rswap">{
+  let summary = "RSWAP -- General and System Register Swap";
+  let arguments = (ins LVX_RegType:$operand,
+                       OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }

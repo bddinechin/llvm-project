@@ -93,37 +93,21 @@ def LVX_RegLiveInOp : LVX_Op<"reg_live_in", [Pure]> {
   let hasVerifier = 1;
 }
 
-def LVX_GetraOp : LVX_Op<"getra", [Pure]> {
-  let summary = "read the return-address register into a GPR";
-  let description = [{
-    Backed by the real `GET_registerZ_systemS3` opcode (`$rd = $ra`,
-    printed `get`, confirmed against the real `lvx-mbr-as`/`lvx-mbr-objdump`
-    -- see lvx-mlir/docs/RegisterAllocation.md, "Return-address save/restore").
-    $ra is LVX's single hardware link register, written implicitly by
-    every real `call` with no software-visible call stack; a non-leaf
-    function (one that itself executes a `call`) must snapshot its own
-    $ra with this op before making any call of its own, since that call
-    will overwrite it. Inserted by the register allocator's non-leaf
-    prologue (Step 3), not user-written.
-  }];
-  let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "attr-dict `:` qualified(type($result))";
-}
-
-def LVX_SetraOp : LVX_Op<"setra"> {
-  let summary = "write a GPR's value into the return-address register";
-  let description = [{
-    Backed by the real `SET_systemRA_registerZ` opcode (`$ra = $rs`,
-    printed `set`). Restores $ra from a snapshot taken by `lvx.getra` at
-    function entry, immediately before `lvx_func.return` in a non-leaf
-    function -- see that op's own doc comment. Not `Pure`: writes a
-    system register that the real `ret` immediately following depends on
-    with no SSA-visible use, a genuine side effect that must not be
-    treated as dead code.
-  }];
-  let arguments = (ins LVX_RegType:$source);
-  let assemblyFormat = "$source attr-dict `:` qualified(type($source))";
-}
+// `lvx.getra` and `lvx.setra` used to live here: two narrow pseudos wrapping
+// exactly `GET_registerZ_systemS3` and `SET_systemRA_registerZ`, written by
+// hand because `!lvx.reg`'s register enum was r0-r63 plus $ra and could not
+// name a system register operand at all (design document O5). The enum is
+// now the general-purpose file plus the whole 192-register SFR file, so
+// `lvx.get` and `lvx.set` are generated like any other instruction and say
+// the same thing with nothing hand-written behind them:
+//
+//   %ra  = lvx.reg_live_in : !lvx.reg<ra>          // emits nothing
+//   %sav = lvx.get %ra : (!lvx.reg<ra>) -> !lvx.reg<r61>     // get $r61 = $ra
+//   %new = lvx.set %sav : (!lvx.reg<r61>) -> !lvx.reg<ra>    // set $ra = $r61
+//
+// `lvx.set`'s result is the system register it wrote. Nothing consumes it,
+// and it is not dead: `lvx.set` is not `Pure`, because the `ret` that follows
+// depends on $ra with no SSA edge to say so.
 
 //===----------------------------------------------------------------------===//
 // Integer arithmetic (paired 64-bit `d` / 32-bit `w` real mnemonics).

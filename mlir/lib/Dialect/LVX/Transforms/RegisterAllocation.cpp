@@ -166,11 +166,20 @@ static bool isCalleeSaved(Register r) { return isIn(r, kCalleeSavedRegs); }
 static constexpr const Register *kSpillScratchRegs = kScratchRegs;
 static constexpr unsigned kNumSpillScratchRegs = kNumScratchRegs;
 
+/// One past the largest value the Register enum takes. The enum's values are
+/// dwarfIds, NOT positions -- the general-purpose file is 0-63 and the system
+/// file 64-255 -- so an array indexed by a Register has to be this big, not
+/// `number of registers`. It was literally sized 65 while the enum held
+/// r0-r63 plus $ra=67, which was already two past the end for any value
+/// pinned to $ra and would have been 188 past it once the system file
+/// arrived (O5).
+static constexpr unsigned kRegisterIdBound = getMaxEnumValForRegister() + 1;
+
 /// Picks the first free register in `order` (truncated to `poolSize`
 /// entries), or nullopt if none is free.
 static std::optional<Register> pickFree(ArrayRef<Register> order,
                                         unsigned poolSize,
-                                        const bool inUse[65]) {
+                                        const bool inUse[kRegisterIdBound]) {
   for (Register r : order.take_front(std::min<size_t>(poolSize, order.size())))
     if (!inUse[static_cast<unsigned>(r)])
       return r;
@@ -523,6 +532,7 @@ static Value insertPrologueEpilogue(lvx_func::FuncOp func, unsigned frameSize,
                                     MLIRContext *ctx) {
   Type r12Ty = RegisterType::get(ctx, kStackReg);
   Type raScratchTy = RegisterType::get(ctx, kSpillScratchRegs[0]);
+  Type raTy = RegisterType::get(ctx, kReturnReg);
   OpBuilder builder(ctx);
 
   Block &entry = func.getBody().front();
@@ -534,9 +544,14 @@ static Value insertPrologueEpilogue(lvx_func::FuncOp func, unsigned frameSize,
   Value spBase = builder.create<SbfdOp>(loc, r12Ty, sp0, off);
 
   if (raOffset) {
-    auto raOffsetAttr =
-        builder.getI64IntegerAttr(*raOffset);
-    Value raVal = builder.create<GetraOp>(loc, raScratchTy);
+    auto raOffsetAttr = builder.getI64IntegerAttr(*raOffset);
+    // `lvx.reg_live_in` names $ra's incoming value and emits nothing; the
+    // `lvx.get` that reads it is the real `get $rN = $ra`. This was a
+    // hand-written `lvx.getra` pseudo until the Register enum could name a
+    // system register at all (O5) -- with `!lvx.reg<ra>` expressible, the
+    // generated `lvx.get` says the same thing with no pseudo behind it.
+    Value raLive = builder.create<RegLiveInOp>(loc, raTy);
+    Value raVal = builder.create<GetOp>(loc, raScratchTy, raLive);
     builder.create<SdOp>(loc, raVal, spBase, raOffsetAttr);
   }
 
@@ -565,7 +580,11 @@ static Value insertPrologueEpilogue(lvx_func::FuncOp func, unsigned frameSize,
           builder.getI64IntegerAttr(*raOffset);
       Value raVal = builder.create<LdOp>(ret.getLoc(), raScratchTy, spBase,
                                          raOffsetAttr);
-      builder.create<SetraOp>(ret.getLoc(), raVal);
+      // `set $ra = $rN`: the generated op's *result* is the system register
+      // written, typed `!lvx.reg<ra>`, and nothing consumes it. That is not
+      // dead code -- `lvx.set` is not Pure, because the `ret` that follows
+      // depends on $ra with no SSA edge to say so.
+      builder.create<SetOp>(ret.getLoc(), raTy, raVal);
     }
     Value off2 = builder.create<LiOp>(ret.getLoc(), raScratchTy,
                                       builder.getI64IntegerAttr(frameSize));
@@ -666,7 +685,7 @@ struct LVXAllocateRegistersPass
     }
     markCallCrossings(func, live, items);
 
-    bool inUse[65] = {};
+    bool inUse[kRegisterIdBound] = {};
     // active: indices into `items`, kept sorted by increasing `end`.
     SmallVector<unsigned> active;
 
