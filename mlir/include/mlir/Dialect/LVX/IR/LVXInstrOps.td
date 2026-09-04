@@ -124,6 +124,14 @@ def LVX_BreakImmOp : LVX_Op<"break">{
   ];
 }
 
+// BCU:RFE -- register form, from RFE_simple
+def LVX_RfeOp : LVX_Op<"rfe">{
+  let summary = "RFE -- Return from Exception";
+  let arguments = (ins OptionalAttr<LVX_FormatAttr>:$format);
+  let results = (outs );
+  let assemblyFormat = "attr-dict";
+}
+
 // BCU:SCALL -- register form, from SCALL_registerZ_simple
 def LVX_ScallOp : LVX_Op<"scall">{
   let summary = "SCALL -- System Call";
@@ -155,14 +163,13 @@ def LVX_ScallImmOp : LVX_Op<"scall_i">{
 // BCU:WFXL -- register form, from WFXL_systemT2_registerZ_simple
 def LVX_WfxlOp : LVX_Op<"wfxl">{
   let summary = "WFXL -- Effects on Least Significant Word System Register";
-  let arguments = (ins LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+  let arguments = (ins LVX_RegType:$operand,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -170,14 +177,13 @@ def LVX_WfxlOp : LVX_Op<"wfxl">{
 // BCU:WFXM -- register form, from WFXM_systemT2_registerZ_simple
 def LVX_WfxmOp : LVX_Op<"wfxm">{
   let summary = "WFXM -- Word Effects on Most Significant Word System Register";
-  let arguments = (ins LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+  let arguments = (ins LVX_RegType:$operand,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -201,11 +207,11 @@ def LVX_IgetOp : LVX_Op<"iget">{
   let summary = "IGET -- Indirect Get System Register";
   let arguments = (ins LVX_RegType:$operand,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$operand), [{
-      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -227,13 +233,14 @@ def LVX_SetOp : LVX_Op<"set">{
 // BCU:RSWAP -- register form, from RSWAP_registerZ_systemS4_simple
 def LVX_RswapOp : LVX_Op<"rswap">{
   let summary = "RSWAP -- General and System Register Swap";
-  let arguments = (ins LVX_RegType:$operand,
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
+  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
-      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultTypes, lhs, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -241,13 +248,14 @@ def LVX_RswapOp : LVX_Op<"rswap">{
 // BCU:CSRRW -- immediate form, from CSRRW_registerZ_csrnumber_simple
 def LVX_CsrrwImmOp : LVX_Op<"csrrw">{
   let summary = "CSRRW -- RISC-V CSR Read/Write (atomic) of the fcsr view of Compute Status";
-  let arguments = (ins TypedAttrInterface:$csrnumber,
+  let arguments = (ins LVX_RegType:$operand,
+                       TypedAttrInterface:$csrnumber,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$csrnumber attr-dict `:` `(`  `)` `->` qualified(type($result))";
+  let assemblyFormat = "$csrnumber `,` $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::TypedAttr":$csrnumber), [{
-      build($_builder, $_state, resultType, csrnumber, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$csrnumber), [{
+      build($_builder, $_state, resultType, operand, csrnumber, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -255,13 +263,14 @@ def LVX_CsrrwImmOp : LVX_Op<"csrrw">{
 // BCU:CSRRS -- immediate form, from CSRRS_registerZ_csrnumber_simple
 def LVX_CsrrsImmOp : LVX_Op<"csrrs">{
   let summary = "CSRRS -- RISC-V CSR Read/Set (atomic) of the fcsr view of Compute Status";
-  let arguments = (ins TypedAttrInterface:$csrnumber,
+  let arguments = (ins LVX_RegType:$operand,
+                       TypedAttrInterface:$csrnumber,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$csrnumber attr-dict `:` `(`  `)` `->` qualified(type($result))";
+  let assemblyFormat = "$csrnumber `,` $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::TypedAttr":$csrnumber), [{
-      build($_builder, $_state, resultType, csrnumber, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$csrnumber), [{
+      build($_builder, $_state, resultType, operand, csrnumber, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -269,13 +278,14 @@ def LVX_CsrrsImmOp : LVX_Op<"csrrs">{
 // BCU:CSRRC -- immediate form, from CSRRC_registerZ_csrnumber_simple
 def LVX_CsrrcImmOp : LVX_Op<"csrrc">{
   let summary = "CSRRC -- RISC-V CSR Read/Clear (atomic) of the fcsr view of Compute Status";
-  let arguments = (ins TypedAttrInterface:$csrnumber,
+  let arguments = (ins LVX_RegType:$operand,
+                       TypedAttrInterface:$csrnumber,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$csrnumber attr-dict `:` `(`  `)` `->` qualified(type($result))";
+  let assemblyFormat = "$csrnumber `,` $operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::TypedAttr":$csrnumber), [{
-      build($_builder, $_state, resultType, csrnumber, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$csrnumber), [{
+      build($_builder, $_state, resultType, operand, csrnumber, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -285,11 +295,11 @@ def LVX_WaititOp : LVX_Op<"waitit">{
   let summary = "WAITIT -- Wait for Interrupt";
   let arguments = (ins LVX_RegType:$operand,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$operand), [{
-      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1249,13 +1259,13 @@ def LVX_AswapbOp : LVX_Op<"aswapb">{
   let summary = "ASWAPB -- Atomic Swap Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1265,14 +1275,14 @@ def LVX_AswapbImmOp : LVX_Op<"aswapb_i">{
   let summary = "ASWAPB -- Atomic Swap Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1282,13 +1292,13 @@ def LVX_AswaphOp : LVX_Op<"aswaph">{
   let summary = "ASWAPH -- Atomic Swap Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1298,14 +1308,14 @@ def LVX_AswaphImmOp : LVX_Op<"aswaph_i">{
   let summary = "ASWAPH -- Atomic Swap Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1315,13 +1325,13 @@ def LVX_AswapwOp : LVX_Op<"aswapw">{
   let summary = "ASWAPW -- Atomic Swap Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1331,14 +1341,14 @@ def LVX_AswapwImmOp : LVX_Op<"aswapw_i">{
   let summary = "ASWAPW -- Atomic Swap Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1348,13 +1358,13 @@ def LVX_AswapdOp : LVX_Op<"aswapd">{
   let summary = "ASWAPD -- Atomic Swap Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1364,14 +1374,14 @@ def LVX_AswapdImmOp : LVX_Op<"aswapd_i">{
   let summary = "ASWAPD -- Atomic Swap Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1513,13 +1523,13 @@ def LVX_AladdbOp : LVX_Op<"aladdb">{
   let summary = "ALADDB -- Atomic Load and Add Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1529,14 +1539,14 @@ def LVX_AladdbImmOp : LVX_Op<"aladdb_i">{
   let summary = "ALADDB -- Atomic Load and Add Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1546,13 +1556,13 @@ def LVX_AladdhOp : LVX_Op<"aladdh">{
   let summary = "ALADDH -- Atomic Load and Add Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1562,14 +1572,14 @@ def LVX_AladdhImmOp : LVX_Op<"aladdh_i">{
   let summary = "ALADDH -- Atomic Load and Add Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1579,13 +1589,13 @@ def LVX_AladdwOp : LVX_Op<"aladdw">{
   let summary = "ALADDW -- Atomic Load and Add Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1595,14 +1605,14 @@ def LVX_AladdwImmOp : LVX_Op<"aladdw_i">{
   let summary = "ALADDW -- Atomic Load and Add Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1612,13 +1622,13 @@ def LVX_AladddOp : LVX_Op<"aladdd">{
   let summary = "ALADDD -- Atomic Load and Add Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1628,14 +1638,14 @@ def LVX_AladddImmOp : LVX_Op<"aladdd_i">{
   let summary = "ALADDD -- Atomic Load and Add Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1645,13 +1655,13 @@ def LVX_AlandbOp : LVX_Op<"alandb">{
   let summary = "ALANDB -- Atomic Load and AND Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1661,14 +1671,14 @@ def LVX_AlandbImmOp : LVX_Op<"alandb_i">{
   let summary = "ALANDB -- Atomic Load and AND Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1678,13 +1688,13 @@ def LVX_AlandhOp : LVX_Op<"alandh">{
   let summary = "ALANDH -- Atomic Load and AND Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1694,14 +1704,14 @@ def LVX_AlandhImmOp : LVX_Op<"alandh_i">{
   let summary = "ALANDH -- Atomic Load and AND Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1711,13 +1721,13 @@ def LVX_AlandwOp : LVX_Op<"alandw">{
   let summary = "ALANDW -- Atomic Load and AND Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1727,14 +1737,14 @@ def LVX_AlandwImmOp : LVX_Op<"alandw_i">{
   let summary = "ALANDW -- Atomic Load and AND Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1744,13 +1754,13 @@ def LVX_AlanddOp : LVX_Op<"alandd">{
   let summary = "ALANDD -- Atomic Load and AND Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1760,14 +1770,14 @@ def LVX_AlanddImmOp : LVX_Op<"alandd_i">{
   let summary = "ALANDD -- Atomic Load and AND Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1777,13 +1787,13 @@ def LVX_AliorbOp : LVX_Op<"aliorb">{
   let summary = "ALIORB -- Atomic Load and IOR Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1793,14 +1803,14 @@ def LVX_AliorbImmOp : LVX_Op<"aliorb_i">{
   let summary = "ALIORB -- Atomic Load and IOR Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1810,13 +1820,13 @@ def LVX_AliorhOp : LVX_Op<"aliorh">{
   let summary = "ALIORH -- Atomic Load and IOR Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1826,14 +1836,14 @@ def LVX_AliorhImmOp : LVX_Op<"aliorh_i">{
   let summary = "ALIORH -- Atomic Load and IOR Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1843,13 +1853,13 @@ def LVX_AliorwOp : LVX_Op<"aliorw">{
   let summary = "ALIORW -- Atomic Load and IOR Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1859,14 +1869,14 @@ def LVX_AliorwImmOp : LVX_Op<"aliorw_i">{
   let summary = "ALIORW -- Atomic Load and IOR Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1876,13 +1886,13 @@ def LVX_AliordOp : LVX_Op<"aliord">{
   let summary = "ALIORD -- Atomic Load and IOR Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1892,14 +1902,14 @@ def LVX_AliordImmOp : LVX_Op<"aliord_i">{
   let summary = "ALIORD -- Atomic Load and IOR Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1909,13 +1919,13 @@ def LVX_AleorbOp : LVX_Op<"aleorb">{
   let summary = "ALEORB -- Atomic Load and EOR Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1925,14 +1935,14 @@ def LVX_AleorbImmOp : LVX_Op<"aleorb_i">{
   let summary = "ALEORB -- Atomic Load and EOR Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1942,13 +1952,13 @@ def LVX_AleorhOp : LVX_Op<"aleorh">{
   let summary = "ALEORH -- Atomic Load and EOR Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1958,14 +1968,14 @@ def LVX_AleorhImmOp : LVX_Op<"aleorh_i">{
   let summary = "ALEORH -- Atomic Load and EOR Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1975,13 +1985,13 @@ def LVX_AleorwOp : LVX_Op<"aleorw">{
   let summary = "ALEORW -- Atomic Load and EOR Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -1991,14 +2001,14 @@ def LVX_AleorwImmOp : LVX_Op<"aleorw_i">{
   let summary = "ALEORW -- Atomic Load and EOR Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2008,13 +2018,13 @@ def LVX_AleordOp : LVX_Op<"aleord">{
   let summary = "ALEORD -- Atomic Load and EOR Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2024,14 +2034,14 @@ def LVX_AleordImmOp : LVX_Op<"aleord_i">{
   let summary = "ALEORD -- Atomic Load and EOR Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2041,13 +2051,13 @@ def LVX_AlminbOp : LVX_Op<"alminb">{
   let summary = "ALMINB -- Atomic Load and MIN Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2057,14 +2067,14 @@ def LVX_AlminbImmOp : LVX_Op<"alminb_i">{
   let summary = "ALMINB -- Atomic Load and MIN Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2074,13 +2084,13 @@ def LVX_AlminhOp : LVX_Op<"alminh">{
   let summary = "ALMINH -- Atomic Load and MIN Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2090,14 +2100,14 @@ def LVX_AlminhImmOp : LVX_Op<"alminh_i">{
   let summary = "ALMINH -- Atomic Load and MIN Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2107,13 +2117,13 @@ def LVX_AlminwOp : LVX_Op<"alminw">{
   let summary = "ALMINW -- Atomic Load and MIN Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2123,14 +2133,14 @@ def LVX_AlminwImmOp : LVX_Op<"alminw_i">{
   let summary = "ALMINW -- Atomic Load and MIN Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2140,13 +2150,13 @@ def LVX_AlmindOp : LVX_Op<"almind">{
   let summary = "ALMIND -- Atomic Load and MIN Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2156,14 +2166,14 @@ def LVX_AlmindImmOp : LVX_Op<"almind_i">{
   let summary = "ALMIND -- Atomic Load and MIN Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2173,13 +2183,13 @@ def LVX_AlmaxbOp : LVX_Op<"almaxb">{
   let summary = "ALMAXB -- Atomic Load and MAX Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2189,14 +2199,14 @@ def LVX_AlmaxbImmOp : LVX_Op<"almaxb_i">{
   let summary = "ALMAXB -- Atomic Load and MAX Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2206,13 +2216,13 @@ def LVX_AlmaxhOp : LVX_Op<"almaxh">{
   let summary = "ALMAXH -- Atomic Load and MAX Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2222,14 +2232,14 @@ def LVX_AlmaxhImmOp : LVX_Op<"almaxh_i">{
   let summary = "ALMAXH -- Atomic Load and MAX Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2239,13 +2249,13 @@ def LVX_AlmaxwOp : LVX_Op<"almaxw">{
   let summary = "ALMAXW -- Atomic Load and MAX Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2255,14 +2265,14 @@ def LVX_AlmaxwImmOp : LVX_Op<"almaxw_i">{
   let summary = "ALMAXW -- Atomic Load and MAX Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2272,13 +2282,13 @@ def LVX_AlmaxdOp : LVX_Op<"almaxd">{
   let summary = "ALMAXD -- Atomic Load and MAX Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2288,14 +2298,14 @@ def LVX_AlmaxdImmOp : LVX_Op<"almaxd_i">{
   let summary = "ALMAXD -- Atomic Load and MAX Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2305,13 +2315,13 @@ def LVX_AlminubOp : LVX_Op<"alminub">{
   let summary = "ALMINUB -- Atomic Load and MIN Unsigned Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2321,14 +2331,14 @@ def LVX_AlminubImmOp : LVX_Op<"alminub_i">{
   let summary = "ALMINUB -- Atomic Load and MIN Unsigned Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2338,13 +2348,13 @@ def LVX_AlminuhOp : LVX_Op<"alminuh">{
   let summary = "ALMINUH -- Atomic Load and MIN Unsigned Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2354,14 +2364,14 @@ def LVX_AlminuhImmOp : LVX_Op<"alminuh_i">{
   let summary = "ALMINUH -- Atomic Load and MIN Unsigned Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2371,13 +2381,13 @@ def LVX_AlminuwOp : LVX_Op<"alminuw">{
   let summary = "ALMINUW -- Atomic Load and MIN Unsigned Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2387,14 +2397,14 @@ def LVX_AlminuwImmOp : LVX_Op<"alminuw_i">{
   let summary = "ALMINUW -- Atomic Load and MIN Unsigned Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2404,13 +2414,13 @@ def LVX_AlminudOp : LVX_Op<"alminud">{
   let summary = "ALMINUD -- Atomic Load and MIN Unsigned Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2420,14 +2430,14 @@ def LVX_AlminudImmOp : LVX_Op<"alminud_i">{
   let summary = "ALMINUD -- Atomic Load and MIN Unsigned Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2437,13 +2447,13 @@ def LVX_AlmaxubOp : LVX_Op<"almaxub">{
   let summary = "ALMAXUB -- Atomic Load and MAX Unsigned Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2453,14 +2463,14 @@ def LVX_AlmaxubImmOp : LVX_Op<"almaxub_i">{
   let summary = "ALMAXUB -- Atomic Load and MAX Unsigned Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2470,13 +2480,13 @@ def LVX_AlmaxuhOp : LVX_Op<"almaxuh">{
   let summary = "ALMAXUH -- Atomic Load and MAX Unsigned Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2486,14 +2496,14 @@ def LVX_AlmaxuhImmOp : LVX_Op<"almaxuh_i">{
   let summary = "ALMAXUH -- Atomic Load and MAX Unsigned Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2503,13 +2513,13 @@ def LVX_AlmaxuwOp : LVX_Op<"almaxuw">{
   let summary = "ALMAXUW -- Atomic Load and MAX Unsigned Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2519,14 +2529,14 @@ def LVX_AlmaxuwImmOp : LVX_Op<"almaxuw_i">{
   let summary = "ALMAXUW -- Atomic Load and MAX Unsigned Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2536,13 +2546,13 @@ def LVX_AlmaxudOp : LVX_Op<"almaxud">{
   let summary = "ALMAXUD -- Atomic Load and MAX Unsigned Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2552,14 +2562,14 @@ def LVX_AlmaxudImmOp : LVX_Op<"almaxud_i">{
   let summary = "ALMAXUD -- Atomic Load and MAX Unsigned Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2569,13 +2579,13 @@ def LVX_AldusbOp : LVX_Op<"aldusb">{
   let summary = "ALDUSB -- Atomic Load and Decrement Unsigned Saturating Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2585,14 +2595,14 @@ def LVX_AldusbImmOp : LVX_Op<"aldusb_i">{
   let summary = "ALDUSB -- Atomic Load and Decrement Unsigned Saturating Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2602,13 +2612,13 @@ def LVX_AldushOp : LVX_Op<"aldush">{
   let summary = "ALDUSH -- Atomic Load and DUS Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2618,14 +2628,14 @@ def LVX_AldushImmOp : LVX_Op<"aldush_i">{
   let summary = "ALDUSH -- Atomic Load and DUS Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2635,13 +2645,13 @@ def LVX_AlduswOp : LVX_Op<"aldusw">{
   let summary = "ALDUSW -- Atomic Load and DUS Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2651,14 +2661,14 @@ def LVX_AlduswImmOp : LVX_Op<"aldusw_i">{
   let summary = "ALDUSW -- Atomic Load and DUS Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2668,13 +2678,13 @@ def LVX_AldusdOp : LVX_Op<"aldusd">{
   let summary = "ALDUSD -- Atomic Load and DUS Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -2684,14 +2694,14 @@ def LVX_AldusdImmOp : LVX_Op<"aldusd_i">{
   let summary = "ALDUSD -- Atomic Load and DUS Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
-                       LVX_RegType:$result,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$offset,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "(`g` $g^)? $base `,` $result `,` $offset attr-dict `:` `(` qualified(type($base)) `,` qualified(type($result)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "(`g` $g^)? $base `,` $offset `,` $rhs attr-dict `:` `(` qualified(type($base)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$base, "::mlir::Value":$result, "::mlir::TypedAttr":$offset), [{
-      build($_builder, $_state, ::mlir::UnitAttr(), base, result, offset, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$base, "::mlir::Value":$rhs, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), base, rhs, offset, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -4113,7 +4123,7 @@ def LVX_FenceOp : LVX_Op<"fence">{
 }
 
 // ALU:NOP -- register form, from NOP_simple
-def LVX_NopOp : LVX_Op<"nop">{
+def LVX_NopOp : LVX_Op<"nop", [Pure]>{
   let summary = "NOP -- No Operation";
   let arguments = (ins OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs );
@@ -6329,14 +6339,15 @@ def LVX_Sbmmt8dImmOp : LVX_Op<"sbmmt8d_i", [Pure]>{
 // ALU:SBMM8EORD -- register form, from SBMM8EORD_registerW_registerZ_registerY_simple
 def LVX_Sbmm8eordOp : LVX_Op<"sbmm8eord", [Pure]>{
   let summary = "SBMM8EORD -- Swapped Bit Matrix Multiplication 8$\times$8 Exclusive OR Double Word";
-  let arguments = (ins LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+  let arguments = (ins LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c), [{
+      build($_builder, $_state, resultType, a, b, c, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -6345,14 +6356,15 @@ def LVX_Sbmm8eordOp : LVX_Op<"sbmm8eord", [Pure]>{
 def LVX_Sbmm8eordImmOp : LVX_Op<"sbmm8eord_i", [Pure]>{
   let summary = "SBMM8EORD -- Swapped Bit Matrix Multiplication 8$\times$8 Exclusive OR Double Word";
   let arguments = (ins UnitAttr:$splat32,
-                       LVX_RegType:$operand,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $lhs `,` $upper27_lower5 `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, "::mlir::TypedAttr":$upper27_lower5), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), lhs, rhs, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -6360,14 +6372,15 @@ def LVX_Sbmm8eordImmOp : LVX_Op<"sbmm8eord_i", [Pure]>{
 // ALU:SBMMT8EORD -- register form, from SBMMT8EORD_registerW_registerZ_registerY_simple
 def LVX_Sbmmt8eordOp : LVX_Op<"sbmmt8eord", [Pure]>{
   let summary = "SBMMT8EORD -- Swapped Bit Matrix Multiplication Transposed 8$\times$8 Exclusive OR Double Word";
-  let arguments = (ins LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+  let arguments = (ins LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c), [{
+      build($_builder, $_state, resultType, a, b, c, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -6376,14 +6389,15 @@ def LVX_Sbmmt8eordOp : LVX_Op<"sbmmt8eord", [Pure]>{
 def LVX_Sbmmt8eordImmOp : LVX_Op<"sbmmt8eord_i", [Pure]>{
   let summary = "SBMMT8EORD -- Swapped Bit Matrix Multiplication Transposed 8$\times$8 Exclusive OR Double Word";
   let arguments = (ins UnitAttr:$splat32,
-                       LVX_RegType:$operand,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $lhs `,` $upper27_lower5 `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, "::mlir::TypedAttr":$upper27_lower5), [{
+      build($_builder, $_state, resultType, ::mlir::UnitAttr(), lhs, rhs, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -7470,15 +7484,16 @@ def LVX_FnarrowwhOp : LVX_Op<"fnarrowwh", [Pure]>{
 // ALU:INSF -- immediate form, from INSF_registerW_registerZ_stopbit2_stopbit4_startbit_simple
 def LVX_InsfImmOp : LVX_Op<"insf", [Pure]>{
   let summary = "INSF -- Insert Bit Field into Word";
-  let arguments = (ins LVX_RegType:$operand,
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$stopbit2_stopbit4,
                        TypedAttrInterface:$startbit,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand `,` $stopbit2_stopbit4 `,` $startbit attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$lhs `,` $stopbit2_stopbit4 `,` $startbit `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$stopbit2_stopbit4, "::mlir::TypedAttr":$startbit), [{
-      build($_builder, $_state, resultType, operand, stopbit2_stopbit4, startbit, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, "::mlir::TypedAttr":$stopbit2_stopbit4, "::mlir::TypedAttr":$startbit), [{
+      build($_builder, $_state, resultType, lhs, rhs, stopbit2_stopbit4, startbit, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -7637,15 +7652,14 @@ def LVX_CmovedImmOp : LVX_Op<"cmoved_i", [Pure]>{
   let arguments = (ins LVX_BcuCondAttr:$cmovecond,
                        UnitAttr:$splat32,
                        LVX_RegType:$test,
-                       LVX_RegType:$trueValue,
                        LVX_RegType:$falseValue,
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? $cmovecond $test `,` $upper27_lower5 `,` $trueValue `,` $falseValue attr-dict `:` `(` qualified(type($test)) `,` qualified(type($trueValue)) `,` qualified(type($falseValue)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? $cmovecond $test `,` $upper27_lower5 `,` $falseValue attr-dict `:` `(` qualified(type($test)) `,` qualified(type($falseValue)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::lvx::BcuCond":$cmovecond, "::mlir::Value":$test, "::mlir::Value":$trueValue, "::mlir::Value":$falseValue, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, ::mlir::lvx::BcuCondAttr::get($_builder.getContext(), cmovecond), ::mlir::UnitAttr(), test, trueValue, falseValue, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::lvx::BcuCond":$cmovecond, "::mlir::Value":$test, "::mlir::Value":$falseValue, "::mlir::TypedAttr":$upper27_lower5), [{
+      build($_builder, $_state, resultType, ::mlir::lvx::BcuCondAttr::get($_builder.getContext(), cmovecond), ::mlir::UnitAttr(), test, falseValue, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -8769,7 +8783,7 @@ def LVX_FsqrthOp : LVX_Op<"fsqrth", [Pure]>{
 }
 
 // ALU:MULD -- register form, from MULD_highmult_registerW_registerZ_registerY_simple
-def LVX_MuldOp : LVX_Op<"muld", [Pure, Commutative]>{
+def LVX_MuldOp : LVX_Op<"muld", [Pure]>{
   let summary = "MULD -- Multiply Double Word";
   let arguments = (ins OptionalAttr<LVX_HighMultAttr>:$highmult,
                        LVX_RegType:$lhs,
@@ -8785,7 +8799,7 @@ def LVX_MuldOp : LVX_Op<"muld", [Pure, Commutative]>{
 }
 
 // ALU:MULD -- immediate form, from MULD_highmult_registerW_registerZ_upper27_lower5_splat32_double
-def LVX_MuldImmOp : LVX_Op<"muld_i", [Pure, Commutative]>{
+def LVX_MuldImmOp : LVX_Op<"muld_i", [Pure]>{
   let summary = "MULD -- Multiply Double Word";
   let arguments = (ins OptionalAttr<LVX_HighMultAttr>:$highmult,
                        UnitAttr:$splat32,
@@ -8802,7 +8816,7 @@ def LVX_MuldImmOp : LVX_Op<"muld_i", [Pure, Commutative]>{
 }
 
 // ALU:MULW -- register form, from MULW_highmult_signextw_registerW_registerZ_registerY_simple
-def LVX_MulwOp : LVX_Op<"mulw", [Pure, Commutative]>{
+def LVX_MulwOp : LVX_Op<"mulw", [Pure]>{
   let summary = "MULW -- Multiply Word";
   let arguments = (ins OptionalAttr<LVX_HighMultAttr>:$highmult,
                        UnitAttr:$sx,
@@ -8819,7 +8833,7 @@ def LVX_MulwOp : LVX_Op<"mulw", [Pure, Commutative]>{
 }
 
 // ALU:MULW -- immediate form, from MULW_highmult_signextw_registerW_registerZ_upper27_lower5_double
-def LVX_MulwImmOp : LVX_Op<"mulw_i", [Pure, Commutative]>{
+def LVX_MulwImmOp : LVX_Op<"mulw_i", [Pure]>{
   let summary = "MULW -- Multiply Word";
   let arguments = (ins OptionalAttr<LVX_HighMultAttr>:$highmult,
                        UnitAttr:$sx,
@@ -9004,14 +9018,15 @@ def LVX_MulnxwdImmOp : LVX_Op<"mulnxwd_i", [Pure]>{
 def LVX_MadddOp : LVX_Op<"maddd", [Pure]>{
   let summary = "MADDD -- Multiply Add Double Word";
   let arguments = (ins OptionalAttr<LVX_HighMultAttr>:$highmult,
-                       LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+                       LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "($highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "($highmult^)? $a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
-      build($_builder, $_state, resultType, highmult, lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, a, b, c, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9021,14 +9036,15 @@ def LVX_MadddImmOp : LVX_Op<"maddd_i", [Pure]>{
   let summary = "MADDD -- Multiply Add Double Word";
   let arguments = (ins OptionalAttr<LVX_HighMultAttr>:$highmult,
                        UnitAttr:$splat32,
-                       LVX_RegType:$operand,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? ($highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? ($highmult^)? $lhs `,` $upper27_lower5 `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
-      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), lhs, rhs, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9038,14 +9054,15 @@ def LVX_MaddwOp : LVX_Op<"maddw", [Pure]>{
   let summary = "MADDW -- Multiply Add Word";
   let arguments = (ins OptionalAttr<LVX_HighMultAttr>:$highmult,
                        UnitAttr:$sx,
-                       LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+                       LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
-      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), a, b, c, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9055,14 +9072,15 @@ def LVX_MaddwImmOp : LVX_Op<"maddw_i", [Pure]>{
   let summary = "MADDW -- Multiply Add Word";
   let arguments = (ins OptionalAttr<LVX_HighMultAttr>:$highmult,
                        UnitAttr:$sx,
-                       LVX_RegType:$operand,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $lhs `,` $upper27_lower5 `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
-      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), lhs, rhs, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9071,14 +9089,15 @@ def LVX_MaddwImmOp : LVX_Op<"maddw_i", [Pure]>{
 def LVX_MaddxdqOp : LVX_Op<"maddxdq", [Pure]>{
   let summary = "MADDXDQ -- Multiply Add Extend Double Word to Quadruple Word";
   let arguments = (ins OptionalAttr<LVX_WideMultAttr>:$widemult,
-                       LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+                       LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "($widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "($widemult^)? $a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
-    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
-      build($_builder, $_state, resultTypes, widemult, lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultTypes, widemult, a, b, c, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9087,14 +9106,15 @@ def LVX_MaddxdqOp : LVX_Op<"maddxdq", [Pure]>{
 def LVX_MaddxwdOp : LVX_Op<"maddxwd", [Pure]>{
   let summary = "MADDXWD -- Multiply Add Extend Word to Double Word";
   let arguments = (ins OptionalAttr<LVX_WideMultAttr>:$widemult,
-                       LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+                       LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "($widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "($widemult^)? $a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
-      build($_builder, $_state, resultType, widemult, lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultType, widemult, a, b, c, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9104,14 +9124,15 @@ def LVX_MaddxwdImmOp : LVX_Op<"maddxwd_i", [Pure]>{
   let summary = "MADDXWD -- Multiply Add Extend Word to Double Word";
   let arguments = (ins OptionalAttr<LVX_WideMultAttr>:$widemult,
                        UnitAttr:$splat32,
-                       LVX_RegType:$operand,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? ($widemult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? ($widemult^)? $lhs `,` $upper27_lower5 `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
-      build($_builder, $_state, resultType, widemult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultType, widemult, ::mlir::UnitAttr(), lhs, rhs, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9120,14 +9141,15 @@ def LVX_MaddxwdImmOp : LVX_Op<"maddxwd_i", [Pure]>{
 def LVX_MsbfdOp : LVX_Op<"msbfd", [Pure]>{
   let summary = "MSBFD -- Multiply Subtract From Double Word";
   let arguments = (ins OptionalAttr<LVX_HighMultAttr>:$highmult,
-                       LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+                       LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "($highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "($highmult^)? $a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
-      build($_builder, $_state, resultType, highmult, lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, a, b, c, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9137,14 +9159,15 @@ def LVX_MsbfdImmOp : LVX_Op<"msbfd_i", [Pure]>{
   let summary = "MSBFD -- Multiply Subtract From Double Word";
   let arguments = (ins OptionalAttr<LVX_HighMultAttr>:$highmult,
                        UnitAttr:$splat32,
-                       LVX_RegType:$operand,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? ($highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? ($highmult^)? $lhs `,` $upper27_lower5 `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
-      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), lhs, rhs, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9154,14 +9177,15 @@ def LVX_MsbfwOp : LVX_Op<"msbfw", [Pure]>{
   let summary = "MSBFW -- Multiply Subtract From Word";
   let arguments = (ins OptionalAttr<LVX_HighMultAttr>:$highmult,
                        UnitAttr:$sx,
-                       LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+                       LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
-      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), a, b, c, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9171,14 +9195,15 @@ def LVX_MsbfwImmOp : LVX_Op<"msbfw_i", [Pure]>{
   let summary = "MSBFW -- Multiply Subtract From Word";
   let arguments = (ins OptionalAttr<LVX_HighMultAttr>:$highmult,
                        UnitAttr:$sx,
-                       LVX_RegType:$operand,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`sx` $sx^)? ($highmult^)? $lhs `,` $upper27_lower5 `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
-      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::HighMultAttr", "{}">:$highmult), [{
+      build($_builder, $_state, resultType, highmult, ::mlir::UnitAttr(), lhs, rhs, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9187,14 +9212,15 @@ def LVX_MsbfwImmOp : LVX_Op<"msbfw_i", [Pure]>{
 def LVX_MsbfxdqOp : LVX_Op<"msbfxdq", [Pure]>{
   let summary = "MSBFXDQ -- Multiply Subtract From Extend Double Word to Quadruple Word";
   let arguments = (ins OptionalAttr<LVX_WideMultAttr>:$widemult,
-                       LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+                       LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$quotient, LVX_RegType:$remainder);
-  let assemblyFormat = "($widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
+  let assemblyFormat = "($widemult^)? $a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` `(` qualified(type($quotient)) `,` qualified(type($remainder)) `)`";
   let builders = [
-    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
-      build($_builder, $_state, resultTypes, widemult, lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::TypeRange":$resultTypes, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultTypes, widemult, a, b, c, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9203,14 +9229,15 @@ def LVX_MsbfxdqOp : LVX_Op<"msbfxdq", [Pure]>{
 def LVX_MsbfxwdOp : LVX_Op<"msbfxwd", [Pure]>{
   let summary = "MSBFXWD -- Multiply Subtract From Extend Word to Double Word";
   let arguments = (ins OptionalAttr<LVX_WideMultAttr>:$widemult,
-                       LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+                       LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "($widemult^)? $lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "($widemult^)? $a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
-      build($_builder, $_state, resultType, widemult, lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultType, widemult, a, b, c, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9220,14 +9247,15 @@ def LVX_MsbfxwdImmOp : LVX_Op<"msbfxwd_i", [Pure]>{
   let summary = "MSBFXWD -- Multiply Subtract From Extend Word to Double Word";
   let arguments = (ins OptionalAttr<LVX_WideMultAttr>:$widemult,
                        UnitAttr:$splat32,
-                       LVX_RegType:$operand,
+                       LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "(`splat32` $splat32^)? ($widemult^)? $operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "(`splat32` $splat32^)? ($widemult^)? $lhs `,` $upper27_lower5 `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
-      build($_builder, $_state, resultType, widemult, ::mlir::UnitAttr(), operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, "::mlir::TypedAttr":$upper27_lower5, CArg<"::mlir::lvx::WideMultAttr", "{}">:$widemult), [{
+      build($_builder, $_state, resultType, widemult, ::mlir::UnitAttr(), lhs, rhs, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9297,14 +9325,15 @@ def LVX_DivmoduwOp : LVX_Op<"divmoduw", [Pure]>{
 // ALU:CRCBELMW -- register form, from CRCBELMW_registerW_registerZ_registerY_simple
 def LVX_CrcbelmwOp : LVX_Op<"crcbelmw", [Pure]>{
   let summary = "CRCBELMW -- Cyclic Redundancy Check Big-Endian Least Significant with Most Significant Word";
-  let arguments = (ins LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+  let arguments = (ins LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c), [{
+      build($_builder, $_state, resultType, a, b, c, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9312,14 +9341,15 @@ def LVX_CrcbelmwOp : LVX_Op<"crcbelmw", [Pure]>{
 // ALU:CRCBELMW -- immediate form, from CRCBELMW_registerW_registerZ_upper27_lower5_double
 def LVX_CrcbelmwImmOp : LVX_Op<"crcbelmw_i", [Pure]>{
   let summary = "CRCBELMW -- Cyclic Redundancy Check Big-Endian Least Significant with Most Significant Word";
-  let arguments = (ins LVX_RegType:$operand,
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$lhs `,` $upper27_lower5 `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, "::mlir::TypedAttr":$upper27_lower5), [{
+      build($_builder, $_state, resultType, lhs, rhs, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9327,14 +9357,15 @@ def LVX_CrcbelmwImmOp : LVX_Op<"crcbelmw_i", [Pure]>{
 // ALU:CRCBELLW -- register form, from CRCBELLW_registerW_registerZ_registerY_simple
 def LVX_CrcbellwOp : LVX_Op<"crcbellw", [Pure]>{
   let summary = "CRCBELLW -- Cyclic Redundancy Check Big-Endian Least Significant with Least Significant Word";
-  let arguments = (ins LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+  let arguments = (ins LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c), [{
+      build($_builder, $_state, resultType, a, b, c, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9342,14 +9373,15 @@ def LVX_CrcbellwOp : LVX_Op<"crcbellw", [Pure]>{
 // ALU:CRCBELLW -- immediate form, from CRCBELLW_registerW_registerZ_upper27_lower5_double
 def LVX_CrcbellwImmOp : LVX_Op<"crcbellw_i", [Pure]>{
   let summary = "CRCBELLW -- Cyclic Redundancy Check Big-Endian Least Significant with Least Significant Word";
-  let arguments = (ins LVX_RegType:$operand,
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$lhs `,` $upper27_lower5 `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, "::mlir::TypedAttr":$upper27_lower5), [{
+      build($_builder, $_state, resultType, lhs, rhs, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9357,14 +9389,15 @@ def LVX_CrcbellwImmOp : LVX_Op<"crcbellw_i", [Pure]>{
 // ALU:CRCLELMW -- register form, from CRCLELMW_registerW_registerZ_registerY_simple
 def LVX_CrclelmwOp : LVX_Op<"crclelmw", [Pure]>{
   let summary = "CRCLELMW -- Cyclic Redundancy Check Little-Endian Least Significant with Most Significant Word";
-  let arguments = (ins LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+  let arguments = (ins LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c), [{
+      build($_builder, $_state, resultType, a, b, c, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9372,14 +9405,15 @@ def LVX_CrclelmwOp : LVX_Op<"crclelmw", [Pure]>{
 // ALU:CRCLELMW -- immediate form, from CRCLELMW_registerW_registerZ_upper27_lower5_double
 def LVX_CrclelmwImmOp : LVX_Op<"crclelmw_i", [Pure]>{
   let summary = "CRCLELMW -- Cyclic Redundancy Check Little-Endian Least Significant with Most Significant Word";
-  let arguments = (ins LVX_RegType:$operand,
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$lhs `,` $upper27_lower5 `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, "::mlir::TypedAttr":$upper27_lower5), [{
+      build($_builder, $_state, resultType, lhs, rhs, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9387,14 +9421,15 @@ def LVX_CrclelmwImmOp : LVX_Op<"crclelmw_i", [Pure]>{
 // ALU:CRCLELLW -- register form, from CRCLELLW_registerW_registerZ_registerY_simple
 def LVX_CrclellwOp : LVX_Op<"crclellw", [Pure]>{
   let summary = "CRCLELLW -- Cyclic Redundancy Check Little-Endian Least Significant with Least Significant Word";
-  let arguments = (ins LVX_RegType:$lhs,
-                       LVX_RegType:$rhs,
+  let arguments = (ins LVX_RegType:$a,
+                       LVX_RegType:$b,
+                       LVX_RegType:$c,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$lhs `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$a `,` $b `,` $c attr-dict `:` `(` qualified(type($a)) `,` qualified(type($b)) `,` qualified(type($c)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs), [{
-      build($_builder, $_state, resultType, lhs, rhs, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$a, "::mlir::Value":$b, "::mlir::Value":$c), [{
+      build($_builder, $_state, resultType, a, b, c, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9402,14 +9437,15 @@ def LVX_CrclellwOp : LVX_Op<"crclellw", [Pure]>{
 // ALU:CRCLELLW -- immediate form, from CRCLELLW_registerW_registerZ_upper27_lower5_double
 def LVX_CrclellwImmOp : LVX_Op<"crclellw_i", [Pure]>{
   let summary = "CRCLELLW -- Cyclic Redundancy Check Little-Endian Least Significant with Least Significant Word";
-  let arguments = (ins LVX_RegType:$operand,
+  let arguments = (ins LVX_RegType:$lhs,
+                       LVX_RegType:$rhs,
                        TypedAttrInterface:$upper27_lower5,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs LVX_RegType:$result);
-  let assemblyFormat = "$operand `,` $upper27_lower5 attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
+  let assemblyFormat = "$lhs `,` $upper27_lower5 `,` $rhs attr-dict `:` `(` qualified(type($lhs)) `,` qualified(type($rhs)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand, "::mlir::TypedAttr":$upper27_lower5), [{
-      build($_builder, $_state, resultType, operand, upper27_lower5, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$lhs, "::mlir::Value":$rhs, "::mlir::TypedAttr":$upper27_lower5), [{
+      build($_builder, $_state, resultType, lhs, rhs, upper27_lower5, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -9794,7 +9830,7 @@ def LVX_FfmawcOp : LVX_Op<"ffmawc", [Pure]>{
 }
 
 // LSU:COPYO -- register form, from COPYO_registerN_registerR_simple
-def LVX_CopyoOp : LVX_Op<"copyo">{
+def LVX_CopyoOp : LVX_Op<"copyo", [Pure]>{
   let summary = "COPYO -- Copy Octuple Word";
   let arguments = (ins LVX_RegType:$value,
                        OptionalAttr<LVX_FormatAttr>:$format);
@@ -10023,11 +10059,11 @@ def LVX_FrcsrOp : LVX_Op<"frcsr">{
   let summary = "FRCSR -- Read \texttt{fcsr} (pseudo of \texttt{csrrs} on \texttt{fcsr})";
   let arguments = (ins LVX_RegType:$operand,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$operand), [{
-      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -10037,11 +10073,11 @@ def LVX_FscsrOp : LVX_Op<"fscsr">{
   let summary = "FSCSR -- Write \texttt{fcsr} (pseudo of \texttt{csrrw} on \texttt{fcsr})";
   let arguments = (ins LVX_RegType:$operand,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$operand), [{
-      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -10051,11 +10087,11 @@ def LVX_FrflagsOp : LVX_Op<"frflags">{
   let summary = "FRFLAGS -- Read \texttt{fflags} (pseudo of \texttt{csrrs} on \texttt{fflags})";
   let arguments = (ins LVX_RegType:$operand,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$operand), [{
-      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -10065,11 +10101,11 @@ def LVX_FsflagsOp : LVX_Op<"fsflags">{
   let summary = "FSFLAGS -- Write \texttt{fflags} (pseudo of \texttt{csrrw} on \texttt{fflags})";
   let arguments = (ins LVX_RegType:$operand,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$operand), [{
-      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -10079,11 +10115,11 @@ def LVX_FrrmOp : LVX_Op<"frrm">{
   let summary = "FRRM -- Read \texttt{frm} (pseudo of \texttt{csrrs} on \texttt{frm})";
   let arguments = (ins LVX_RegType:$operand,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$operand), [{
-      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }
@@ -10093,11 +10129,11 @@ def LVX_FsrmOp : LVX_Op<"fsrm">{
   let summary = "FSRM -- Write \texttt{frm} (pseudo of \texttt{csrrw} on \texttt{frm})";
   let arguments = (ins LVX_RegType:$operand,
                        OptionalAttr<LVX_FormatAttr>:$format);
-  let results = (outs );
-  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)`";
+  let results = (outs LVX_RegType:$result);
+  let assemblyFormat = "$operand attr-dict `:` `(` qualified(type($operand)) `)` `->` qualified(type($result))";
   let builders = [
-    OpBuilder<(ins "::mlir::Value":$operand), [{
-      build($_builder, $_state, operand, ::mlir::lvx::FormatAttr());
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$operand), [{
+      build($_builder, $_state, resultType, operand, ::mlir::lvx::FormatAttr());
     }]>
   ];
 }

@@ -23,6 +23,7 @@
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
 #include "mlir/Dialect/LVX/Transforms/ScratchRegisters.h"
 #include "mlir/Dialect/LVX/IR/LVXConvention.h"
+#include "mlir/Dialect/LVX/IR/LVXTiedOperands.h"
 
 #include <array>
 
@@ -283,8 +284,16 @@ static void insertLoopCarriedPreservingCopies(lvx_func::FuncOp func) {
 /// `cmoved.cond $rZ? $rW = $rY` leaves `rW` alone when the guard fails, so
 /// `rW`'s prior value is live into the op. Both are modelled here as an
 /// ordinary SSA operand (index 2) that happens to be tied to the result.
+/// The operands `op` reads through its destination, from the generated
+/// LVXTiedOperands.inc. This was `isa<FfmadOp, FfmawOp, FfmsdOp, FfmswOp,
+/// CmovedOp>` with the tie assumed to be operand 2 -- true of those five and
+/// of nothing else; see LVXTiedOperands.h.
+static ArrayRef<TiedOperand> tiedOperands(Operation *op) {
+  return tiedOperandsOf(op->getName().stripDialect());
+}
+
 static bool hasTiedAccumulator(Operation *op) {
-  return isa<FfmadOp, FfmawOp, FfmsdOp, FfmswOp, CmovedOp>(op);
+  return !tiedOperands(op).empty();
 }
 
 static void insertFmaAccumulatorPreservingCopies(lvx_func::FuncOp func) {
@@ -294,7 +303,8 @@ static void insertFmaAccumulatorPreservingCopies(lvx_func::FuncOp func) {
       fmaOps.push_back(op);
   });
   for (Operation *op : fmaOps) {
-    Value c = op->getOperand(2);
+    for (TiedOperand tie : tiedOperands(op)) {
+    Value c = op->getOperand(tie.operand);
     bool hasOtherUse = llvm::any_of(c.getUses(), [&](OpOperand &use) {
       return use.getOwner() != op;
     });
@@ -318,7 +328,8 @@ static void insertFmaAccumulatorPreservingCopies(lvx_func::FuncOp func) {
     // which has exactly one reader, this op.
     OpBuilder builder(op);
     auto copy = builder.create<MvOp>(op->getLoc(), c.getType(), c);
-    op->setOperand(2, copy);
+    op->setOperand(tie.operand, copy);
+    }
   }
 }
 
@@ -421,12 +432,12 @@ static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
   // independent copy first, so merging `c` and `result` here can never
   // silently corrupt a value still needed elsewhere.
   func.walk([&](Operation *op) {
-    if (!hasTiedAccumulator(op))
-      return;
-    Value c = op->getOperand(2);
-    Value result = op->getResult(0);
-    unite(c, result);
-    orderedValues.append({c, result});
+    for (TiedOperand tie : tiedOperands(op)) {
+      Value c = op->getOperand(tie.operand);
+      Value result = op->getResult(tie.result);
+      unite(c, result);
+      orderedValues.append({c, result});
+    }
   });
 
   // Build one AllocItem per union-find root, in first-encountered order

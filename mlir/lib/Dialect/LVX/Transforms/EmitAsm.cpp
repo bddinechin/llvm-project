@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
+#include "mlir/Dialect/LVX/IR/LVXTiedOperands.h"
 
 #include "mlir/Dialect/LVXCF/IR/LVXCF.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
@@ -189,23 +190,31 @@ private:
   /// without register allocation's coalescing having applied) is caught as
   /// an error instead of emitting a real instruction with a silently wrong
   /// accumulator.
-  LogicalResult emitFma(Operation *op, StringRef mnemonic) {
-    FailureOr<std::string> rd = reg(op->getResult(0));
-    FailureOr<std::string> ra = reg(op->getOperand(0));
-    FailureOr<std::string> rb = reg(op->getOperand(1));
-    FailureOr<std::string> rc = reg(op->getOperand(2));
-    if (failed(rd) || failed(ra) || failed(rb) || failed(rc))
-      return failure();
-    if (*rc != *rd)
-      return op->emitError("lvx-emit-asm: ")
-             << mnemonic << "'s accumulator operand (c) is " << *rc
-             << " but the result is " << *rd
-             << " -- real hardware has no separate destination field, only "
-                "$rW = $rZ, $rY, so they must be the same register (run "
-                "-lvx-allocate-registers first)";
-    os << "\t" << mnemonic << " " << *rd << " = " << *ra << ", " << *rb
-       << "\n\t;;\n";
-    return success();
+  /// How many trailing operands this op reads through its destination, and
+  /// therefore must NOT print -- real hardware has one field for both. Checks
+  /// that the allocator did give each tied pair the same register, since
+  /// otherwise the instruction has no way to be printed at all.
+  ///
+  /// This replaced `emitFma`, which did the same for `ffma`/`ffms` alone with
+  /// the tie hardcoded at operand 2. The table says which operands they are
+  /// for all 129 ops that have one; see LVXTiedOperands.h.
+  FailureOr<unsigned> tiedSuffix(Operation *op) {
+    ArrayRef<TiedOperand> ties = tiedOperandsOf(op->getName().stripDialect());
+    for (TiedOperand tie : ties) {
+      FailureOr<std::string> rt = reg(op->getOperand(tie.operand));
+      FailureOr<std::string> rd = reg(op->getResult(tie.result));
+      if (failed(rt) || failed(rd))
+        return failure();
+      if (*rt != *rd)
+        return op->emitError("lvx-emit-asm: ")
+               << op->getName().stripDialect() << "'s tied operand #"
+               << tie.operand << " is " << *rt << " but result #"
+               << tie.result << " is " << *rd
+               << " -- real hardware has no separate destination field, so "
+                  "they must be the same register (run "
+                  "-lvx-allocate-registers first)";
+    }
+    return static_cast<unsigned>(ties.size());
   }
 
   LogicalResult emitUnary(Operation *op, StringRef mnemonic) {
@@ -445,11 +454,8 @@ private:
         .Case([&](DivmodudOp op) { return emitDivmod(op, "divmodud"); })
         .Case([&](DivmodwOp op) { return emitDivmod(op, "divmodw"); })
         .Case([&](DivmoduwOp op) { return emitDivmod(op, "divmoduw"); })
-        // ffma/ffms: implicit accumulator, see emitFma's comment.
-        .Case([&](FfmadOp op) { return emitFma(op, "ffmad"); })
-        .Case([&](FfmsdOp op) { return emitFma(op, "ffmsd"); })
-        .Case([&](FfmawOp op) { return emitFma(op, "ffmaw"); })
-        .Case([&](FfmswOp op) { return emitFma(op, "ffmsw"); })
+        // ffma/ffms and the 125 other ops with a tied operand need no case:
+        // the arity dispatch below drops the tied suffix, see tiedSuffix.
         // `lvx_func.call` is not a terminator -- a real `call` returns
         // control to the very next instruction, so it can (and typically
         // does) sit mid-block, unlike `lvx_cf.br`/`lvx_func.return`. It
@@ -468,11 +474,17 @@ private:
         // arithmetic/cast op families (lvx-mlir/docs/AssemblyEmission.md).
         .Default([&](Operation *op) -> LogicalResult {
           StringRef mnemonic = op->getName().stripDialect();
-          if (op->getNumResults() == 1 && op->getNumOperands() == 1)
+          // A tied operand is read through the destination and has no field
+          // of its own, so it is not part of the printed shape.
+          FailureOr<unsigned> tied = tiedSuffix(op);
+          if (failed(tied))
+            return failure();
+          unsigned printed = op->getNumOperands() - *tied;
+          if (op->getNumResults() == 1 && printed == 1)
             return emitUnary(op, mnemonic);
-          if (op->getNumResults() == 1 && op->getNumOperands() == 2)
+          if (op->getNumResults() == 1 && printed == 2)
             return emitBinary(op, mnemonic);
-          if (op->getNumResults() == 1 && op->getNumOperands() == 3)
+          if (op->getNumResults() == 1 && printed == 3)
             return emitTernary(op, mnemonic);
           return op->emitError(
               "lvx-emit-asm: no emission rule for this op's shape");
