@@ -31,6 +31,14 @@ LogicalResult LiOp::verify() {
 // RegLiveInOp
 //===----------------------------------------------------------------------===//
 
+LogicalResult RegLiveOutOp::verify() {
+  // Symmetric to RegLiveInOp below: "some register is live out" is not a
+  // statement about anything.
+  if (!cast<RegisterType>(getValue().getType()).isAllocated())
+    return emitOpError("operand must be a pinned physical register");
+  return success();
+}
+
 LogicalResult RegLiveInOp::verify() {
   // An unpinned result would denote "some register", which is meaningless
   // for an op whose only purpose is to name one specific physical register

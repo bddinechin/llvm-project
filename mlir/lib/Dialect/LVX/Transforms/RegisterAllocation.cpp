@@ -578,13 +578,23 @@ static Value insertPrologueEpilogue(lvx_func::FuncOp func, unsigned frameSize,
 
   func.walk([&](lvx_func::ReturnOp ret) {
     builder.setInsertionPoint(ret);
-    // Restore needs no pseudo: an `lvx.ld` whose result is typed with the
-    // pinned register *is* `ld $rN = off[$r12]`.
+    // The restore is an ordinary `lvx.ld` whose result is typed with the
+    // pinned register -- it *is* `ld $rN = off[$r12]` -- followed by
+    // `lvx.reg_live_out`, which emits nothing and only says the register
+    // must hold that value on exit.
+    //
+    // The pseudo is not decoration. Nothing consumes the load's result, and
+    // `lvx.ld` declares `MemoryEffects<[MemRead]>`, so by MLIR's own rule an
+    // unused read is trivially dead: `-canonicalize` on allocated IR deleted
+    // the restore and left the caller's register clobbered. See
+    // LVX_RegLiveOutOp's description.
     for (auto [reg, offset] : calleeSaved) {
       Type regTy = RegisterType::get(ctx, reg);
       auto offsetAttr =
           builder.getI64IntegerAttr(offset);
-      builder.create<LdOp>(ret.getLoc(), regTy, spBase, offsetAttr);
+      Value restored =
+          builder.create<LdOp>(ret.getLoc(), regTy, spBase, offsetAttr);
+      builder.create<RegLiveOutOp>(ret.getLoc(), restored);
     }
     if (raOffset) {
       auto raOffsetAttr =

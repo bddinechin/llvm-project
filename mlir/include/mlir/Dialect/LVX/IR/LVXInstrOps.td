@@ -352,7 +352,7 @@ def LVX_BlendImmOp : LVX_Op<"blend">{
 }
 
 // LSU:LBZ -- register form, from LBZ_variant_registerW_registerY_registerZ_simple
-def LVX_LbzRegOp : LVX_Op<"lbz_r">{
+def LVX_LbzRegOp : LVX_Op<"lbz_r", [MemoryEffects<[MemRead]>]>{
   let summary = "LBZ -- Load Byte Zero Extended";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -368,7 +368,7 @@ def LVX_LbzRegOp : LVX_Op<"lbz_r">{
 }
 
 // LSU:LBZ -- immediate form, from LBZ_variant_registerW_signed10_registerZ_simple
-def LVX_LbzOp : LVX_Op<"lbz">{
+def LVX_LbzOp : LVX_Op<"lbz", [MemoryEffects<[MemRead]>]>{
   let summary = "LBZ -- Load Byte Zero Extended";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -384,7 +384,7 @@ def LVX_LbzOp : LVX_Op<"lbz">{
 }
 
 // LSU:LBS -- register form, from LBS_variant_registerW_registerY_registerZ_simple
-def LVX_LbsRegOp : LVX_Op<"lbs_r">{
+def LVX_LbsRegOp : LVX_Op<"lbs_r", [MemoryEffects<[MemRead]>]>{
   let summary = "LBS -- Load Byte Sign Extended";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -400,7 +400,7 @@ def LVX_LbsRegOp : LVX_Op<"lbs_r">{
 }
 
 // LSU:LBS -- immediate form, from LBS_variant_registerW_signed10_registerZ_simple
-def LVX_LbsOp : LVX_Op<"lbs">{
+def LVX_LbsOp : LVX_Op<"lbs", [MemoryEffects<[MemRead]>]>{
   let summary = "LBS -- Load Byte Sign Extended";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -416,7 +416,7 @@ def LVX_LbsOp : LVX_Op<"lbs">{
 }
 
 // LSU:LHZ -- register form, from LHZ_variant_registerW_registerY_registerZ_simple
-def LVX_LhzRegOp : LVX_Op<"lhz_r">{
+def LVX_LhzRegOp : LVX_Op<"lhz_r", [MemoryEffects<[MemRead]>]>{
   let summary = "LHZ -- Load Half Word Zero Extended";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -432,7 +432,7 @@ def LVX_LhzRegOp : LVX_Op<"lhz_r">{
 }
 
 // LSU:LHZ -- immediate form, from LHZ_variant_registerW_signed10_registerZ_simple
-def LVX_LhzOp : LVX_Op<"lhz">{
+def LVX_LhzOp : LVX_Op<"lhz", [MemoryEffects<[MemRead]>]>{
   let summary = "LHZ -- Load Half Word Zero Extended";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -448,7 +448,7 @@ def LVX_LhzOp : LVX_Op<"lhz">{
 }
 
 // LSU:LHS -- register form, from LHS_variant_registerW_registerY_registerZ_simple
-def LVX_LhsRegOp : LVX_Op<"lhs_r">{
+def LVX_LhsRegOp : LVX_Op<"lhs_r", [MemoryEffects<[MemRead]>]>{
   let summary = "LHS -- Load Half Word Sign Extended";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -464,7 +464,7 @@ def LVX_LhsRegOp : LVX_Op<"lhs_r">{
 }
 
 // LSU:LHS -- immediate form, from LHS_variant_registerW_signed10_registerZ_simple
-def LVX_LhsOp : LVX_Op<"lhs">{
+def LVX_LhsOp : LVX_Op<"lhs", [MemoryEffects<[MemRead]>]>{
   let summary = "LHS -- Load Half Word Sign Extended";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -480,7 +480,7 @@ def LVX_LhsOp : LVX_Op<"lhs">{
 }
 
 // LSU:LWZ -- register form, from LWZ_variant_registerW_registerY_registerZ_simple
-def LVX_LwzRegOp : LVX_Op<"lwz_r">{
+def LVX_LwzRegOp : LVX_Op<"lwz_r", [MemoryEffects<[MemRead]>]>{
   let summary = "LWZ -- Load Word Zero Extended";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -496,7 +496,7 @@ def LVX_LwzRegOp : LVX_Op<"lwz_r">{
 }
 
 // LSU:LWZ -- immediate form, from LWZ_variant_registerW_signed10_registerZ_simple
-def LVX_LwzOp : LVX_Op<"lwz">{
+def LVX_LwzOp : LVX_Op<"lwz", [MemoryEffects<[MemRead]>]>{
   let summary = "LWZ -- Load Word Zero Extended";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -512,7 +512,7 @@ def LVX_LwzOp : LVX_Op<"lwz">{
 }
 
 // LSU:LWS -- register form, from LWS_variant_registerW_registerY_registerZ_simple
-def LVX_LwsRegOp : LVX_Op<"lws_r">{
+def LVX_LwsRegOp : LVX_Op<"lws_r", [MemoryEffects<[MemRead]>]>{
   let summary = "LWS -- Load Word Sign Extended";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -528,7 +528,7 @@ def LVX_LwsRegOp : LVX_Op<"lws_r">{
 }
 
 // LSU:LWS -- immediate form, from LWS_variant_registerW_signed10_registerZ_simple
-def LVX_LwsOp : LVX_Op<"lws">{
+def LVX_LwsOp : LVX_Op<"lws", [MemoryEffects<[MemRead]>]>{
   let summary = "LWS -- Load Word Sign Extended";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -544,7 +544,7 @@ def LVX_LwsOp : LVX_Op<"lws">{
 }
 
 // LSU:LD -- register form, from LD_variant_registerW_registerY_registerZ_simple
-def LVX_LdRegOp : LVX_Op<"ld_r">{
+def LVX_LdRegOp : LVX_Op<"ld_r", [MemoryEffects<[MemRead]>]>{
   let summary = "LD -- Load Double Word";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -560,7 +560,7 @@ def LVX_LdRegOp : LVX_Op<"ld_r">{
 }
 
 // LSU:LD -- immediate form, from LD_variant_registerW_signed10_registerZ_simple
-def LVX_LdOp : LVX_Op<"ld">{
+def LVX_LdOp : LVX_Op<"ld", [MemoryEffects<[MemRead]>]>{
   let summary = "LD -- Load Double Word";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -576,7 +576,7 @@ def LVX_LdOp : LVX_Op<"ld">{
 }
 
 // LSU:LQ -- register form, from LQ_variant_registerM_registerY_registerZ_simple
-def LVX_LqRegOp : LVX_Op<"lq_r">{
+def LVX_LqRegOp : LVX_Op<"lq_r", [MemoryEffects<[MemRead]>]>{
   let summary = "LQ -- Load Quadruple Word";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -592,7 +592,7 @@ def LVX_LqRegOp : LVX_Op<"lq_r">{
 }
 
 // LSU:LQ -- immediate form, from LQ_variant_registerM_signed10_registerZ_simple
-def LVX_LqOp : LVX_Op<"lq">{
+def LVX_LqOp : LVX_Op<"lq", [MemoryEffects<[MemRead]>]>{
   let summary = "LQ -- Load Quadruple Word";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -608,7 +608,7 @@ def LVX_LqOp : LVX_Op<"lq">{
 }
 
 // LSU:LO -- register form, from LO_variant_registerN_registerY_registerZ_simple
-def LVX_LoRegOp : LVX_Op<"lo_r">{
+def LVX_LoRegOp : LVX_Op<"lo_r", [MemoryEffects<[MemRead]>]>{
   let summary = "LO -- Load Octuple Word";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -624,7 +624,7 @@ def LVX_LoRegOp : LVX_Op<"lo_r">{
 }
 
 // LSU:LO -- immediate form, from LO_variant_registerN_signed10_registerZ_simple
-def LVX_LoOp : LVX_Op<"lo">{
+def LVX_LoOp : LVX_Op<"lo", [MemoryEffects<[MemRead]>]>{
   let summary = "LO -- Load Octuple Word";
   let arguments = (ins OptionalAttr<LVX_VariantAttr>:$variant,
                        LVX_RegType:$base,
@@ -640,7 +640,7 @@ def LVX_LoOp : LVX_Op<"lo">{
 }
 
 // LSU:SB -- register form, from SB_registerY_registerZ_registerT_simple
-def LVX_SbRegOp : LVX_Op<"sb_r">{
+def LVX_SbRegOp : LVX_Op<"sb_r", [MemoryEffects<[MemWrite]>]>{
   let summary = "SB -- Store Byte";
   let arguments = (ins LVX_RegType:$value,
                        LVX_RegType:$base,
@@ -656,7 +656,7 @@ def LVX_SbRegOp : LVX_Op<"sb_r">{
 }
 
 // LSU:SB -- immediate form, from SB_signed10_registerZ_registerT_simple
-def LVX_SbOp : LVX_Op<"sb">{
+def LVX_SbOp : LVX_Op<"sb", [MemoryEffects<[MemWrite]>]>{
   let summary = "SB -- Store Byte";
   let arguments = (ins LVX_RegType:$value,
                        LVX_RegType:$base,
@@ -672,7 +672,7 @@ def LVX_SbOp : LVX_Op<"sb">{
 }
 
 // LSU:SH -- register form, from SH_registerY_registerZ_registerT_simple
-def LVX_ShRegOp : LVX_Op<"sh_r">{
+def LVX_ShRegOp : LVX_Op<"sh_r", [MemoryEffects<[MemWrite]>]>{
   let summary = "SH -- Store Half Word";
   let arguments = (ins LVX_RegType:$value,
                        LVX_RegType:$base,
@@ -688,7 +688,7 @@ def LVX_ShRegOp : LVX_Op<"sh_r">{
 }
 
 // LSU:SH -- immediate form, from SH_signed10_registerZ_registerT_simple
-def LVX_ShOp : LVX_Op<"sh">{
+def LVX_ShOp : LVX_Op<"sh", [MemoryEffects<[MemWrite]>]>{
   let summary = "SH -- Store Half Word";
   let arguments = (ins LVX_RegType:$value,
                        LVX_RegType:$base,
@@ -704,7 +704,7 @@ def LVX_ShOp : LVX_Op<"sh">{
 }
 
 // LSU:SW -- register form, from SW_registerY_registerZ_registerT_simple
-def LVX_SwRegOp : LVX_Op<"sw_r">{
+def LVX_SwRegOp : LVX_Op<"sw_r", [MemoryEffects<[MemWrite]>]>{
   let summary = "SW -- Store Word";
   let arguments = (ins LVX_RegType:$value,
                        LVX_RegType:$base,
@@ -720,7 +720,7 @@ def LVX_SwRegOp : LVX_Op<"sw_r">{
 }
 
 // LSU:SW -- immediate form, from SW_signed10_registerZ_registerT_simple
-def LVX_SwOp : LVX_Op<"sw">{
+def LVX_SwOp : LVX_Op<"sw", [MemoryEffects<[MemWrite]>]>{
   let summary = "SW -- Store Word";
   let arguments = (ins LVX_RegType:$value,
                        LVX_RegType:$base,
@@ -736,7 +736,7 @@ def LVX_SwOp : LVX_Op<"sw">{
 }
 
 // LSU:SD -- register form, from SD_registerY_registerZ_registerT_simple
-def LVX_SdRegOp : LVX_Op<"sd_r">{
+def LVX_SdRegOp : LVX_Op<"sd_r", [MemoryEffects<[MemWrite]>]>{
   let summary = "SD -- Store Double Word";
   let arguments = (ins LVX_RegType:$value,
                        LVX_RegType:$base,
@@ -752,7 +752,7 @@ def LVX_SdRegOp : LVX_Op<"sd_r">{
 }
 
 // LSU:SD -- immediate form, from SD_signed10_registerZ_registerT_simple
-def LVX_SdOp : LVX_Op<"sd">{
+def LVX_SdOp : LVX_Op<"sd", [MemoryEffects<[MemWrite]>]>{
   let summary = "SD -- Store Double Word";
   let arguments = (ins LVX_RegType:$value,
                        LVX_RegType:$base,
@@ -768,7 +768,7 @@ def LVX_SdOp : LVX_Op<"sd">{
 }
 
 // LSU:SQ -- register form, from SQ_registerY_registerZ_registerU_simple
-def LVX_SqRegOp : LVX_Op<"sq_r">{
+def LVX_SqRegOp : LVX_Op<"sq_r", [MemoryEffects<[MemWrite]>]>{
   let summary = "SQ -- Store Quadruple Word";
   let arguments = (ins LVX_RegType:$value,
                        LVX_RegType:$base,
@@ -784,7 +784,7 @@ def LVX_SqRegOp : LVX_Op<"sq_r">{
 }
 
 // LSU:SQ -- immediate form, from SQ_signed10_registerZ_registerU_simple
-def LVX_SqOp : LVX_Op<"sq">{
+def LVX_SqOp : LVX_Op<"sq", [MemoryEffects<[MemWrite]>]>{
   let summary = "SQ -- Store Quadruple Word";
   let arguments = (ins LVX_RegType:$value,
                        LVX_RegType:$base,
@@ -800,7 +800,7 @@ def LVX_SqOp : LVX_Op<"sq">{
 }
 
 // LSU:SO -- register form, from SO_registerY_registerZ_registerV_simple
-def LVX_SoRegOp : LVX_Op<"so_r">{
+def LVX_SoRegOp : LVX_Op<"so_r", [MemoryEffects<[MemWrite]>]>{
   let summary = "SO -- Store Octuple Word";
   let arguments = (ins LVX_RegType:$value,
                        LVX_RegType:$base,
@@ -816,7 +816,7 @@ def LVX_SoRegOp : LVX_Op<"so_r">{
 }
 
 // LSU:SO -- immediate form, from SO_signed10_registerZ_registerV_simple
-def LVX_SoOp : LVX_Op<"so">{
+def LVX_SoOp : LVX_Op<"so", [MemoryEffects<[MemWrite]>]>{
   let summary = "SO -- Store Octuple Word";
   let arguments = (ins LVX_RegType:$value,
                        LVX_RegType:$base,
@@ -832,7 +832,7 @@ def LVX_SoOp : LVX_Op<"so">{
 }
 
 // LSU:ACSWAPB -- register form, from ACSWAPB_boolcas_coherency_registerW_registerZ_registerO_simple
-def LVX_AcswapbOp : LVX_Op<"acswapb">{
+def LVX_AcswapbOp : LVX_Op<"acswapb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ACSWAPB -- Atomic Compare and Swap Byte";
   let arguments = (ins UnitAttr:$v,
                        UnitAttr:$g,
@@ -849,7 +849,7 @@ def LVX_AcswapbOp : LVX_Op<"acswapb">{
 }
 
 // LSU:ACSWAPB -- immediate form, from ACSWAPB_boolcas_coherency_registerW_offset27_registerZ_registerO_double
-def LVX_AcswapbImmOp : LVX_Op<"acswapb_i">{
+def LVX_AcswapbImmOp : LVX_Op<"acswapb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ACSWAPB -- Atomic Compare and Swap Byte";
   let arguments = (ins UnitAttr:$v,
                        UnitAttr:$g,
@@ -867,7 +867,7 @@ def LVX_AcswapbImmOp : LVX_Op<"acswapb_i">{
 }
 
 // LSU:ACSWAPH -- register form, from ACSWAPH_boolcas_coherency_registerW_registerZ_registerO_simple
-def LVX_AcswaphOp : LVX_Op<"acswaph">{
+def LVX_AcswaphOp : LVX_Op<"acswaph", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ACSWAPH -- Atomic Compare and Swap Half Word";
   let arguments = (ins UnitAttr:$v,
                        UnitAttr:$g,
@@ -884,7 +884,7 @@ def LVX_AcswaphOp : LVX_Op<"acswaph">{
 }
 
 // LSU:ACSWAPH -- immediate form, from ACSWAPH_boolcas_coherency_registerW_offset27_registerZ_registerO_double
-def LVX_AcswaphImmOp : LVX_Op<"acswaph_i">{
+def LVX_AcswaphImmOp : LVX_Op<"acswaph_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ACSWAPH -- Atomic Compare and Swap Half Word";
   let arguments = (ins UnitAttr:$v,
                        UnitAttr:$g,
@@ -902,7 +902,7 @@ def LVX_AcswaphImmOp : LVX_Op<"acswaph_i">{
 }
 
 // LSU:ACSWAPW -- register form, from ACSWAPW_boolcas_coherency_registerW_registerZ_registerO_simple
-def LVX_AcswapwOp : LVX_Op<"acswapw">{
+def LVX_AcswapwOp : LVX_Op<"acswapw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ACSWAPW -- Atomic Compare and Swap Word";
   let arguments = (ins UnitAttr:$v,
                        UnitAttr:$g,
@@ -919,7 +919,7 @@ def LVX_AcswapwOp : LVX_Op<"acswapw">{
 }
 
 // LSU:ACSWAPW -- immediate form, from ACSWAPW_boolcas_coherency_registerW_offset27_registerZ_registerO_double
-def LVX_AcswapwImmOp : LVX_Op<"acswapw_i">{
+def LVX_AcswapwImmOp : LVX_Op<"acswapw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ACSWAPW -- Atomic Compare and Swap Word";
   let arguments = (ins UnitAttr:$v,
                        UnitAttr:$g,
@@ -937,7 +937,7 @@ def LVX_AcswapwImmOp : LVX_Op<"acswapw_i">{
 }
 
 // LSU:ACSWAPD -- register form, from ACSWAPD_boolcas_coherency_registerW_registerZ_registerO_simple
-def LVX_AcswapdOp : LVX_Op<"acswapd">{
+def LVX_AcswapdOp : LVX_Op<"acswapd", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ACSWAPD -- Atomic Compare and Swap Double Word";
   let arguments = (ins UnitAttr:$v,
                        UnitAttr:$g,
@@ -954,7 +954,7 @@ def LVX_AcswapdOp : LVX_Op<"acswapd">{
 }
 
 // LSU:ACSWAPD -- immediate form, from ACSWAPD_boolcas_coherency_registerW_offset27_registerZ_registerO_double
-def LVX_AcswapdImmOp : LVX_Op<"acswapd_i">{
+def LVX_AcswapdImmOp : LVX_Op<"acswapd_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ACSWAPD -- Atomic Compare and Swap Double Word";
   let arguments = (ins UnitAttr:$v,
                        UnitAttr:$g,
@@ -972,7 +972,7 @@ def LVX_AcswapdImmOp : LVX_Op<"acswapd_i">{
 }
 
 // LSU:ACSWAPQ -- register form, from ACSWAPQ_boolcas_coherency_registerM_registerZ_registerQ_simple
-def LVX_AcswapqOp : LVX_Op<"acswapq">{
+def LVX_AcswapqOp : LVX_Op<"acswapq", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ACSWAPQ -- Atomic Compare and Swap Quadruple Word";
   let arguments = (ins UnitAttr:$v,
                        UnitAttr:$g,
@@ -989,7 +989,7 @@ def LVX_AcswapqOp : LVX_Op<"acswapq">{
 }
 
 // LSU:ACSWAPQ -- immediate form, from ACSWAPQ_boolcas_coherency_registerM_offset27_registerZ_registerQ_double
-def LVX_AcswapqImmOp : LVX_Op<"acswapq_i">{
+def LVX_AcswapqImmOp : LVX_Op<"acswapq_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ACSWAPQ -- Atomic Compare and Swap Quadruple Word";
   let arguments = (ins UnitAttr:$v,
                        UnitAttr:$g,
@@ -1007,7 +1007,7 @@ def LVX_AcswapqImmOp : LVX_Op<"acswapq_i">{
 }
 
 // LSU:ALB -- register form, from ALB_coherency_registerW_registerZ_simple
-def LVX_AlbOp : LVX_Op<"alb">{
+def LVX_AlbOp : LVX_Op<"alb", [MemoryEffects<[MemRead]>]>{
   let summary = "ALB -- Atomic Load Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1022,7 +1022,7 @@ def LVX_AlbOp : LVX_Op<"alb">{
 }
 
 // LSU:ALB -- immediate form, from ALB_coherency_registerW_offset27_registerZ_double
-def LVX_AlbImmOp : LVX_Op<"alb_i">{
+def LVX_AlbImmOp : LVX_Op<"alb_i", [MemoryEffects<[MemRead]>]>{
   let summary = "ALB -- Atomic Load Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1038,7 +1038,7 @@ def LVX_AlbImmOp : LVX_Op<"alb_i">{
 }
 
 // LSU:ALH -- register form, from ALH_coherency_registerW_registerZ_simple
-def LVX_AlhOp : LVX_Op<"alh">{
+def LVX_AlhOp : LVX_Op<"alh", [MemoryEffects<[MemRead]>]>{
   let summary = "ALH -- Atomic Load Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1053,7 +1053,7 @@ def LVX_AlhOp : LVX_Op<"alh">{
 }
 
 // LSU:ALH -- immediate form, from ALH_coherency_registerW_offset27_registerZ_double
-def LVX_AlhImmOp : LVX_Op<"alh_i">{
+def LVX_AlhImmOp : LVX_Op<"alh_i", [MemoryEffects<[MemRead]>]>{
   let summary = "ALH -- Atomic Load Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1069,7 +1069,7 @@ def LVX_AlhImmOp : LVX_Op<"alh_i">{
 }
 
 // LSU:ALW -- register form, from ALW_coherency_registerW_registerZ_simple
-def LVX_AlwOp : LVX_Op<"alw">{
+def LVX_AlwOp : LVX_Op<"alw", [MemoryEffects<[MemRead]>]>{
   let summary = "ALW -- Atomic Load Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1084,7 +1084,7 @@ def LVX_AlwOp : LVX_Op<"alw">{
 }
 
 // LSU:ALW -- immediate form, from ALW_coherency_registerW_offset27_registerZ_double
-def LVX_AlwImmOp : LVX_Op<"alw_i">{
+def LVX_AlwImmOp : LVX_Op<"alw_i", [MemoryEffects<[MemRead]>]>{
   let summary = "ALW -- Atomic Load Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1100,7 +1100,7 @@ def LVX_AlwImmOp : LVX_Op<"alw_i">{
 }
 
 // LSU:ALD -- register form, from ALD_coherency_registerW_registerZ_simple
-def LVX_AldOp : LVX_Op<"ald">{
+def LVX_AldOp : LVX_Op<"ald", [MemoryEffects<[MemRead]>]>{
   let summary = "ALD -- Atomic Load Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1115,7 +1115,7 @@ def LVX_AldOp : LVX_Op<"ald">{
 }
 
 // LSU:ALD -- immediate form, from ALD_coherency_registerW_offset27_registerZ_double
-def LVX_AldImmOp : LVX_Op<"ald_i">{
+def LVX_AldImmOp : LVX_Op<"ald_i", [MemoryEffects<[MemRead]>]>{
   let summary = "ALD -- Atomic Load Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1131,7 +1131,7 @@ def LVX_AldImmOp : LVX_Op<"ald_i">{
 }
 
 // LSU:ALCLRB -- register form, from ALCLRB_coherency_registerW_registerZ_simple
-def LVX_AlclrbOp : LVX_Op<"alclrb">{
+def LVX_AlclrbOp : LVX_Op<"alclrb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALCLRB -- Atomic Load and Clear Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1146,7 +1146,7 @@ def LVX_AlclrbOp : LVX_Op<"alclrb">{
 }
 
 // LSU:ALCLRB -- immediate form, from ALCLRB_coherency_registerW_offset27_registerZ_double
-def LVX_AlclrbImmOp : LVX_Op<"alclrb_i">{
+def LVX_AlclrbImmOp : LVX_Op<"alclrb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALCLRB -- Atomic Load and Clear Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1162,7 +1162,7 @@ def LVX_AlclrbImmOp : LVX_Op<"alclrb_i">{
 }
 
 // LSU:ALCLRH -- register form, from ALCLRH_coherency_registerW_registerZ_simple
-def LVX_AlclrhOp : LVX_Op<"alclrh">{
+def LVX_AlclrhOp : LVX_Op<"alclrh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALCLRH -- Atomic Load and Clear Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1177,7 +1177,7 @@ def LVX_AlclrhOp : LVX_Op<"alclrh">{
 }
 
 // LSU:ALCLRH -- immediate form, from ALCLRH_coherency_registerW_offset27_registerZ_double
-def LVX_AlclrhImmOp : LVX_Op<"alclrh_i">{
+def LVX_AlclrhImmOp : LVX_Op<"alclrh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALCLRH -- Atomic Load and Clear Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1193,7 +1193,7 @@ def LVX_AlclrhImmOp : LVX_Op<"alclrh_i">{
 }
 
 // LSU:ALCLRW -- register form, from ALCLRW_coherency_registerW_registerZ_simple
-def LVX_AlclrwOp : LVX_Op<"alclrw">{
+def LVX_AlclrwOp : LVX_Op<"alclrw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALCLRW -- Atomic Load and Clear Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1208,7 +1208,7 @@ def LVX_AlclrwOp : LVX_Op<"alclrw">{
 }
 
 // LSU:ALCLRW -- immediate form, from ALCLRW_coherency_registerW_offset27_registerZ_double
-def LVX_AlclrwImmOp : LVX_Op<"alclrw_i">{
+def LVX_AlclrwImmOp : LVX_Op<"alclrw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALCLRW -- Atomic Load and Clear Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1224,7 +1224,7 @@ def LVX_AlclrwImmOp : LVX_Op<"alclrw_i">{
 }
 
 // LSU:ALCLRD -- register form, from ALCLRD_coherency_registerW_registerZ_simple
-def LVX_AlclrdOp : LVX_Op<"alclrd">{
+def LVX_AlclrdOp : LVX_Op<"alclrd", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALCLRD -- Atomic Load and Clear Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1239,7 +1239,7 @@ def LVX_AlclrdOp : LVX_Op<"alclrd">{
 }
 
 // LSU:ALCLRD -- immediate form, from ALCLRD_coherency_registerW_offset27_registerZ_double
-def LVX_AlclrdImmOp : LVX_Op<"alclrd_i">{
+def LVX_AlclrdImmOp : LVX_Op<"alclrd_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALCLRD -- Atomic Load and Clear Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1255,7 +1255,7 @@ def LVX_AlclrdImmOp : LVX_Op<"alclrd_i">{
 }
 
 // LSU:ASWAPB -- register form, from ASWAPB_coherency_registerZ_registerT_simple
-def LVX_AswapbOp : LVX_Op<"aswapb">{
+def LVX_AswapbOp : LVX_Op<"aswapb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASWAPB -- Atomic Swap Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1271,7 +1271,7 @@ def LVX_AswapbOp : LVX_Op<"aswapb">{
 }
 
 // LSU:ASWAPB -- immediate form, from ASWAPB_coherency_offset27_registerZ_registerT_double
-def LVX_AswapbImmOp : LVX_Op<"aswapb_i">{
+def LVX_AswapbImmOp : LVX_Op<"aswapb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASWAPB -- Atomic Swap Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1288,7 +1288,7 @@ def LVX_AswapbImmOp : LVX_Op<"aswapb_i">{
 }
 
 // LSU:ASWAPH -- register form, from ASWAPH_coherency_registerZ_registerT_simple
-def LVX_AswaphOp : LVX_Op<"aswaph">{
+def LVX_AswaphOp : LVX_Op<"aswaph", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASWAPH -- Atomic Swap Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1304,7 +1304,7 @@ def LVX_AswaphOp : LVX_Op<"aswaph">{
 }
 
 // LSU:ASWAPH -- immediate form, from ASWAPH_coherency_offset27_registerZ_registerT_double
-def LVX_AswaphImmOp : LVX_Op<"aswaph_i">{
+def LVX_AswaphImmOp : LVX_Op<"aswaph_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASWAPH -- Atomic Swap Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1321,7 +1321,7 @@ def LVX_AswaphImmOp : LVX_Op<"aswaph_i">{
 }
 
 // LSU:ASWAPW -- register form, from ASWAPW_coherency_registerZ_registerT_simple
-def LVX_AswapwOp : LVX_Op<"aswapw">{
+def LVX_AswapwOp : LVX_Op<"aswapw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASWAPW -- Atomic Swap Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1337,7 +1337,7 @@ def LVX_AswapwOp : LVX_Op<"aswapw">{
 }
 
 // LSU:ASWAPW -- immediate form, from ASWAPW_coherency_offset27_registerZ_registerT_double
-def LVX_AswapwImmOp : LVX_Op<"aswapw_i">{
+def LVX_AswapwImmOp : LVX_Op<"aswapw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASWAPW -- Atomic Swap Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1354,7 +1354,7 @@ def LVX_AswapwImmOp : LVX_Op<"aswapw_i">{
 }
 
 // LSU:ASWAPD -- register form, from ASWAPD_coherency_registerZ_registerT_simple
-def LVX_AswapdOp : LVX_Op<"aswapd">{
+def LVX_AswapdOp : LVX_Op<"aswapd", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASWAPD -- Atomic Swap Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1370,7 +1370,7 @@ def LVX_AswapdOp : LVX_Op<"aswapd">{
 }
 
 // LSU:ASWAPD -- immediate form, from ASWAPD_coherency_offset27_registerZ_registerT_double
-def LVX_AswapdImmOp : LVX_Op<"aswapd_i">{
+def LVX_AswapdImmOp : LVX_Op<"aswapd_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASWAPD -- Atomic Swap Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1387,7 +1387,7 @@ def LVX_AswapdImmOp : LVX_Op<"aswapd_i">{
 }
 
 // LSU:ASB -- register form, from ASB_coherency_registerZ_registerT_simple
-def LVX_AsbOp : LVX_Op<"asb">{
+def LVX_AsbOp : LVX_Op<"asb", [MemoryEffects<[MemWrite]>]>{
   let summary = "ASB -- Atomic Store Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -1403,7 +1403,7 @@ def LVX_AsbOp : LVX_Op<"asb">{
 }
 
 // LSU:ASB -- immediate form, from ASB_coherency_offset27_registerZ_registerT_double
-def LVX_AsbImmOp : LVX_Op<"asb_i">{
+def LVX_AsbImmOp : LVX_Op<"asb_i", [MemoryEffects<[MemWrite]>]>{
   let summary = "ASB -- Atomic Store Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -1420,7 +1420,7 @@ def LVX_AsbImmOp : LVX_Op<"asb_i">{
 }
 
 // LSU:ASH -- register form, from ASH_coherency_registerZ_registerT_simple
-def LVX_AshOp : LVX_Op<"ash">{
+def LVX_AshOp : LVX_Op<"ash", [MemoryEffects<[MemWrite]>]>{
   let summary = "ASH -- Atomic Store Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -1436,7 +1436,7 @@ def LVX_AshOp : LVX_Op<"ash">{
 }
 
 // LSU:ASH -- immediate form, from ASH_coherency_offset27_registerZ_registerT_double
-def LVX_AshImmOp : LVX_Op<"ash_i">{
+def LVX_AshImmOp : LVX_Op<"ash_i", [MemoryEffects<[MemWrite]>]>{
   let summary = "ASH -- Atomic Store Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -1453,7 +1453,7 @@ def LVX_AshImmOp : LVX_Op<"ash_i">{
 }
 
 // LSU:ASW -- register form, from ASW_coherency_registerZ_registerT_simple
-def LVX_AswOp : LVX_Op<"asw">{
+def LVX_AswOp : LVX_Op<"asw", [MemoryEffects<[MemWrite]>]>{
   let summary = "ASW -- Atomic Store Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -1469,7 +1469,7 @@ def LVX_AswOp : LVX_Op<"asw">{
 }
 
 // LSU:ASW -- immediate form, from ASW_coherency_offset27_registerZ_registerT_double
-def LVX_AswImmOp : LVX_Op<"asw_i">{
+def LVX_AswImmOp : LVX_Op<"asw_i", [MemoryEffects<[MemWrite]>]>{
   let summary = "ASW -- Atomic Store Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -1486,7 +1486,7 @@ def LVX_AswImmOp : LVX_Op<"asw_i">{
 }
 
 // LSU:ASD -- register form, from ASD_coherency_registerZ_registerT_simple
-def LVX_AsdOp : LVX_Op<"asd">{
+def LVX_AsdOp : LVX_Op<"asd", [MemoryEffects<[MemWrite]>]>{
   let summary = "ASD -- Atomic Store Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -1502,7 +1502,7 @@ def LVX_AsdOp : LVX_Op<"asd">{
 }
 
 // LSU:ASD -- immediate form, from ASD_coherency_offset27_registerZ_registerT_double
-def LVX_AsdImmOp : LVX_Op<"asd_i">{
+def LVX_AsdImmOp : LVX_Op<"asd_i", [MemoryEffects<[MemWrite]>]>{
   let summary = "ASD -- Atomic Store Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -1519,7 +1519,7 @@ def LVX_AsdImmOp : LVX_Op<"asd_i">{
 }
 
 // LSU:ALADDB -- register form, from ALADDB_coherency_registerZ_registerT_simple
-def LVX_AladdbOp : LVX_Op<"aladdb">{
+def LVX_AladdbOp : LVX_Op<"aladdb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALADDB -- Atomic Load and Add Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1535,7 +1535,7 @@ def LVX_AladdbOp : LVX_Op<"aladdb">{
 }
 
 // LSU:ALADDB -- immediate form, from ALADDB_coherency_offset27_registerZ_registerT_double
-def LVX_AladdbImmOp : LVX_Op<"aladdb_i">{
+def LVX_AladdbImmOp : LVX_Op<"aladdb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALADDB -- Atomic Load and Add Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1552,7 +1552,7 @@ def LVX_AladdbImmOp : LVX_Op<"aladdb_i">{
 }
 
 // LSU:ALADDH -- register form, from ALADDH_coherency_registerZ_registerT_simple
-def LVX_AladdhOp : LVX_Op<"aladdh">{
+def LVX_AladdhOp : LVX_Op<"aladdh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALADDH -- Atomic Load and Add Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1568,7 +1568,7 @@ def LVX_AladdhOp : LVX_Op<"aladdh">{
 }
 
 // LSU:ALADDH -- immediate form, from ALADDH_coherency_offset27_registerZ_registerT_double
-def LVX_AladdhImmOp : LVX_Op<"aladdh_i">{
+def LVX_AladdhImmOp : LVX_Op<"aladdh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALADDH -- Atomic Load and Add Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1585,7 +1585,7 @@ def LVX_AladdhImmOp : LVX_Op<"aladdh_i">{
 }
 
 // LSU:ALADDW -- register form, from ALADDW_coherency_registerZ_registerT_simple
-def LVX_AladdwOp : LVX_Op<"aladdw">{
+def LVX_AladdwOp : LVX_Op<"aladdw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALADDW -- Atomic Load and Add Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1601,7 +1601,7 @@ def LVX_AladdwOp : LVX_Op<"aladdw">{
 }
 
 // LSU:ALADDW -- immediate form, from ALADDW_coherency_offset27_registerZ_registerT_double
-def LVX_AladdwImmOp : LVX_Op<"aladdw_i">{
+def LVX_AladdwImmOp : LVX_Op<"aladdw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALADDW -- Atomic Load and Add Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1618,7 +1618,7 @@ def LVX_AladdwImmOp : LVX_Op<"aladdw_i">{
 }
 
 // LSU:ALADDD -- register form, from ALADDD_coherency_registerZ_registerT_simple
-def LVX_AladddOp : LVX_Op<"aladdd">{
+def LVX_AladddOp : LVX_Op<"aladdd", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALADDD -- Atomic Load and Add Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1634,7 +1634,7 @@ def LVX_AladddOp : LVX_Op<"aladdd">{
 }
 
 // LSU:ALADDD -- immediate form, from ALADDD_coherency_offset27_registerZ_registerT_double
-def LVX_AladddImmOp : LVX_Op<"aladdd_i">{
+def LVX_AladddImmOp : LVX_Op<"aladdd_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALADDD -- Atomic Load and Add Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1651,7 +1651,7 @@ def LVX_AladddImmOp : LVX_Op<"aladdd_i">{
 }
 
 // LSU:ALANDB -- register form, from ALANDB_coherency_registerZ_registerT_simple
-def LVX_AlandbOp : LVX_Op<"alandb">{
+def LVX_AlandbOp : LVX_Op<"alandb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALANDB -- Atomic Load and AND Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1667,7 +1667,7 @@ def LVX_AlandbOp : LVX_Op<"alandb">{
 }
 
 // LSU:ALANDB -- immediate form, from ALANDB_coherency_offset27_registerZ_registerT_double
-def LVX_AlandbImmOp : LVX_Op<"alandb_i">{
+def LVX_AlandbImmOp : LVX_Op<"alandb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALANDB -- Atomic Load and AND Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1684,7 +1684,7 @@ def LVX_AlandbImmOp : LVX_Op<"alandb_i">{
 }
 
 // LSU:ALANDH -- register form, from ALANDH_coherency_registerZ_registerT_simple
-def LVX_AlandhOp : LVX_Op<"alandh">{
+def LVX_AlandhOp : LVX_Op<"alandh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALANDH -- Atomic Load and AND Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1700,7 +1700,7 @@ def LVX_AlandhOp : LVX_Op<"alandh">{
 }
 
 // LSU:ALANDH -- immediate form, from ALANDH_coherency_offset27_registerZ_registerT_double
-def LVX_AlandhImmOp : LVX_Op<"alandh_i">{
+def LVX_AlandhImmOp : LVX_Op<"alandh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALANDH -- Atomic Load and AND Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1717,7 +1717,7 @@ def LVX_AlandhImmOp : LVX_Op<"alandh_i">{
 }
 
 // LSU:ALANDW -- register form, from ALANDW_coherency_registerZ_registerT_simple
-def LVX_AlandwOp : LVX_Op<"alandw">{
+def LVX_AlandwOp : LVX_Op<"alandw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALANDW -- Atomic Load and AND Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1733,7 +1733,7 @@ def LVX_AlandwOp : LVX_Op<"alandw">{
 }
 
 // LSU:ALANDW -- immediate form, from ALANDW_coherency_offset27_registerZ_registerT_double
-def LVX_AlandwImmOp : LVX_Op<"alandw_i">{
+def LVX_AlandwImmOp : LVX_Op<"alandw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALANDW -- Atomic Load and AND Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1750,7 +1750,7 @@ def LVX_AlandwImmOp : LVX_Op<"alandw_i">{
 }
 
 // LSU:ALANDD -- register form, from ALANDD_coherency_registerZ_registerT_simple
-def LVX_AlanddOp : LVX_Op<"alandd">{
+def LVX_AlanddOp : LVX_Op<"alandd", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALANDD -- Atomic Load and AND Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1766,7 +1766,7 @@ def LVX_AlanddOp : LVX_Op<"alandd">{
 }
 
 // LSU:ALANDD -- immediate form, from ALANDD_coherency_offset27_registerZ_registerT_double
-def LVX_AlanddImmOp : LVX_Op<"alandd_i">{
+def LVX_AlanddImmOp : LVX_Op<"alandd_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALANDD -- Atomic Load and AND Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1783,7 +1783,7 @@ def LVX_AlanddImmOp : LVX_Op<"alandd_i">{
 }
 
 // LSU:ALIORB -- register form, from ALIORB_coherency_registerZ_registerT_simple
-def LVX_AliorbOp : LVX_Op<"aliorb">{
+def LVX_AliorbOp : LVX_Op<"aliorb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALIORB -- Atomic Load and IOR Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1799,7 +1799,7 @@ def LVX_AliorbOp : LVX_Op<"aliorb">{
 }
 
 // LSU:ALIORB -- immediate form, from ALIORB_coherency_offset27_registerZ_registerT_double
-def LVX_AliorbImmOp : LVX_Op<"aliorb_i">{
+def LVX_AliorbImmOp : LVX_Op<"aliorb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALIORB -- Atomic Load and IOR Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1816,7 +1816,7 @@ def LVX_AliorbImmOp : LVX_Op<"aliorb_i">{
 }
 
 // LSU:ALIORH -- register form, from ALIORH_coherency_registerZ_registerT_simple
-def LVX_AliorhOp : LVX_Op<"aliorh">{
+def LVX_AliorhOp : LVX_Op<"aliorh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALIORH -- Atomic Load and IOR Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1832,7 +1832,7 @@ def LVX_AliorhOp : LVX_Op<"aliorh">{
 }
 
 // LSU:ALIORH -- immediate form, from ALIORH_coherency_offset27_registerZ_registerT_double
-def LVX_AliorhImmOp : LVX_Op<"aliorh_i">{
+def LVX_AliorhImmOp : LVX_Op<"aliorh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALIORH -- Atomic Load and IOR Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1849,7 +1849,7 @@ def LVX_AliorhImmOp : LVX_Op<"aliorh_i">{
 }
 
 // LSU:ALIORW -- register form, from ALIORW_coherency_registerZ_registerT_simple
-def LVX_AliorwOp : LVX_Op<"aliorw">{
+def LVX_AliorwOp : LVX_Op<"aliorw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALIORW -- Atomic Load and IOR Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1865,7 +1865,7 @@ def LVX_AliorwOp : LVX_Op<"aliorw">{
 }
 
 // LSU:ALIORW -- immediate form, from ALIORW_coherency_offset27_registerZ_registerT_double
-def LVX_AliorwImmOp : LVX_Op<"aliorw_i">{
+def LVX_AliorwImmOp : LVX_Op<"aliorw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALIORW -- Atomic Load and IOR Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1882,7 +1882,7 @@ def LVX_AliorwImmOp : LVX_Op<"aliorw_i">{
 }
 
 // LSU:ALIORD -- register form, from ALIORD_coherency_registerZ_registerT_simple
-def LVX_AliordOp : LVX_Op<"aliord">{
+def LVX_AliordOp : LVX_Op<"aliord", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALIORD -- Atomic Load and IOR Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1898,7 +1898,7 @@ def LVX_AliordOp : LVX_Op<"aliord">{
 }
 
 // LSU:ALIORD -- immediate form, from ALIORD_coherency_offset27_registerZ_registerT_double
-def LVX_AliordImmOp : LVX_Op<"aliord_i">{
+def LVX_AliordImmOp : LVX_Op<"aliord_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALIORD -- Atomic Load and IOR Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1915,7 +1915,7 @@ def LVX_AliordImmOp : LVX_Op<"aliord_i">{
 }
 
 // LSU:ALEORB -- register form, from ALEORB_coherency_registerZ_registerT_simple
-def LVX_AleorbOp : LVX_Op<"aleorb">{
+def LVX_AleorbOp : LVX_Op<"aleorb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALEORB -- Atomic Load and EOR Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1931,7 +1931,7 @@ def LVX_AleorbOp : LVX_Op<"aleorb">{
 }
 
 // LSU:ALEORB -- immediate form, from ALEORB_coherency_offset27_registerZ_registerT_double
-def LVX_AleorbImmOp : LVX_Op<"aleorb_i">{
+def LVX_AleorbImmOp : LVX_Op<"aleorb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALEORB -- Atomic Load and EOR Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1948,7 +1948,7 @@ def LVX_AleorbImmOp : LVX_Op<"aleorb_i">{
 }
 
 // LSU:ALEORH -- register form, from ALEORH_coherency_registerZ_registerT_simple
-def LVX_AleorhOp : LVX_Op<"aleorh">{
+def LVX_AleorhOp : LVX_Op<"aleorh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALEORH -- Atomic Load and EOR Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1964,7 +1964,7 @@ def LVX_AleorhOp : LVX_Op<"aleorh">{
 }
 
 // LSU:ALEORH -- immediate form, from ALEORH_coherency_offset27_registerZ_registerT_double
-def LVX_AleorhImmOp : LVX_Op<"aleorh_i">{
+def LVX_AleorhImmOp : LVX_Op<"aleorh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALEORH -- Atomic Load and EOR Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1981,7 +1981,7 @@ def LVX_AleorhImmOp : LVX_Op<"aleorh_i">{
 }
 
 // LSU:ALEORW -- register form, from ALEORW_coherency_registerZ_registerT_simple
-def LVX_AleorwOp : LVX_Op<"aleorw">{
+def LVX_AleorwOp : LVX_Op<"aleorw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALEORW -- Atomic Load and EOR Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -1997,7 +1997,7 @@ def LVX_AleorwOp : LVX_Op<"aleorw">{
 }
 
 // LSU:ALEORW -- immediate form, from ALEORW_coherency_offset27_registerZ_registerT_double
-def LVX_AleorwImmOp : LVX_Op<"aleorw_i">{
+def LVX_AleorwImmOp : LVX_Op<"aleorw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALEORW -- Atomic Load and EOR Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2014,7 +2014,7 @@ def LVX_AleorwImmOp : LVX_Op<"aleorw_i">{
 }
 
 // LSU:ALEORD -- register form, from ALEORD_coherency_registerZ_registerT_simple
-def LVX_AleordOp : LVX_Op<"aleord">{
+def LVX_AleordOp : LVX_Op<"aleord", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALEORD -- Atomic Load and EOR Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2030,7 +2030,7 @@ def LVX_AleordOp : LVX_Op<"aleord">{
 }
 
 // LSU:ALEORD -- immediate form, from ALEORD_coherency_offset27_registerZ_registerT_double
-def LVX_AleordImmOp : LVX_Op<"aleord_i">{
+def LVX_AleordImmOp : LVX_Op<"aleord_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALEORD -- Atomic Load and EOR Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2047,7 +2047,7 @@ def LVX_AleordImmOp : LVX_Op<"aleord_i">{
 }
 
 // LSU:ALMINB -- register form, from ALMINB_coherency_registerZ_registerT_simple
-def LVX_AlminbOp : LVX_Op<"alminb">{
+def LVX_AlminbOp : LVX_Op<"alminb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMINB -- Atomic Load and MIN Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2063,7 +2063,7 @@ def LVX_AlminbOp : LVX_Op<"alminb">{
 }
 
 // LSU:ALMINB -- immediate form, from ALMINB_coherency_offset27_registerZ_registerT_double
-def LVX_AlminbImmOp : LVX_Op<"alminb_i">{
+def LVX_AlminbImmOp : LVX_Op<"alminb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMINB -- Atomic Load and MIN Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2080,7 +2080,7 @@ def LVX_AlminbImmOp : LVX_Op<"alminb_i">{
 }
 
 // LSU:ALMINH -- register form, from ALMINH_coherency_registerZ_registerT_simple
-def LVX_AlminhOp : LVX_Op<"alminh">{
+def LVX_AlminhOp : LVX_Op<"alminh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMINH -- Atomic Load and MIN Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2096,7 +2096,7 @@ def LVX_AlminhOp : LVX_Op<"alminh">{
 }
 
 // LSU:ALMINH -- immediate form, from ALMINH_coherency_offset27_registerZ_registerT_double
-def LVX_AlminhImmOp : LVX_Op<"alminh_i">{
+def LVX_AlminhImmOp : LVX_Op<"alminh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMINH -- Atomic Load and MIN Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2113,7 +2113,7 @@ def LVX_AlminhImmOp : LVX_Op<"alminh_i">{
 }
 
 // LSU:ALMINW -- register form, from ALMINW_coherency_registerZ_registerT_simple
-def LVX_AlminwOp : LVX_Op<"alminw">{
+def LVX_AlminwOp : LVX_Op<"alminw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMINW -- Atomic Load and MIN Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2129,7 +2129,7 @@ def LVX_AlminwOp : LVX_Op<"alminw">{
 }
 
 // LSU:ALMINW -- immediate form, from ALMINW_coherency_offset27_registerZ_registerT_double
-def LVX_AlminwImmOp : LVX_Op<"alminw_i">{
+def LVX_AlminwImmOp : LVX_Op<"alminw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMINW -- Atomic Load and MIN Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2146,7 +2146,7 @@ def LVX_AlminwImmOp : LVX_Op<"alminw_i">{
 }
 
 // LSU:ALMIND -- register form, from ALMIND_coherency_registerZ_registerT_simple
-def LVX_AlmindOp : LVX_Op<"almind">{
+def LVX_AlmindOp : LVX_Op<"almind", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMIND -- Atomic Load and MIN Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2162,7 +2162,7 @@ def LVX_AlmindOp : LVX_Op<"almind">{
 }
 
 // LSU:ALMIND -- immediate form, from ALMIND_coherency_offset27_registerZ_registerT_double
-def LVX_AlmindImmOp : LVX_Op<"almind_i">{
+def LVX_AlmindImmOp : LVX_Op<"almind_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMIND -- Atomic Load and MIN Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2179,7 +2179,7 @@ def LVX_AlmindImmOp : LVX_Op<"almind_i">{
 }
 
 // LSU:ALMAXB -- register form, from ALMAXB_coherency_registerZ_registerT_simple
-def LVX_AlmaxbOp : LVX_Op<"almaxb">{
+def LVX_AlmaxbOp : LVX_Op<"almaxb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXB -- Atomic Load and MAX Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2195,7 +2195,7 @@ def LVX_AlmaxbOp : LVX_Op<"almaxb">{
 }
 
 // LSU:ALMAXB -- immediate form, from ALMAXB_coherency_offset27_registerZ_registerT_double
-def LVX_AlmaxbImmOp : LVX_Op<"almaxb_i">{
+def LVX_AlmaxbImmOp : LVX_Op<"almaxb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXB -- Atomic Load and MAX Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2212,7 +2212,7 @@ def LVX_AlmaxbImmOp : LVX_Op<"almaxb_i">{
 }
 
 // LSU:ALMAXH -- register form, from ALMAXH_coherency_registerZ_registerT_simple
-def LVX_AlmaxhOp : LVX_Op<"almaxh">{
+def LVX_AlmaxhOp : LVX_Op<"almaxh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXH -- Atomic Load and MAX Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2228,7 +2228,7 @@ def LVX_AlmaxhOp : LVX_Op<"almaxh">{
 }
 
 // LSU:ALMAXH -- immediate form, from ALMAXH_coherency_offset27_registerZ_registerT_double
-def LVX_AlmaxhImmOp : LVX_Op<"almaxh_i">{
+def LVX_AlmaxhImmOp : LVX_Op<"almaxh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXH -- Atomic Load and MAX Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2245,7 +2245,7 @@ def LVX_AlmaxhImmOp : LVX_Op<"almaxh_i">{
 }
 
 // LSU:ALMAXW -- register form, from ALMAXW_coherency_registerZ_registerT_simple
-def LVX_AlmaxwOp : LVX_Op<"almaxw">{
+def LVX_AlmaxwOp : LVX_Op<"almaxw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXW -- Atomic Load and MAX Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2261,7 +2261,7 @@ def LVX_AlmaxwOp : LVX_Op<"almaxw">{
 }
 
 // LSU:ALMAXW -- immediate form, from ALMAXW_coherency_offset27_registerZ_registerT_double
-def LVX_AlmaxwImmOp : LVX_Op<"almaxw_i">{
+def LVX_AlmaxwImmOp : LVX_Op<"almaxw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXW -- Atomic Load and MAX Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2278,7 +2278,7 @@ def LVX_AlmaxwImmOp : LVX_Op<"almaxw_i">{
 }
 
 // LSU:ALMAXD -- register form, from ALMAXD_coherency_registerZ_registerT_simple
-def LVX_AlmaxdOp : LVX_Op<"almaxd">{
+def LVX_AlmaxdOp : LVX_Op<"almaxd", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXD -- Atomic Load and MAX Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2294,7 +2294,7 @@ def LVX_AlmaxdOp : LVX_Op<"almaxd">{
 }
 
 // LSU:ALMAXD -- immediate form, from ALMAXD_coherency_offset27_registerZ_registerT_double
-def LVX_AlmaxdImmOp : LVX_Op<"almaxd_i">{
+def LVX_AlmaxdImmOp : LVX_Op<"almaxd_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXD -- Atomic Load and MAX Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2311,7 +2311,7 @@ def LVX_AlmaxdImmOp : LVX_Op<"almaxd_i">{
 }
 
 // LSU:ALMINUB -- register form, from ALMINUB_coherency_registerZ_registerT_simple
-def LVX_AlminubOp : LVX_Op<"alminub">{
+def LVX_AlminubOp : LVX_Op<"alminub", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMINUB -- Atomic Load and MIN Unsigned Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2327,7 +2327,7 @@ def LVX_AlminubOp : LVX_Op<"alminub">{
 }
 
 // LSU:ALMINUB -- immediate form, from ALMINUB_coherency_offset27_registerZ_registerT_double
-def LVX_AlminubImmOp : LVX_Op<"alminub_i">{
+def LVX_AlminubImmOp : LVX_Op<"alminub_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMINUB -- Atomic Load and MIN Unsigned Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2344,7 +2344,7 @@ def LVX_AlminubImmOp : LVX_Op<"alminub_i">{
 }
 
 // LSU:ALMINUH -- register form, from ALMINUH_coherency_registerZ_registerT_simple
-def LVX_AlminuhOp : LVX_Op<"alminuh">{
+def LVX_AlminuhOp : LVX_Op<"alminuh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMINUH -- Atomic Load and MIN Unsigned Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2360,7 +2360,7 @@ def LVX_AlminuhOp : LVX_Op<"alminuh">{
 }
 
 // LSU:ALMINUH -- immediate form, from ALMINUH_coherency_offset27_registerZ_registerT_double
-def LVX_AlminuhImmOp : LVX_Op<"alminuh_i">{
+def LVX_AlminuhImmOp : LVX_Op<"alminuh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMINUH -- Atomic Load and MIN Unsigned Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2377,7 +2377,7 @@ def LVX_AlminuhImmOp : LVX_Op<"alminuh_i">{
 }
 
 // LSU:ALMINUW -- register form, from ALMINUW_coherency_registerZ_registerT_simple
-def LVX_AlminuwOp : LVX_Op<"alminuw">{
+def LVX_AlminuwOp : LVX_Op<"alminuw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMINUW -- Atomic Load and MIN Unsigned Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2393,7 +2393,7 @@ def LVX_AlminuwOp : LVX_Op<"alminuw">{
 }
 
 // LSU:ALMINUW -- immediate form, from ALMINUW_coherency_offset27_registerZ_registerT_double
-def LVX_AlminuwImmOp : LVX_Op<"alminuw_i">{
+def LVX_AlminuwImmOp : LVX_Op<"alminuw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMINUW -- Atomic Load and MIN Unsigned Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2410,7 +2410,7 @@ def LVX_AlminuwImmOp : LVX_Op<"alminuw_i">{
 }
 
 // LSU:ALMINUD -- register form, from ALMINUD_coherency_registerZ_registerT_simple
-def LVX_AlminudOp : LVX_Op<"alminud">{
+def LVX_AlminudOp : LVX_Op<"alminud", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMINUD -- Atomic Load and MIN Unsigned Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2426,7 +2426,7 @@ def LVX_AlminudOp : LVX_Op<"alminud">{
 }
 
 // LSU:ALMINUD -- immediate form, from ALMINUD_coherency_offset27_registerZ_registerT_double
-def LVX_AlminudImmOp : LVX_Op<"alminud_i">{
+def LVX_AlminudImmOp : LVX_Op<"alminud_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMINUD -- Atomic Load and MIN Unsigned Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2443,7 +2443,7 @@ def LVX_AlminudImmOp : LVX_Op<"alminud_i">{
 }
 
 // LSU:ALMAXUB -- register form, from ALMAXUB_coherency_registerZ_registerT_simple
-def LVX_AlmaxubOp : LVX_Op<"almaxub">{
+def LVX_AlmaxubOp : LVX_Op<"almaxub", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXUB -- Atomic Load and MAX Unsigned Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2459,7 +2459,7 @@ def LVX_AlmaxubOp : LVX_Op<"almaxub">{
 }
 
 // LSU:ALMAXUB -- immediate form, from ALMAXUB_coherency_offset27_registerZ_registerT_double
-def LVX_AlmaxubImmOp : LVX_Op<"almaxub_i">{
+def LVX_AlmaxubImmOp : LVX_Op<"almaxub_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXUB -- Atomic Load and MAX Unsigned Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2476,7 +2476,7 @@ def LVX_AlmaxubImmOp : LVX_Op<"almaxub_i">{
 }
 
 // LSU:ALMAXUH -- register form, from ALMAXUH_coherency_registerZ_registerT_simple
-def LVX_AlmaxuhOp : LVX_Op<"almaxuh">{
+def LVX_AlmaxuhOp : LVX_Op<"almaxuh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXUH -- Atomic Load and MAX Unsigned Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2492,7 +2492,7 @@ def LVX_AlmaxuhOp : LVX_Op<"almaxuh">{
 }
 
 // LSU:ALMAXUH -- immediate form, from ALMAXUH_coherency_offset27_registerZ_registerT_double
-def LVX_AlmaxuhImmOp : LVX_Op<"almaxuh_i">{
+def LVX_AlmaxuhImmOp : LVX_Op<"almaxuh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXUH -- Atomic Load and MAX Unsigned Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2509,7 +2509,7 @@ def LVX_AlmaxuhImmOp : LVX_Op<"almaxuh_i">{
 }
 
 // LSU:ALMAXUW -- register form, from ALMAXUW_coherency_registerZ_registerT_simple
-def LVX_AlmaxuwOp : LVX_Op<"almaxuw">{
+def LVX_AlmaxuwOp : LVX_Op<"almaxuw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXUW -- Atomic Load and MAX Unsigned Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2525,7 +2525,7 @@ def LVX_AlmaxuwOp : LVX_Op<"almaxuw">{
 }
 
 // LSU:ALMAXUW -- immediate form, from ALMAXUW_coherency_offset27_registerZ_registerT_double
-def LVX_AlmaxuwImmOp : LVX_Op<"almaxuw_i">{
+def LVX_AlmaxuwImmOp : LVX_Op<"almaxuw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXUW -- Atomic Load and MAX Unsigned Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2542,7 +2542,7 @@ def LVX_AlmaxuwImmOp : LVX_Op<"almaxuw_i">{
 }
 
 // LSU:ALMAXUD -- register form, from ALMAXUD_coherency_registerZ_registerT_simple
-def LVX_AlmaxudOp : LVX_Op<"almaxud">{
+def LVX_AlmaxudOp : LVX_Op<"almaxud", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXUD -- Atomic Load and MAX Unsigned Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2558,7 +2558,7 @@ def LVX_AlmaxudOp : LVX_Op<"almaxud">{
 }
 
 // LSU:ALMAXUD -- immediate form, from ALMAXUD_coherency_offset27_registerZ_registerT_double
-def LVX_AlmaxudImmOp : LVX_Op<"almaxud_i">{
+def LVX_AlmaxudImmOp : LVX_Op<"almaxud_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALMAXUD -- Atomic Load and MAX Unsigned Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2575,7 +2575,7 @@ def LVX_AlmaxudImmOp : LVX_Op<"almaxud_i">{
 }
 
 // LSU:ALDUSB -- register form, from ALDUSB_coherency_registerZ_registerT_simple
-def LVX_AldusbOp : LVX_Op<"aldusb">{
+def LVX_AldusbOp : LVX_Op<"aldusb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALDUSB -- Atomic Load and Decrement Unsigned Saturating Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2591,7 +2591,7 @@ def LVX_AldusbOp : LVX_Op<"aldusb">{
 }
 
 // LSU:ALDUSB -- immediate form, from ALDUSB_coherency_offset27_registerZ_registerT_double
-def LVX_AldusbImmOp : LVX_Op<"aldusb_i">{
+def LVX_AldusbImmOp : LVX_Op<"aldusb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALDUSB -- Atomic Load and Decrement Unsigned Saturating Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2608,7 +2608,7 @@ def LVX_AldusbImmOp : LVX_Op<"aldusb_i">{
 }
 
 // LSU:ALDUSH -- register form, from ALDUSH_coherency_registerZ_registerT_simple
-def LVX_AldushOp : LVX_Op<"aldush">{
+def LVX_AldushOp : LVX_Op<"aldush", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALDUSH -- Atomic Load and DUS Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2624,7 +2624,7 @@ def LVX_AldushOp : LVX_Op<"aldush">{
 }
 
 // LSU:ALDUSH -- immediate form, from ALDUSH_coherency_offset27_registerZ_registerT_double
-def LVX_AldushImmOp : LVX_Op<"aldush_i">{
+def LVX_AldushImmOp : LVX_Op<"aldush_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALDUSH -- Atomic Load and DUS Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2641,7 +2641,7 @@ def LVX_AldushImmOp : LVX_Op<"aldush_i">{
 }
 
 // LSU:ALDUSW -- register form, from ALDUSW_coherency_registerZ_registerT_simple
-def LVX_AlduswOp : LVX_Op<"aldusw">{
+def LVX_AlduswOp : LVX_Op<"aldusw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALDUSW -- Atomic Load and DUS Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2657,7 +2657,7 @@ def LVX_AlduswOp : LVX_Op<"aldusw">{
 }
 
 // LSU:ALDUSW -- immediate form, from ALDUSW_coherency_offset27_registerZ_registerT_double
-def LVX_AlduswImmOp : LVX_Op<"aldusw_i">{
+def LVX_AlduswImmOp : LVX_Op<"aldusw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALDUSW -- Atomic Load and DUS Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2674,7 +2674,7 @@ def LVX_AlduswImmOp : LVX_Op<"aldusw_i">{
 }
 
 // LSU:ALDUSD -- register form, from ALDUSD_coherency_registerZ_registerT_simple
-def LVX_AldusdOp : LVX_Op<"aldusd">{
+def LVX_AldusdOp : LVX_Op<"aldusd", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALDUSD -- Atomic Load and DUS Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2690,7 +2690,7 @@ def LVX_AldusdOp : LVX_Op<"aldusd">{
 }
 
 // LSU:ALDUSD -- immediate form, from ALDUSD_coherency_offset27_registerZ_registerT_double
-def LVX_AldusdImmOp : LVX_Op<"aldusd_i">{
+def LVX_AldusdImmOp : LVX_Op<"aldusd_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ALDUSD -- Atomic Load and DUS Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$base,
@@ -2707,7 +2707,7 @@ def LVX_AldusdImmOp : LVX_Op<"aldusd_i">{
 }
 
 // LSU:ASADDB -- register form, from ASADDB_coherency_registerZ_registerT_simple
-def LVX_AsaddbOp : LVX_Op<"asaddb">{
+def LVX_AsaddbOp : LVX_Op<"asaddb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASADDB -- Atomic Store Add Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2723,7 +2723,7 @@ def LVX_AsaddbOp : LVX_Op<"asaddb">{
 }
 
 // LSU:ASADDB -- immediate form, from ASADDB_coherency_offset27_registerZ_registerT_double
-def LVX_AsaddbImmOp : LVX_Op<"asaddb_i">{
+def LVX_AsaddbImmOp : LVX_Op<"asaddb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASADDB -- Atomic Store Add Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2740,7 +2740,7 @@ def LVX_AsaddbImmOp : LVX_Op<"asaddb_i">{
 }
 
 // LSU:ASADDH -- register form, from ASADDH_coherency_registerZ_registerT_simple
-def LVX_AsaddhOp : LVX_Op<"asaddh">{
+def LVX_AsaddhOp : LVX_Op<"asaddh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASADDH -- Atomic Store Add Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2756,7 +2756,7 @@ def LVX_AsaddhOp : LVX_Op<"asaddh">{
 }
 
 // LSU:ASADDH -- immediate form, from ASADDH_coherency_offset27_registerZ_registerT_double
-def LVX_AsaddhImmOp : LVX_Op<"asaddh_i">{
+def LVX_AsaddhImmOp : LVX_Op<"asaddh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASADDH -- Atomic Store Add Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2773,7 +2773,7 @@ def LVX_AsaddhImmOp : LVX_Op<"asaddh_i">{
 }
 
 // LSU:ASADDW -- register form, from ASADDW_coherency_registerZ_registerT_simple
-def LVX_AsaddwOp : LVX_Op<"asaddw">{
+def LVX_AsaddwOp : LVX_Op<"asaddw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASADDW -- Atomic Store Add Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2789,7 +2789,7 @@ def LVX_AsaddwOp : LVX_Op<"asaddw">{
 }
 
 // LSU:ASADDW -- immediate form, from ASADDW_coherency_offset27_registerZ_registerT_double
-def LVX_AsaddwImmOp : LVX_Op<"asaddw_i">{
+def LVX_AsaddwImmOp : LVX_Op<"asaddw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASADDW -- Atomic Store Add Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2806,7 +2806,7 @@ def LVX_AsaddwImmOp : LVX_Op<"asaddw_i">{
 }
 
 // LSU:ASADDD -- register form, from ASADDD_coherency_registerZ_registerT_simple
-def LVX_AsadddOp : LVX_Op<"asaddd">{
+def LVX_AsadddOp : LVX_Op<"asaddd", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASADDD -- Atomic Store Add Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2822,7 +2822,7 @@ def LVX_AsadddOp : LVX_Op<"asaddd">{
 }
 
 // LSU:ASADDD -- immediate form, from ASADDD_coherency_offset27_registerZ_registerT_double
-def LVX_AsadddImmOp : LVX_Op<"asaddd_i">{
+def LVX_AsadddImmOp : LVX_Op<"asaddd_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASADDD -- Atomic Store Add Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2839,7 +2839,7 @@ def LVX_AsadddImmOp : LVX_Op<"asaddd_i">{
 }
 
 // LSU:ASANDB -- register form, from ASANDB_coherency_registerZ_registerT_simple
-def LVX_AsandbOp : LVX_Op<"asandb">{
+def LVX_AsandbOp : LVX_Op<"asandb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASANDB -- Atomic Store AND Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2855,7 +2855,7 @@ def LVX_AsandbOp : LVX_Op<"asandb">{
 }
 
 // LSU:ASANDB -- immediate form, from ASANDB_coherency_offset27_registerZ_registerT_double
-def LVX_AsandbImmOp : LVX_Op<"asandb_i">{
+def LVX_AsandbImmOp : LVX_Op<"asandb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASANDB -- Atomic Store AND Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2872,7 +2872,7 @@ def LVX_AsandbImmOp : LVX_Op<"asandb_i">{
 }
 
 // LSU:ASANDH -- register form, from ASANDH_coherency_registerZ_registerT_simple
-def LVX_AsandhOp : LVX_Op<"asandh">{
+def LVX_AsandhOp : LVX_Op<"asandh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASANDH -- Atomic Store AND Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2888,7 +2888,7 @@ def LVX_AsandhOp : LVX_Op<"asandh">{
 }
 
 // LSU:ASANDH -- immediate form, from ASANDH_coherency_offset27_registerZ_registerT_double
-def LVX_AsandhImmOp : LVX_Op<"asandh_i">{
+def LVX_AsandhImmOp : LVX_Op<"asandh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASANDH -- Atomic Store AND Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2905,7 +2905,7 @@ def LVX_AsandhImmOp : LVX_Op<"asandh_i">{
 }
 
 // LSU:ASANDW -- register form, from ASANDW_coherency_registerZ_registerT_simple
-def LVX_AsandwOp : LVX_Op<"asandw">{
+def LVX_AsandwOp : LVX_Op<"asandw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASANDW -- Atomic Store AND Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2921,7 +2921,7 @@ def LVX_AsandwOp : LVX_Op<"asandw">{
 }
 
 // LSU:ASANDW -- immediate form, from ASANDW_coherency_offset27_registerZ_registerT_double
-def LVX_AsandwImmOp : LVX_Op<"asandw_i">{
+def LVX_AsandwImmOp : LVX_Op<"asandw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASANDW -- Atomic Store AND Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2938,7 +2938,7 @@ def LVX_AsandwImmOp : LVX_Op<"asandw_i">{
 }
 
 // LSU:ASANDD -- register form, from ASANDD_coherency_registerZ_registerT_simple
-def LVX_AsanddOp : LVX_Op<"asandd">{
+def LVX_AsanddOp : LVX_Op<"asandd", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASANDD -- Atomic Store AND Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2954,7 +2954,7 @@ def LVX_AsanddOp : LVX_Op<"asandd">{
 }
 
 // LSU:ASANDD -- immediate form, from ASANDD_coherency_offset27_registerZ_registerT_double
-def LVX_AsanddImmOp : LVX_Op<"asandd_i">{
+def LVX_AsanddImmOp : LVX_Op<"asandd_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASANDD -- Atomic Store AND Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2971,7 +2971,7 @@ def LVX_AsanddImmOp : LVX_Op<"asandd_i">{
 }
 
 // LSU:ASIORB -- register form, from ASIORB_coherency_registerZ_registerT_simple
-def LVX_AsiorbOp : LVX_Op<"asiorb">{
+def LVX_AsiorbOp : LVX_Op<"asiorb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASIORB -- Atomic Store IOR Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -2987,7 +2987,7 @@ def LVX_AsiorbOp : LVX_Op<"asiorb">{
 }
 
 // LSU:ASIORB -- immediate form, from ASIORB_coherency_offset27_registerZ_registerT_double
-def LVX_AsiorbImmOp : LVX_Op<"asiorb_i">{
+def LVX_AsiorbImmOp : LVX_Op<"asiorb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASIORB -- Atomic Store IOR Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3004,7 +3004,7 @@ def LVX_AsiorbImmOp : LVX_Op<"asiorb_i">{
 }
 
 // LSU:ASIORH -- register form, from ASIORH_coherency_registerZ_registerT_simple
-def LVX_AsiorhOp : LVX_Op<"asiorh">{
+def LVX_AsiorhOp : LVX_Op<"asiorh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASIORH -- Atomic Store IOR Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3020,7 +3020,7 @@ def LVX_AsiorhOp : LVX_Op<"asiorh">{
 }
 
 // LSU:ASIORH -- immediate form, from ASIORH_coherency_offset27_registerZ_registerT_double
-def LVX_AsiorhImmOp : LVX_Op<"asiorh_i">{
+def LVX_AsiorhImmOp : LVX_Op<"asiorh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASIORH -- Atomic Store IOR Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3037,7 +3037,7 @@ def LVX_AsiorhImmOp : LVX_Op<"asiorh_i">{
 }
 
 // LSU:ASIORW -- register form, from ASIORW_coherency_registerZ_registerT_simple
-def LVX_AsiorwOp : LVX_Op<"asiorw">{
+def LVX_AsiorwOp : LVX_Op<"asiorw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASIORW -- Atomic Store IOR Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3053,7 +3053,7 @@ def LVX_AsiorwOp : LVX_Op<"asiorw">{
 }
 
 // LSU:ASIORW -- immediate form, from ASIORW_coherency_offset27_registerZ_registerT_double
-def LVX_AsiorwImmOp : LVX_Op<"asiorw_i">{
+def LVX_AsiorwImmOp : LVX_Op<"asiorw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASIORW -- Atomic Store IOR Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3070,7 +3070,7 @@ def LVX_AsiorwImmOp : LVX_Op<"asiorw_i">{
 }
 
 // LSU:ASIORD -- register form, from ASIORD_coherency_registerZ_registerT_simple
-def LVX_AsiordOp : LVX_Op<"asiord">{
+def LVX_AsiordOp : LVX_Op<"asiord", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASIORD -- Atomic Store IOR Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3086,7 +3086,7 @@ def LVX_AsiordOp : LVX_Op<"asiord">{
 }
 
 // LSU:ASIORD -- immediate form, from ASIORD_coherency_offset27_registerZ_registerT_double
-def LVX_AsiordImmOp : LVX_Op<"asiord_i">{
+def LVX_AsiordImmOp : LVX_Op<"asiord_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASIORD -- Atomic Store IOR Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3103,7 +3103,7 @@ def LVX_AsiordImmOp : LVX_Op<"asiord_i">{
 }
 
 // LSU:ASEORB -- register form, from ASEORB_coherency_registerZ_registerT_simple
-def LVX_AseorbOp : LVX_Op<"aseorb">{
+def LVX_AseorbOp : LVX_Op<"aseorb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASEORB -- Atomic Store EOR Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3119,7 +3119,7 @@ def LVX_AseorbOp : LVX_Op<"aseorb">{
 }
 
 // LSU:ASEORB -- immediate form, from ASEORB_coherency_offset27_registerZ_registerT_double
-def LVX_AseorbImmOp : LVX_Op<"aseorb_i">{
+def LVX_AseorbImmOp : LVX_Op<"aseorb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASEORB -- Atomic Store EOR Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3136,7 +3136,7 @@ def LVX_AseorbImmOp : LVX_Op<"aseorb_i">{
 }
 
 // LSU:ASEORH -- register form, from ASEORH_coherency_registerZ_registerT_simple
-def LVX_AseorhOp : LVX_Op<"aseorh">{
+def LVX_AseorhOp : LVX_Op<"aseorh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASEORH -- Atomic Store EOR Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3152,7 +3152,7 @@ def LVX_AseorhOp : LVX_Op<"aseorh">{
 }
 
 // LSU:ASEORH -- immediate form, from ASEORH_coherency_offset27_registerZ_registerT_double
-def LVX_AseorhImmOp : LVX_Op<"aseorh_i">{
+def LVX_AseorhImmOp : LVX_Op<"aseorh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASEORH -- Atomic Store EOR Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3169,7 +3169,7 @@ def LVX_AseorhImmOp : LVX_Op<"aseorh_i">{
 }
 
 // LSU:ASEORW -- register form, from ASEORW_coherency_registerZ_registerT_simple
-def LVX_AseorwOp : LVX_Op<"aseorw">{
+def LVX_AseorwOp : LVX_Op<"aseorw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASEORW -- Atomic Store EOR Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3185,7 +3185,7 @@ def LVX_AseorwOp : LVX_Op<"aseorw">{
 }
 
 // LSU:ASEORW -- immediate form, from ASEORW_coherency_offset27_registerZ_registerT_double
-def LVX_AseorwImmOp : LVX_Op<"aseorw_i">{
+def LVX_AseorwImmOp : LVX_Op<"aseorw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASEORW -- Atomic Store EOR Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3202,7 +3202,7 @@ def LVX_AseorwImmOp : LVX_Op<"aseorw_i">{
 }
 
 // LSU:ASEORD -- register form, from ASEORD_coherency_registerZ_registerT_simple
-def LVX_AseordOp : LVX_Op<"aseord">{
+def LVX_AseordOp : LVX_Op<"aseord", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASEORD -- Atomic Store EOR Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3218,7 +3218,7 @@ def LVX_AseordOp : LVX_Op<"aseord">{
 }
 
 // LSU:ASEORD -- immediate form, from ASEORD_coherency_offset27_registerZ_registerT_double
-def LVX_AseordImmOp : LVX_Op<"aseord_i">{
+def LVX_AseordImmOp : LVX_Op<"aseord_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASEORD -- Atomic Store EOR Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3235,7 +3235,7 @@ def LVX_AseordImmOp : LVX_Op<"aseord_i">{
 }
 
 // LSU:ASMINB -- register form, from ASMINB_coherency_registerZ_registerT_simple
-def LVX_AsminbOp : LVX_Op<"asminb">{
+def LVX_AsminbOp : LVX_Op<"asminb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMINB -- Atomic Store MIN Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3251,7 +3251,7 @@ def LVX_AsminbOp : LVX_Op<"asminb">{
 }
 
 // LSU:ASMINB -- immediate form, from ASMINB_coherency_offset27_registerZ_registerT_double
-def LVX_AsminbImmOp : LVX_Op<"asminb_i">{
+def LVX_AsminbImmOp : LVX_Op<"asminb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMINB -- Atomic Store MIN Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3268,7 +3268,7 @@ def LVX_AsminbImmOp : LVX_Op<"asminb_i">{
 }
 
 // LSU:ASMINH -- register form, from ASMINH_coherency_registerZ_registerT_simple
-def LVX_AsminhOp : LVX_Op<"asminh">{
+def LVX_AsminhOp : LVX_Op<"asminh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMINH -- Atomic Store MIN Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3284,7 +3284,7 @@ def LVX_AsminhOp : LVX_Op<"asminh">{
 }
 
 // LSU:ASMINH -- immediate form, from ASMINH_coherency_offset27_registerZ_registerT_double
-def LVX_AsminhImmOp : LVX_Op<"asminh_i">{
+def LVX_AsminhImmOp : LVX_Op<"asminh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMINH -- Atomic Store MIN Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3301,7 +3301,7 @@ def LVX_AsminhImmOp : LVX_Op<"asminh_i">{
 }
 
 // LSU:ASMINW -- register form, from ASMINW_coherency_registerZ_registerT_simple
-def LVX_AsminwOp : LVX_Op<"asminw">{
+def LVX_AsminwOp : LVX_Op<"asminw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMINW -- Atomic Store MIN Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3317,7 +3317,7 @@ def LVX_AsminwOp : LVX_Op<"asminw">{
 }
 
 // LSU:ASMINW -- immediate form, from ASMINW_coherency_offset27_registerZ_registerT_double
-def LVX_AsminwImmOp : LVX_Op<"asminw_i">{
+def LVX_AsminwImmOp : LVX_Op<"asminw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMINW -- Atomic Store MIN Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3334,7 +3334,7 @@ def LVX_AsminwImmOp : LVX_Op<"asminw_i">{
 }
 
 // LSU:ASMIND -- register form, from ASMIND_coherency_registerZ_registerT_simple
-def LVX_AsmindOp : LVX_Op<"asmind">{
+def LVX_AsmindOp : LVX_Op<"asmind", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMIND -- Atomic Store MIN Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3350,7 +3350,7 @@ def LVX_AsmindOp : LVX_Op<"asmind">{
 }
 
 // LSU:ASMIND -- immediate form, from ASMIND_coherency_offset27_registerZ_registerT_double
-def LVX_AsmindImmOp : LVX_Op<"asmind_i">{
+def LVX_AsmindImmOp : LVX_Op<"asmind_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMIND -- Atomic Store MIN Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3367,7 +3367,7 @@ def LVX_AsmindImmOp : LVX_Op<"asmind_i">{
 }
 
 // LSU:ASMAXB -- register form, from ASMAXB_coherency_registerZ_registerT_simple
-def LVX_AsmaxbOp : LVX_Op<"asmaxb">{
+def LVX_AsmaxbOp : LVX_Op<"asmaxb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXB -- Atomic Store MAX Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3383,7 +3383,7 @@ def LVX_AsmaxbOp : LVX_Op<"asmaxb">{
 }
 
 // LSU:ASMAXB -- immediate form, from ASMAXB_coherency_offset27_registerZ_registerT_double
-def LVX_AsmaxbImmOp : LVX_Op<"asmaxb_i">{
+def LVX_AsmaxbImmOp : LVX_Op<"asmaxb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXB -- Atomic Store MAX Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3400,7 +3400,7 @@ def LVX_AsmaxbImmOp : LVX_Op<"asmaxb_i">{
 }
 
 // LSU:ASMAXH -- register form, from ASMAXH_coherency_registerZ_registerT_simple
-def LVX_AsmaxhOp : LVX_Op<"asmaxh">{
+def LVX_AsmaxhOp : LVX_Op<"asmaxh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXH -- Atomic Store MAX Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3416,7 +3416,7 @@ def LVX_AsmaxhOp : LVX_Op<"asmaxh">{
 }
 
 // LSU:ASMAXH -- immediate form, from ASMAXH_coherency_offset27_registerZ_registerT_double
-def LVX_AsmaxhImmOp : LVX_Op<"asmaxh_i">{
+def LVX_AsmaxhImmOp : LVX_Op<"asmaxh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXH -- Atomic Store MAX Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3433,7 +3433,7 @@ def LVX_AsmaxhImmOp : LVX_Op<"asmaxh_i">{
 }
 
 // LSU:ASMAXW -- register form, from ASMAXW_coherency_registerZ_registerT_simple
-def LVX_AsmaxwOp : LVX_Op<"asmaxw">{
+def LVX_AsmaxwOp : LVX_Op<"asmaxw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXW -- Atomic Store MAX Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3449,7 +3449,7 @@ def LVX_AsmaxwOp : LVX_Op<"asmaxw">{
 }
 
 // LSU:ASMAXW -- immediate form, from ASMAXW_coherency_offset27_registerZ_registerT_double
-def LVX_AsmaxwImmOp : LVX_Op<"asmaxw_i">{
+def LVX_AsmaxwImmOp : LVX_Op<"asmaxw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXW -- Atomic Store MAX Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3466,7 +3466,7 @@ def LVX_AsmaxwImmOp : LVX_Op<"asmaxw_i">{
 }
 
 // LSU:ASMAXD -- register form, from ASMAXD_coherency_registerZ_registerT_simple
-def LVX_AsmaxdOp : LVX_Op<"asmaxd">{
+def LVX_AsmaxdOp : LVX_Op<"asmaxd", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXD -- Atomic Store MAX Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3482,7 +3482,7 @@ def LVX_AsmaxdOp : LVX_Op<"asmaxd">{
 }
 
 // LSU:ASMAXD -- immediate form, from ASMAXD_coherency_offset27_registerZ_registerT_double
-def LVX_AsmaxdImmOp : LVX_Op<"asmaxd_i">{
+def LVX_AsmaxdImmOp : LVX_Op<"asmaxd_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXD -- Atomic Store MAX Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3499,7 +3499,7 @@ def LVX_AsmaxdImmOp : LVX_Op<"asmaxd_i">{
 }
 
 // LSU:ASMINUB -- register form, from ASMINUB_coherency_registerZ_registerT_simple
-def LVX_AsminubOp : LVX_Op<"asminub">{
+def LVX_AsminubOp : LVX_Op<"asminub", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMINUB -- Atomic Store MIN Unsigned Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3515,7 +3515,7 @@ def LVX_AsminubOp : LVX_Op<"asminub">{
 }
 
 // LSU:ASMINUB -- immediate form, from ASMINUB_coherency_offset27_registerZ_registerT_double
-def LVX_AsminubImmOp : LVX_Op<"asminub_i">{
+def LVX_AsminubImmOp : LVX_Op<"asminub_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMINUB -- Atomic Store MIN Unsigned Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3532,7 +3532,7 @@ def LVX_AsminubImmOp : LVX_Op<"asminub_i">{
 }
 
 // LSU:ASMINUH -- register form, from ASMINUH_coherency_registerZ_registerT_simple
-def LVX_AsminuhOp : LVX_Op<"asminuh">{
+def LVX_AsminuhOp : LVX_Op<"asminuh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMINUH -- Atomic Store MIN Unsigned Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3548,7 +3548,7 @@ def LVX_AsminuhOp : LVX_Op<"asminuh">{
 }
 
 // LSU:ASMINUH -- immediate form, from ASMINUH_coherency_offset27_registerZ_registerT_double
-def LVX_AsminuhImmOp : LVX_Op<"asminuh_i">{
+def LVX_AsminuhImmOp : LVX_Op<"asminuh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMINUH -- Atomic Store MIN Unsigned Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3565,7 +3565,7 @@ def LVX_AsminuhImmOp : LVX_Op<"asminuh_i">{
 }
 
 // LSU:ASMINUW -- register form, from ASMINUW_coherency_registerZ_registerT_simple
-def LVX_AsminuwOp : LVX_Op<"asminuw">{
+def LVX_AsminuwOp : LVX_Op<"asminuw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMINUW -- Atomic Store MIN Unsigned Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3581,7 +3581,7 @@ def LVX_AsminuwOp : LVX_Op<"asminuw">{
 }
 
 // LSU:ASMINUW -- immediate form, from ASMINUW_coherency_offset27_registerZ_registerT_double
-def LVX_AsminuwImmOp : LVX_Op<"asminuw_i">{
+def LVX_AsminuwImmOp : LVX_Op<"asminuw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMINUW -- Atomic Store MIN Unsigned Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3598,7 +3598,7 @@ def LVX_AsminuwImmOp : LVX_Op<"asminuw_i">{
 }
 
 // LSU:ASMINUD -- register form, from ASMINUD_coherency_registerZ_registerT_simple
-def LVX_AsminudOp : LVX_Op<"asminud">{
+def LVX_AsminudOp : LVX_Op<"asminud", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMINUD -- Atomic Store MIN Unsigned Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3614,7 +3614,7 @@ def LVX_AsminudOp : LVX_Op<"asminud">{
 }
 
 // LSU:ASMINUD -- immediate form, from ASMINUD_coherency_offset27_registerZ_registerT_double
-def LVX_AsminudImmOp : LVX_Op<"asminud_i">{
+def LVX_AsminudImmOp : LVX_Op<"asminud_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMINUD -- Atomic Store MIN Unsigned Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3631,7 +3631,7 @@ def LVX_AsminudImmOp : LVX_Op<"asminud_i">{
 }
 
 // LSU:ASMAXUB -- register form, from ASMAXUB_coherency_registerZ_registerT_simple
-def LVX_AsmaxubOp : LVX_Op<"asmaxub">{
+def LVX_AsmaxubOp : LVX_Op<"asmaxub", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXUB -- Atomic Store MAX Unsigned Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3647,7 +3647,7 @@ def LVX_AsmaxubOp : LVX_Op<"asmaxub">{
 }
 
 // LSU:ASMAXUB -- immediate form, from ASMAXUB_coherency_offset27_registerZ_registerT_double
-def LVX_AsmaxubImmOp : LVX_Op<"asmaxub_i">{
+def LVX_AsmaxubImmOp : LVX_Op<"asmaxub_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXUB -- Atomic Store MAX Unsigned Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3664,7 +3664,7 @@ def LVX_AsmaxubImmOp : LVX_Op<"asmaxub_i">{
 }
 
 // LSU:ASMAXUH -- register form, from ASMAXUH_coherency_registerZ_registerT_simple
-def LVX_AsmaxuhOp : LVX_Op<"asmaxuh">{
+def LVX_AsmaxuhOp : LVX_Op<"asmaxuh", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXUH -- Atomic Store MAX Unsigned Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3680,7 +3680,7 @@ def LVX_AsmaxuhOp : LVX_Op<"asmaxuh">{
 }
 
 // LSU:ASMAXUH -- immediate form, from ASMAXUH_coherency_offset27_registerZ_registerT_double
-def LVX_AsmaxuhImmOp : LVX_Op<"asmaxuh_i">{
+def LVX_AsmaxuhImmOp : LVX_Op<"asmaxuh_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXUH -- Atomic Store MAX Unsigned Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3697,7 +3697,7 @@ def LVX_AsmaxuhImmOp : LVX_Op<"asmaxuh_i">{
 }
 
 // LSU:ASMAXUW -- register form, from ASMAXUW_coherency_registerZ_registerT_simple
-def LVX_AsmaxuwOp : LVX_Op<"asmaxuw">{
+def LVX_AsmaxuwOp : LVX_Op<"asmaxuw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXUW -- Atomic Store MAX Unsigned Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3713,7 +3713,7 @@ def LVX_AsmaxuwOp : LVX_Op<"asmaxuw">{
 }
 
 // LSU:ASMAXUW -- immediate form, from ASMAXUW_coherency_offset27_registerZ_registerT_double
-def LVX_AsmaxuwImmOp : LVX_Op<"asmaxuw_i">{
+def LVX_AsmaxuwImmOp : LVX_Op<"asmaxuw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXUW -- Atomic Store MAX Unsigned Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3730,7 +3730,7 @@ def LVX_AsmaxuwImmOp : LVX_Op<"asmaxuw_i">{
 }
 
 // LSU:ASMAXUD -- register form, from ASMAXUD_coherency_registerZ_registerT_simple
-def LVX_AsmaxudOp : LVX_Op<"asmaxud">{
+def LVX_AsmaxudOp : LVX_Op<"asmaxud", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXUD -- Atomic Store MAX Unsigned Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3746,7 +3746,7 @@ def LVX_AsmaxudOp : LVX_Op<"asmaxud">{
 }
 
 // LSU:ASMAXUD -- immediate form, from ASMAXUD_coherency_offset27_registerZ_registerT_double
-def LVX_AsmaxudImmOp : LVX_Op<"asmaxud_i">{
+def LVX_AsmaxudImmOp : LVX_Op<"asmaxud_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASMAXUD -- Atomic Store MAX Unsigned Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3763,7 +3763,7 @@ def LVX_AsmaxudImmOp : LVX_Op<"asmaxud_i">{
 }
 
 // LSU:ASDUSB -- register form, from ASDUSB_coherency_registerZ_registerT_simple
-def LVX_AsdusbOp : LVX_Op<"asdusb">{
+def LVX_AsdusbOp : LVX_Op<"asdusb", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASDUSB -- Atomic Store Decrement Unsigned Saturating Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3779,7 +3779,7 @@ def LVX_AsdusbOp : LVX_Op<"asdusb">{
 }
 
 // LSU:ASDUSB -- immediate form, from ASDUSB_coherency_offset27_registerZ_registerT_double
-def LVX_AsdusbImmOp : LVX_Op<"asdusb_i">{
+def LVX_AsdusbImmOp : LVX_Op<"asdusb_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASDUSB -- Atomic Store Decrement Unsigned Saturating Byte";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3796,7 +3796,7 @@ def LVX_AsdusbImmOp : LVX_Op<"asdusb_i">{
 }
 
 // LSU:ASDUSH -- register form, from ASDUSH_coherency_registerZ_registerT_simple
-def LVX_AsdushOp : LVX_Op<"asdush">{
+def LVX_AsdushOp : LVX_Op<"asdush", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASDUSH -- Atomic Store DUS Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3812,7 +3812,7 @@ def LVX_AsdushOp : LVX_Op<"asdush">{
 }
 
 // LSU:ASDUSH -- immediate form, from ASDUSH_coherency_offset27_registerZ_registerT_double
-def LVX_AsdushImmOp : LVX_Op<"asdush_i">{
+def LVX_AsdushImmOp : LVX_Op<"asdush_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASDUSH -- Atomic Store DUS Half Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3829,7 +3829,7 @@ def LVX_AsdushImmOp : LVX_Op<"asdush_i">{
 }
 
 // LSU:ASDUSW -- register form, from ASDUSW_coherency_registerZ_registerT_simple
-def LVX_AsduswOp : LVX_Op<"asdusw">{
+def LVX_AsduswOp : LVX_Op<"asdusw", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASDUSW -- Atomic Store DUS Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3845,7 +3845,7 @@ def LVX_AsduswOp : LVX_Op<"asdusw">{
 }
 
 // LSU:ASDUSW -- immediate form, from ASDUSW_coherency_offset27_registerZ_registerT_double
-def LVX_AsduswImmOp : LVX_Op<"asdusw_i">{
+def LVX_AsduswImmOp : LVX_Op<"asdusw_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASDUSW -- Atomic Store DUS Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3862,7 +3862,7 @@ def LVX_AsduswImmOp : LVX_Op<"asdusw_i">{
 }
 
 // LSU:ASDUSD -- register form, from ASDUSD_coherency_registerZ_registerT_simple
-def LVX_AsdusdOp : LVX_Op<"asdusd">{
+def LVX_AsdusdOp : LVX_Op<"asdusd", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASDUSD -- Atomic Store DUS Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,
@@ -3878,7 +3878,7 @@ def LVX_AsdusdOp : LVX_Op<"asdusd">{
 }
 
 // LSU:ASDUSD -- immediate form, from ASDUSD_coherency_offset27_registerZ_registerT_double
-def LVX_AsdusdImmOp : LVX_Op<"asdusd_i">{
+def LVX_AsdusdImmOp : LVX_Op<"asdusd_i", [MemoryEffects<[MemRead, MemWrite]>]>{
   let summary = "ASDUSD -- Atomic Store DUS Double Word";
   let arguments = (ins UnitAttr:$g,
                        LVX_RegType:$value,

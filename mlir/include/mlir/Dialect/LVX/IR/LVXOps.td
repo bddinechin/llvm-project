@@ -332,6 +332,37 @@ class LVX_FloatUnaryModeOp<string mnemonic> :
 //===----------------------------------------------------------------------===//
 
 
+def LVX_RegLiveOutOp : LVX_Op<"reg_live_out"> {
+  let summary = "require a physical register to hold this value on exit (pseudo)";
+  let description = [{
+    The counterpart of `lvx.reg_live_in`, and like it emits no assembly at
+    all: it only states that the register its operand is pinned to must hold
+    that value when the function returns.
+
+    Inserted by the register allocator's epilogue (Step 3) after each
+    callee-saved restore. That restore is an ordinary `lvx.ld` whose result
+    is typed with the pinned register -- the load *is* `ld $r14 = 8[$r12]`,
+    and nothing in the IR consumes its result, because what it produces is a
+    physical register's contents rather than an SSA value anyone reads.
+
+    Nothing consuming it was survivable while `lvx.ld` declared no memory
+    effects, since MLIR then treats it as having unknown ones and will not
+    remove it. Once `lvx.ld` says `MemoryEffects<[MemRead]>` -- which it does
+    now, from the description's `analysis` -- an unused read is *trivially
+    dead* by MLIR's own rule, and `-canonicalize` on allocated IR deletes the
+    restore outright. That was checked, not supposed: two `lvx.ld`s in, one
+    out, and the one that went was `@caller`'s r14 restore -- an ABI
+    violation against any lvx-gcc caller, arrived at silently.
+
+    So this op exists to say the thing the type system cannot: the value is
+    live out. It is deliberately not `Pure`, and its operand must be pinned,
+    since "some register is live out" means nothing.
+  }];
+  let arguments = (ins LVX_RegType:$value);
+  let assemblyFormat = "$value attr-dict `:` qualified(type($value))";
+  let hasVerifier = 1;
+}
+
 //===----------------------------------------------------------------------===//
 // Memory ops are generated: see LVXInstrOps.td. `lvx.ld`/`lvx.sd` and the
 // narrower widths keep the shapes the hand-written ops had -- ($base,

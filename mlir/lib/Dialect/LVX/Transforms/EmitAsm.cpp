@@ -380,6 +380,9 @@ private:
         // Like SpOp: only names an already-live physical register so an
         // ordinary lvx.sd can store it. No instruction of its own.
         .Case([&](RegLiveInOp) { return success(); })
+        // Likewise: only states that a register is live out. See its
+        // description for why the restore before it needs saying so.
+        .Case([&](RegLiveOutOp) { return success(); })
         .Case([&](LiOp li) {
           FailureOr<std::string> rd = reg(li.getResult());
           if (failed(rd))

@@ -117,8 +117,13 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // be preserved. The frame is therefore 16 bytes, not 8 -- slot 0 for $ra,
 // slot 8 for r14 -- and the prologue names the incoming register with
 // `lvx.reg_live_in` (which emits nothing) so an ordinary `lvx.sd` can
-// store it. The restore needs no such pseudo: an `lvx.ld` whose *result*
-// is typed !lvx.reg<r14> already is `ld $r14 = 8[$r12]`. Until this was added,
+// store it. The restore is that same `lvx.ld` -- whose *result* typed
+// !lvx.reg<r14> already is `ld $r14 = 8[$r12]` -- followed by
+// `lvx.reg_live_out`, which also emits nothing and says only that r14 must
+// hold that value on exit. That one is load-bearing: nothing consumes the
+// load's result, and `lvx.ld` declares MemoryEffects<[MemRead]>, so without
+// it `-canonicalize` deletes the restore as a trivially dead read. Until
+// the save/restore pair was added at all,
 // `@caller` clobbered its caller's r14 outright -- an ABI violation
 // against any lvx-gcc-compiled caller.
 // CHECK-LABEL: lvx_func.func @caller
@@ -135,6 +140,7 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: %8 = lvx.addd %6, %7 : (!lvx.reg<r14>, !lvx.reg<r0>) -> !lvx.reg<r1>
 // CHECK-NEXT: %9 = lvx.mv %8 : (!lvx.reg<r1>) -> !lvx.reg<r0>
 // CHECK-NEXT: %10 = lvx.ld %2, 8 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r14>
+// CHECK-NEXT: lvx.reg_live_out %10 : !lvx.reg<r14>
 // CHECK-NEXT: %11 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
 // CHECK-NEXT: %12 = lvx.set %11 : (!lvx.reg<r61>) -> !lvx.reg<ra>
 // CHECK-NEXT: %13 = lvx.li 16 : i64 : !lvx.reg<r61>
