@@ -20,24 +20,6 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/BuiltinAttributeInterfaces.td"
 
-// Format-extension suffix (O1). The bare format has NO member: absence
-// means it, definitely, and never "not yet decided" -- O2. The assembler
-// picks the encoding from the value, so this exists to account for size
-// (bare/.x/.y are 1/2/3 syllables against a 3-syllable bundle), not to
-// instruct the assembler.
-def LVX_FormatAttr : I64EnumAttr<
-    "Format", "LVX format-extension suffix",
-    [
-      I64EnumAttrCase<"d",  0, "d"  >,  // 93 formats
-      I64EnumAttrCase<"m",  1, "m"  >,  // 57 formats
-      I64EnumAttrCase<"o",  2, "o"  >,  // 93 formats
-      I64EnumAttrCase<"w",  3, "w"  >,  // 43 formats
-      I64EnumAttrCase<"x",  4, "x"  >,  // 44 formats
-      I64EnumAttrCase<"y",  5, "y"  >,  // 40 formats
-    ]> {
-  let cppNamespace = "::mlir::lvx";
-}
-
 // BCU:AWAIT -- register form, from AWAIT_simple
 def LVX_AwaitOp : LVX_Op<"await">{
   let summary = "AWAIT -- Wait for any event or interrupt.";

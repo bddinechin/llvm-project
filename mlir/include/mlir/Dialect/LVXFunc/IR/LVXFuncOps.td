@@ -59,10 +59,13 @@ def LVXFunc_CallOp : LVXFunc_Op<"call",
     [CallOpInterface,
      DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "direct function call, ABI-constrained per Convention.table";
+  // The widened encoding, `callx`: see lvx_cf.br's `format`, which records
+  // why the wide form is an attribute rather than a second op (O3).
   let arguments = (ins FlatSymbolRefAttr:$callee,
                        Variadic<LVX_RegType>:$operands,
                        OptionalAttr<DictArrayAttr>:$arg_attrs,
-                       OptionalAttr<DictArrayAttr>:$res_attrs);
+                       OptionalAttr<DictArrayAttr>:$res_attrs,
+                       OptionalAttr<LVX_FormatAttr>:$format);
   let results = (outs Variadic<LVX_RegType>);
   let builders = [
     OpBuilder<(ins "FuncOp":$callee,
@@ -92,7 +95,7 @@ def LVXFunc_CallOp : LVXFunc_Op<"call",
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    $callee `(` $operands `)` attr-dict `:` functional-type($operands, results)
+    $callee `(` $operands `)` ($format^)? attr-dict `:` functional-type($operands, results)
   }];
 }
 

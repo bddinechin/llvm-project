@@ -101,6 +101,23 @@ private:
     return success();
   }
 
+  /// The widened-branch suffix: `x` on a control op means the wide encoding,
+  /// whose mnemonic is the near one with an `x` appended -- `cb`/`cbx`,
+  /// `ccb`/`ccbx`, `goto`/`gotox`, `call`/`callx`.
+  ///
+  /// This is the one place a `format` attribute reaches the printed mnemonic.
+  /// On an arithmetic op it does not: all four `addd` encodings share one
+  /// mnemonic and the assembler picks from the immediate's magnitude (O2).
+  /// Branches are not relaxed -- `cb` to a far target is "branch out of
+  /// range" from the real assembler -- so here the attribute decides what is
+  /// printed. If the assembler grows automatic selection this rule is what
+  /// goes away, and nothing else has to change.
+  static std::string widened(StringRef mnemonic, std::optional<Format> format) {
+    if (format == Format::x)
+      return (mnemonic + "x").str();
+    return mnemonic.str();
+  }
+
   /// Prints `goto <label(dest)>` as its own bundle, *unless* `dest` is the
   /// block immediately following the current one in emission order, in
   /// which case nothing is printed at all (real assembly just falls
@@ -112,9 +129,11 @@ private:
   /// iteration. That made correctness depend on block layout order and on
   /// this function's behaviour. `lvx_cf.loopend` now carries that edge and
   /// emits a comment of its own, so nothing here is load-bearing.
-  void printGoto(Block *dest, Block *nextBlock) {
+  void printGoto(Block *dest, Block *nextBlock,
+                 std::optional<Format> format = std::nullopt) {
     if (dest != nextBlock)
-      os << "\tgoto " << label(dest) << "\n\t;;\n";
+      os << "\t" << widened("goto", format) << " " << label(dest)
+         << "\n\t;;\n";
   }
 
   //===--------------------------------------------------------------------===//
@@ -467,7 +486,8 @@ private:
         // ABI's argument/result registers by `-convert-to-lvx`'s
         // `CallToLVX`, so nothing but the callee symbol needs printing.
         .Case([&](lvx_func::CallOp op) {
-          os << "\tcall " << op.getCallee() << "\n\t;;\n";
+          os << "\t" << widened("call", op.getFormat()) << " "
+             << op.getCallee() << "\n\t;;\n";
           return success();
         })
         // Everything else with plain (unattributed) register
@@ -514,7 +534,7 @@ private:
     if (auto br = dyn_cast<lvx_cf::BranchOp>(op)) {
       if (failed(checkBranchOperands(op, br.getDest(), br.getDestOperands())))
         return failure();
-      printGoto(br.getDest(), nextBlock);
+      printGoto(br.getDest(), nextBlock, br.getFormat());
       return success();
     }
     if (auto cbr = dyn_cast<lvx_cf::CondBranchOp>(op)) {
@@ -526,8 +546,11 @@ private:
         return failure();
       // Real hardware branches on the condition being true; the false
       // edge just falls through to whatever comes textually next.
-      os << "\tcb" << dotted(stringifyBcuCond(cbr.getCondition())) << " "
+      os << "\t" << widened("cb", cbr.getFormat())
+         << dotted(stringifyBcuCond(cbr.getCondition())) << " "
          << *rt << "? " << label(cbr.getTrueDest()) << "\n\t;;\n";
+      // The fall-through edge is a goto with no op of its own, so there is
+      // no attribute to widen it with -- see LVXCF_CondBranchOp's `format`.
       printGoto(cbr.getFalseDest(), nextBlock);
       return success();
     }

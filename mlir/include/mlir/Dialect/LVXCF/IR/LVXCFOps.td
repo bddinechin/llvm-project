@@ -21,7 +21,29 @@ def LVXCF_BranchOp : LVXCF_Op<"br",
     [DeclareOpInterfaceMethods<BranchOpInterface, ["getSuccessorForOperands"]>,
      Pure, Terminator]> {
   let summary = "GOTO -- unconditional direct jump";
-  let arguments = (ins Variadic<LVX_RegType>:$destOperands);
+  // The widened encoding, per design document O3. `cb`/`cbx`, `ccb`/`ccbx`,
+  // `goto`/`gotox` and `call`/`callx` are the same operation with a wider
+  // pc-relative displacement -- their FORMATS are `BCU_CB` and `BCU_CB.X`,
+  // exactly the relationship `ALU_DWRI` and `ALU_DWRI.X` have for `addd` --
+  // so the widened form is `format = x` on this op, not a second op.
+  //
+  // MDS gives them two `instruction=` records, which is what O3 originally
+  // read as "widening is a change of mnemonic". It is bookkeeping: the
+  // partition key is a choice, and D1 already excludes modifiers from it and
+  // O5 the RegClass. One op with an attribute needs no cb/cbx pairing table
+  // and no op-replacement pass, and it is the only model that stays correct
+  // when the assembler grows automatic selection -- at which point the
+  // attribute stops being load-bearing and reverts to what O2 says it is for
+  // the ALU family, an input to bundle packing.
+  //
+  // It does NOT relax today: `cb` to a target 600 KB away is "Error: branch
+  // out of range" from the real lvx-mbr-as, while `cbx` assembles. So
+  // something must set this before a far branch can be emitted at all -- a
+  // relaxation pass, which does not exist yet. Absent means the near form,
+  // and the ranges are tight enough to matter: `ccb` reaches +/-4 KB, `cb`
+  // +/-256 KB, `goto` and `call` +/-256 MB.
+  let arguments = (ins Variadic<LVX_RegType>:$destOperands,
+                       OptionalAttr<LVX_FormatAttr>:$format);
   let successors = (successor AnySuccessor:$dest);
   let builders = [
     OpBuilder<(ins "Block *":$dest,
@@ -29,8 +51,15 @@ def LVXCF_BranchOp : LVXCF_Op<"br",
       $_state.addSuccessors(dest);
       $_state.addOperands(destOperands);
     }]>];
+  // `$format` is spelled as a keyword rather than left to attr-dict, which
+  // cannot round-trip it: LVX_FormatAttr is a specialized enum attribute and
+  // this dialect registers no attribute parsing hook, so `#lvx<Format x>` is
+  // unparseable. Inside an assembly format the generated parser knows the
+  // enum, which is how `$variant` on `lvx.ld` already works. Prints as
+  // `lvx_cf.br ^bb1 x`.
   let assemblyFormat = [{
-    $dest (`(` $destOperands^ `:` qualified(type($destOperands)) `)`)? attr-dict
+    $dest (`(` $destOperands^ `:` qualified(type($destOperands)) `)`)?
+    ($format^)? attr-dict
   }];
 }
 
@@ -77,24 +106,31 @@ def LVXCF_CondBranchOp : LVXCF_Op<"cond_br",
      DeclareOpInterfaceMethods<BranchOpInterface, ["getSuccessorForOperands"]>,
      Pure, Terminator]> {
   let summary = "CB -- conditional branch, tests $test against $condition (bcucond)";
+  // The widened encoding: see LVXCF_BranchOp's `format`. It applies to the
+  // `cb` this op prints, NOT to the fall-through `goto` that follows it when
+  // the false edge is not the next block -- that goto has no op of its own to
+  // carry an attribute, so it is always the near form.
   let arguments = (ins LVX_RegType:$test,
                        LVX_BcuCondAttr:$condition,
                        Variadic<LVX_RegType>:$trueDestOperands,
-                       Variadic<LVX_RegType>:$falseDestOperands);
+                       Variadic<LVX_RegType>:$falseDestOperands,
+                       OptionalAttr<LVX_FormatAttr>:$format);
   let successors = (successor AnySuccessor:$trueDest,
                               AnySuccessor:$falseDest);
   let builders = [
     OpBuilder<(ins "Value":$test, "::mlir::lvx::BcuCond":$condition,
                    "Block *":$trueDest, "ValueRange":$trueOperands,
                    "Block *":$falseDest, "ValueRange":$falseOperands), [{
+      // The near form: `format` absent. A relaxation pass sets it when a
+      // displacement does not fit -- see the `format` argument above.
       build($_builder, $_state, test, condition, trueOperands, falseOperands,
-            trueDest, falseDest);
+            /*format=*/nullptr, trueDest, falseDest);
     }]>];
   let assemblyFormat = [{
     $condition $test `:` qualified(type($test)) `,`
     $trueDest  (`(` $trueDestOperands^  `:` qualified(type($trueDestOperands))  `)`)? `,`
     $falseDest (`(` $falseDestOperands^ `:` qualified(type($falseDestOperands)) `)`)?
-    attr-dict
+    ($format^)? attr-dict
   }];
 }
 
