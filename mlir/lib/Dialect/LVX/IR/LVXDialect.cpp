@@ -7,6 +7,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LVX/IR/LVX.h"
+// The machine model. Nothing consumes it yet -- a bundler and a software
+// pipeliner are the consumers it is for -- but it is included here, in the
+// dialect's own translation unit, so that it is COMPILED: the table is
+// constexpr and carries a static_assert that no scheduling class reserves
+// more of a resource than a bundle provides, and a generated header nobody
+// includes is a generated header nobody checks.
+#include "mlir/Dialect/LVX/IR/LVXScheduling.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/Transforms/InliningUtils.h"
