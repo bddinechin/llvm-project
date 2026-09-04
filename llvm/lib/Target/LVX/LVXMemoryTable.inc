@@ -59,12 +59,9 @@ LVX_STORE(  16, GPR   , SH_SSBO     , SH_SSBO_X     , SH_SSBO_Y     , SH_SSBI   
 LVX_STORE(  32, GPR   , SW_SSBO     , SW_SSBO_X     , SW_SSBO_Y     , SW_SSBI     )   // sw
 LVX_STORE(  64, GPR   , SD_SSBO     , SD_SSBO_X     , SD_SSBO_Y     , SD_SSBI     )   // sd
 LVX_STORE( 128, GPR128, SQ_SQBO     , SQ_SQBO_X     , SQ_SQBO_Y     , SQ_SQBI     )   // sq
+LVX_STORE( 256, GPR256, SO_SOBO     , SO_SOBO_X     , SO_SOBO_Y     , SO_SOBI     )   // so
 #undef LVX_STORE
 #endif
-
-// NOT COVERED by the rows above:
-//   writes a span whose width is not constant:
-//     so
 
 //===----------------------------------------------------------------------===//
 // The `variant` modifier's values.

@@ -96,7 +96,7 @@ def ALU_LITE_MISC            : InstrItinClass;
 def ALU_FULL                 : InstrItinClass;
 def ALU_FULL_X               : InstrItinClass;
 def ALU_FULL_Y               : InstrItinClass;
-def ALU_FULL2                : InstrItinClass;
+def ALU_LITE2                : InstrItinClass;
 def LSU                      : InstrItinClass;
 def LSU_X                    : InstrItinClass;
 def LSU_Y                    : InstrItinClass;
@@ -308,7 +308,10 @@ class BCU_HLS_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-23}  = 0b00011110;
 }
 
-def LOOPDO_HLS             : BCU_HLS_Inst<"loopdo", []>;
+def LOOPDO_HLS             : BCU_HLS_Inst<"loopdo", []> {
+  let isBranch = 1;
+  let isTerminator = 1;
+}
 
 //===----------------------------------------------------------------------===//
 // BCU_WFX — BCU Half-Word Effects
@@ -388,11 +391,12 @@ def WFXM_WFXHW             : BCU_WFXHW_Inst<"wfxm", []> {
 //===----------------------------------------------------------------------===//
 class BCU_GSR_Inst<string mnemonic, list<dag> pattern,
                    InstrItinClass itin = BCU2_TINY_LSU>
-    : LVXInst32<(outs GPR:$rZ), (ins CR:$systemS2),
+    : LVXInst32<(outs GPR:$rZ), (ins GPR:$rZsrc, CR:$systemS2),
                 !strconcat(mnemonic, " $rZ = $systemS2"),
                 pattern, itin> {
   bits<6>  rZ;
   bits<9>  systemS2;
+  let Constraints = "$rZsrc = $rZ";
   let Inst{5-0}    = rZ;
   let Inst{14-6}   = systemS2;
   let Inst{30-18}  = 0b0001111110001;
@@ -406,11 +410,12 @@ def GET_GSR                : BCU_GSR_Inst<"get", []>;
 //===----------------------------------------------------------------------===//
 class BCU_GSRHW_Inst<string mnemonic, list<dag> pattern,
                      InstrItinClass itin = BCU2_TINY_LSU>
-    : LVXInst32<(outs GPR:$rZ), (ins CR:$systemS3),
+    : LVXInst32<(outs GPR:$rZ), (ins GPR:$rZsrc, CR:$systemS3),
                 !strconcat(mnemonic, " $rZ = $systemS3"),
                 pattern, itin> {
   bits<6>  rZ;
   bits<9>  systemS3;
+  let Constraints = "$rZsrc = $rZ";
   let Inst{5-0}    = rZ;
   let Inst{14-6}   = systemS3;
   let Inst{30-18}  = 0b0001111110001;
@@ -757,6 +762,9 @@ def CBX_CB_X               : BCU_CB_X_Inst<"cbx", []> {
 //===----------------------------------------------------------------------===//
 // BCU_CCB — BCU Compare Conditional Branches
 // simple (32 bits), syntax: %0%1 %2, %3 ? %4
+// One of 2 classes for this format: its instructions do not all
+// read and write the same operands, so they cannot share an operand list.
+// This one covers CCB_CCB.
 //===----------------------------------------------------------------------===//
 class BCU_CCB_Inst<string mnemonic, list<dag> pattern,
                    InstrItinClass itin = BCU_BRRP2>
@@ -778,9 +786,31 @@ def CCB_CCB                : BCU_CCB_Inst<"ccb", []> {
   let isBranch = 1;
   let isTerminator = 1;
 }
-def ERROP_CCB              : BCU_CCB_Inst<"errop", []> {
-  let Inst{26-0}   = 0b000000000000000000000000000;
+
+//===----------------------------------------------------------------------===//
+// BCU_CCB — BCU Compare Conditional Branches
+// simple (32 bits), syntax: %0%1 %2, %3 ? %4
+// One of 2 classes for this format: its instructions do not all
+// read and write the same operands, so they cannot share an operand list.
+// This one covers ERROP_CCB.
+//===----------------------------------------------------------------------===//
+class BCU_CCB_2_Inst<string mnemonic, list<dag> pattern,
+                     InstrItinClass itin = BCU_BRRP2>
+    : LVXInst32<(outs), (ins ccbcomp:$ccbcomp, GPR:$rZ, GPR:$rY, brtarget11s2:$target),
+                !strconcat(mnemonic, "${ccbcomp} $rZ, $rY ? $target"),
+                pattern, itin> {
+  bits<4>  ccbcomp;
+  bits<6>  rZ;
+  bits<6>  rY;
+  bits<11> target;
+  let Inst{26-23}  = ccbcomp;
+  let Inst{5-0}    = rZ;
+  let Inst{11-6}   = rY;
+  let Inst{22-12}  = target;
+  let Inst{30-0}   = 0b0000000000000000000000000000000;
 }
+
+def ERROP_CCB              : BCU_CCB_2_Inst<"errop", []>;
 
 //===----------------------------------------------------------------------===//
 // BCU_CCB.X — BCU Compare Conditional Branches Extended
@@ -1585,6 +1615,8 @@ class LSU_ACSWAPSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{6}      = 0b1;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ACSWAPB_ACSWAPSB       : LSU_ACSWAPSB_Inst<"acswapb", []> {
@@ -1625,6 +1657,8 @@ class LSU_ACSWAPSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{6}      = 0b1;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ACSWAPB_ACSWAPSB_O     : LSU_ACSWAPSB_O_Inst<"acswapb", []> {
@@ -1667,6 +1701,8 @@ class LSU_ACSWAPSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{6}      = 0b1;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ACSWAPB_ACSWAPSB_D     : LSU_ACSWAPSB_D_Inst<"acswapb", []> {
@@ -1704,6 +1740,8 @@ class LSU_ACSWAPQB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{18-13}  = 0b011100;
   let Inst{6}      = 0b1;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ACSWAPQ_ACSWAPQB       : LSU_ACSWAPQB_Inst<"acswapq", []>;
@@ -1733,6 +1771,8 @@ class LSU_ACSWAPQB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{18-13}  = 0b011100;
   let Inst{6}      = 0b1;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ACSWAPQ_ACSWAPQB_O     : LSU_ACSWAPQB_O_Inst<"acswapq", []>;
@@ -1764,6 +1804,8 @@ class LSU_ACSWAPQB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{18-13}  = 0b011100;
   let Inst{6}      = 0b1;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ACSWAPQ_ACSWAPQB_D     : LSU_ACSWAPQB_D_Inst<"acswapq", []>;
@@ -1896,6 +1938,8 @@ class LSU_ALCLRSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b000010;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALCLRB_ALCLRSB         : LSU_ALCLRSB_Inst<"alclrb", []> {
@@ -1932,6 +1976,8 @@ class LSU_ALCLRSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b000010;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALCLRB_ALCLRSB_O       : LSU_ALCLRSB_O_Inst<"alclrb", []> {
@@ -1970,6 +2016,8 @@ class LSU_ALCLRSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b000010;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALCLRB_ALCLRSB_D       : LSU_ALCLRSB_D_Inst<"alclrb", []> {
@@ -2004,6 +2052,8 @@ class LSU_ASWAPSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b000100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASWAPB_ASWAPSB         : LSU_ASWAPSB_Inst<"aswapb", []> {
@@ -2041,6 +2091,8 @@ class LSU_ASWAPSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b000100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASWAPB_ASWAPSB_O       : LSU_ASWAPSB_O_Inst<"aswapb", []> {
@@ -2080,6 +2132,8 @@ class LSU_ASWAPSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b000100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASWAPB_ASWAPSB_D       : LSU_ASWAPSB_D_Inst<"aswapb", []> {
@@ -2224,6 +2278,8 @@ class LSU_ALADDSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b001000;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALADDB_ALADDSB         : LSU_ALADDSB_Inst<"aladdb", []> {
@@ -2261,6 +2317,8 @@ class LSU_ALADDSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b001000;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALADDB_ALADDSB_O       : LSU_ALADDSB_O_Inst<"aladdb", []> {
@@ -2300,6 +2358,8 @@ class LSU_ALADDSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b001000;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALADDB_ALADDSB_D       : LSU_ALADDSB_D_Inst<"aladdb", []> {
@@ -2334,6 +2394,8 @@ class LSU_ALANDSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b001010;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALANDB_ALANDSB         : LSU_ALANDSB_Inst<"alandb", []> {
@@ -2371,6 +2433,8 @@ class LSU_ALANDSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b001010;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALANDB_ALANDSB_O       : LSU_ALANDSB_O_Inst<"alandb", []> {
@@ -2410,6 +2474,8 @@ class LSU_ALANDSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b001010;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALANDB_ALANDSB_D       : LSU_ALANDSB_D_Inst<"alandb", []> {
@@ -2444,6 +2510,8 @@ class LSU_ALIORSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b001100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALIORB_ALIORSB         : LSU_ALIORSB_Inst<"aliorb", []> {
@@ -2481,6 +2549,8 @@ class LSU_ALIORSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b001100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALIORB_ALIORSB_O       : LSU_ALIORSB_O_Inst<"aliorb", []> {
@@ -2520,6 +2590,8 @@ class LSU_ALIORSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b001100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALIORB_ALIORSB_D       : LSU_ALIORSB_D_Inst<"aliorb", []> {
@@ -2554,6 +2626,8 @@ class LSU_ALEORSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b001110;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALEORB_ALEORSB         : LSU_ALEORSB_Inst<"aleorb", []> {
@@ -2591,6 +2665,8 @@ class LSU_ALEORSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b001110;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALEORB_ALEORSB_O       : LSU_ALEORSB_O_Inst<"aleorb", []> {
@@ -2630,6 +2706,8 @@ class LSU_ALEORSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b001110;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALEORB_ALEORSB_D       : LSU_ALEORSB_D_Inst<"aleorb", []> {
@@ -2664,6 +2742,8 @@ class LSU_ALMINSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b010000;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALMINB_ALMINSB         : LSU_ALMINSB_Inst<"alminb", []> {
@@ -2701,6 +2781,8 @@ class LSU_ALMINSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b010000;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALMINB_ALMINSB_O       : LSU_ALMINSB_O_Inst<"alminb", []> {
@@ -2740,6 +2822,8 @@ class LSU_ALMINSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b010000;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALMINB_ALMINSB_D       : LSU_ALMINSB_D_Inst<"alminb", []> {
@@ -2774,6 +2858,8 @@ class LSU_ALMAXSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b010010;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALMAXB_ALMAXSB         : LSU_ALMAXSB_Inst<"almaxb", []> {
@@ -2811,6 +2897,8 @@ class LSU_ALMAXSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b010010;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALMAXB_ALMAXSB_O       : LSU_ALMAXSB_O_Inst<"almaxb", []> {
@@ -2850,6 +2938,8 @@ class LSU_ALMAXSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b010010;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALMAXB_ALMAXSB_D       : LSU_ALMAXSB_D_Inst<"almaxb", []> {
@@ -2884,6 +2974,8 @@ class LSU_ALMINUSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b010100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALMINUB_ALMINUSB       : LSU_ALMINUSB_Inst<"alminub", []> {
@@ -2921,6 +3013,8 @@ class LSU_ALMINUSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b010100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALMINUB_ALMINUSB_O     : LSU_ALMINUSB_O_Inst<"alminub", []> {
@@ -2960,6 +3054,8 @@ class LSU_ALMINUSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b010100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALMINUB_ALMINUSB_D     : LSU_ALMINUSB_D_Inst<"alminub", []> {
@@ -2994,6 +3090,8 @@ class LSU_ALMAXUSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b010110;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALMAXUB_ALMAXUSB       : LSU_ALMAXUSB_Inst<"almaxub", []> {
@@ -3031,6 +3129,8 @@ class LSU_ALMAXUSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b010110;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALMAXUB_ALMAXUSB_O     : LSU_ALMAXUSB_O_Inst<"almaxub", []> {
@@ -3070,6 +3170,8 @@ class LSU_ALMAXUSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b010110;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALMAXUB_ALMAXUSB_D     : LSU_ALMAXUSB_D_Inst<"almaxub", []> {
@@ -3104,6 +3206,8 @@ class LSU_ALDUSSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b011100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALDUSB_ALDUSSB         : LSU_ALDUSSB_Inst<"aldusb", []> {
@@ -3141,6 +3245,8 @@ class LSU_ALDUSSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b011100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALDUSB_ALDUSSB_O       : LSU_ALDUSSB_O_Inst<"aldusb", []> {
@@ -3180,6 +3286,8 @@ class LSU_ALDUSSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b011100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ALDUSB_ALDUSSB_D       : LSU_ALDUSSB_D_Inst<"aldusb", []> {
@@ -3213,6 +3321,8 @@ class LSU_ASADDSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b101000;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASADDB_ASADDSB         : LSU_ASADDSB_Inst<"asaddb", []> {
@@ -3249,6 +3359,8 @@ class LSU_ASADDSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b101000;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASADDB_ASADDSB_O       : LSU_ASADDSB_O_Inst<"asaddb", []> {
@@ -3287,6 +3399,8 @@ class LSU_ASADDSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b101000;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASADDB_ASADDSB_D       : LSU_ASADDSB_D_Inst<"asaddb", []> {
@@ -3320,6 +3434,8 @@ class LSU_ASANDSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b101010;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASANDB_ASANDSB         : LSU_ASANDSB_Inst<"asandb", []> {
@@ -3356,6 +3472,8 @@ class LSU_ASANDSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b101010;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASANDB_ASANDSB_O       : LSU_ASANDSB_O_Inst<"asandb", []> {
@@ -3394,6 +3512,8 @@ class LSU_ASANDSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b101010;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASANDB_ASANDSB_D       : LSU_ASANDSB_D_Inst<"asandb", []> {
@@ -3427,6 +3547,8 @@ class LSU_ASIORSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b101100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASIORB_ASIORSB         : LSU_ASIORSB_Inst<"asiorb", []> {
@@ -3463,6 +3585,8 @@ class LSU_ASIORSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b101100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASIORB_ASIORSB_O       : LSU_ASIORSB_O_Inst<"asiorb", []> {
@@ -3501,6 +3625,8 @@ class LSU_ASIORSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b101100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASIORB_ASIORSB_D       : LSU_ASIORSB_D_Inst<"asiorb", []> {
@@ -3534,6 +3660,8 @@ class LSU_ASEORSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b101110;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASEORB_ASEORSB         : LSU_ASEORSB_Inst<"aseorb", []> {
@@ -3570,6 +3698,8 @@ class LSU_ASEORSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b101110;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASEORB_ASEORSB_O       : LSU_ASEORSB_O_Inst<"aseorb", []> {
@@ -3608,6 +3738,8 @@ class LSU_ASEORSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b101110;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASEORB_ASEORSB_D       : LSU_ASEORSB_D_Inst<"aseorb", []> {
@@ -3641,6 +3773,8 @@ class LSU_ASMINSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b110000;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASMINB_ASMINSB         : LSU_ASMINSB_Inst<"asminb", []> {
@@ -3677,6 +3811,8 @@ class LSU_ASMINSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b110000;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASMINB_ASMINSB_O       : LSU_ASMINSB_O_Inst<"asminb", []> {
@@ -3715,6 +3851,8 @@ class LSU_ASMINSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b110000;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASMINB_ASMINSB_D       : LSU_ASMINSB_D_Inst<"asminb", []> {
@@ -3748,6 +3886,8 @@ class LSU_ASMAXSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b110010;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASMAXB_ASMAXSB         : LSU_ASMAXSB_Inst<"asmaxb", []> {
@@ -3784,6 +3924,8 @@ class LSU_ASMAXSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b110010;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASMAXB_ASMAXSB_O       : LSU_ASMAXSB_O_Inst<"asmaxb", []> {
@@ -3822,6 +3964,8 @@ class LSU_ASMAXSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b110010;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASMAXB_ASMAXSB_D       : LSU_ASMAXSB_D_Inst<"asmaxb", []> {
@@ -3855,6 +3999,8 @@ class LSU_ASMINUSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b110100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASMINUB_ASMINUSB       : LSU_ASMINUSB_Inst<"asminub", []> {
@@ -3891,6 +4037,8 @@ class LSU_ASMINUSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b110100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASMINUB_ASMINUSB_O     : LSU_ASMINUSB_O_Inst<"asminub", []> {
@@ -3929,6 +4077,8 @@ class LSU_ASMINUSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b110100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASMINUB_ASMINUSB_D     : LSU_ASMINUSB_D_Inst<"asminub", []> {
@@ -3962,6 +4112,8 @@ class LSU_ASMAXUSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b110110;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASMAXUB_ASMAXUSB       : LSU_ASMAXUSB_Inst<"asmaxub", []> {
@@ -3998,6 +4150,8 @@ class LSU_ASMAXUSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b110110;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASMAXUB_ASMAXUSB_O     : LSU_ASMAXUSB_O_Inst<"asmaxub", []> {
@@ -4036,6 +4190,8 @@ class LSU_ASMAXUSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b110110;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASMAXUB_ASMAXUSB_D     : LSU_ASMAXUSB_D_Inst<"asmaxub", []> {
@@ -4069,6 +4225,8 @@ class LSU_ASDUSSB_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-26}  = 0b01111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b111100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASDUSB_ASDUSSB         : LSU_ASDUSSB_Inst<"asdusb", []> {
@@ -4105,6 +4263,8 @@ class LSU_ASDUSSB_O_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b111100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASDUSB_ASDUSSB_O       : LSU_ASDUSSB_O_Inst<"asdusb", []> {
@@ -4143,6 +4303,8 @@ class LSU_ASDUSSB_D_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b101111;
   let Inst{17-15}  = 0b110;
   let Inst{11-6}   = 0b111100;
+  let mayLoad  = 1;
+  let mayStore = 1;
 }
 
 def ASDUSB_ASDUSSB_D       : LSU_ASDUSSB_D_Inst<"asdusb", []> {
@@ -4377,11 +4539,10 @@ class ALU_NOP_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-24}  = 0b1111111;
   let Inst{18-6}   = 0b1111111111111;
   let Inst{0}      = 0b1;
-}
-
-def NOP_NOP                : ALU_NOP_Inst<"nop", []> {
   let hasSideEffects = 0;
 }
+
+def NOP_NOP                : ALU_NOP_Inst<"nop", []>;
 
 //===----------------------------------------------------------------------===//
 // ALU_DWRRS — ALU Double Word Write Read Read Special
@@ -4400,6 +4561,7 @@ class ALU_DWRRS_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = rY;
   let Inst{30-26}  = 0b11011;
   let Inst{17-12}  = 0b100100;
+  let hasSideEffects = 0;
 }
 
 def STSUD_DWRRS            : ALU_DWRRS_Inst<"stsud", []> {
@@ -4434,6 +4596,7 @@ class ALU_WWRRS_Inst<string mnemonic, list<dag> pattern,
   let Inst{12}     = signextw;
   let Inst{30-26}  = 0b11011;
   let Inst{17-13}  = 0b11010;
+  let hasSideEffects = 0;
 }
 
 def STSUW_WWRRS            : ALU_WWRRS_Inst<"stsuw", []> {
@@ -4470,6 +4633,7 @@ class ALU_DWRRS_M_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-26}  = 0b111011;
   let Inst{17-12}  = 0b100100;
+  let hasSideEffects = 0;
 }
 
 def ABDD_DWRRS_M           : ALU_DWRRS_M_Inst<"abdd", []> {
@@ -4503,6 +4667,7 @@ class ALU_WWRRS_M_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-26}  = 0b111011;
   let Inst{17-13}  = 0b11010;
+  let hasSideEffects = 0;
 }
 
 def ABDW_WWRRS_M           : ALU_WWRRS_M_Inst<"abdw", []> {
@@ -4532,6 +4697,7 @@ class ALU_QWRR0_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-7}   = rO;
   let Inst{30-28}  = 0b110;
   let Inst{17-12}  = 0b100001;
+  let hasSideEffects = 0;
 }
 
 def ADDQ_QWRR0             : ALU_QWRR0_Inst<"addq", []> {
@@ -4587,6 +4753,7 @@ class ALU_QWRR0_M_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-28}  = 0b1110;
   let Inst{17-12}  = 0b100001;
   let Inst{0}      = 0b1;
+  let hasSideEffects = 0;
 }
 
 def ADDQ_QWRR0_M           : ALU_QWRR0_M_Inst<"addq", []> {
@@ -4637,6 +4804,7 @@ class ALU_DWRR0_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = rY;
   let Inst{30-28}  = 0b110;
   let Inst{17-12}  = 0b100000;
+  let hasSideEffects = 0;
 }
 
 def ADDD_DWRR0             : ALU_DWRR0_Inst<"addd", []> {
@@ -4709,6 +4877,7 @@ class ALU_DWRR0_M_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-28}  = 0b1110;
   let Inst{17-12}  = 0b100000;
+  let hasSideEffects = 0;
 }
 
 def ADDD_DWRR0_M           : ALU_DWRR0_M_Inst<"addd", []> {
@@ -4777,6 +4946,7 @@ class ALU_DWRI_Inst<string mnemonic, list<dag> pattern,
   let Inst{15-6}   = imm;
   let Inst{30-28}  = 0b110;
   let Inst{17-16}  = 0b00;
+  let hasSideEffects = 0;
 }
 
 def ADDD_DWRI              : ALU_DWRI_Inst<"addd", []> {
@@ -4845,6 +5015,7 @@ class ALU_DWRI_X_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-28}  = 0b1110;
   let Inst{17-16}  = 0b00;
+  let hasSideEffects = 0;
 }
 
 def ADDD_DWRI_X            : ALU_DWRI_X_Inst<"addd", []> {
@@ -4911,6 +5082,7 @@ class ALU_DWRI_Y_Inst<string mnemonic, list<dag> pattern,
   let Inst{63-61}  = 0b100;
   let Inst{31-28}  = 0b1110;
   let Inst{17-16}  = 0b00;
+  let hasSideEffects = 0;
 }
 
 def ADDD_DWRI_Y            : ALU_DWRI_Y_Inst<"addd", []> {
@@ -4975,6 +5147,7 @@ class ALU_WWRR0_Inst<string mnemonic, list<dag> pattern,
   let Inst{12}     = signextw;
   let Inst{30-28}  = 0b110;
   let Inst{17-13}  = 0b11000;
+  let hasSideEffects = 0;
 }
 
 def ADDW_WWRR0             : ALU_WWRR0_Inst<"addw", []> {
@@ -5048,6 +5221,7 @@ class ALU_WWRR0_W_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-28}  = 0b1110;
   let Inst{17-13}  = 0b11000;
   let Inst{11}     = 0b0;
+  let hasSideEffects = 0;
 }
 
 def ADDW_WWRR0_W           : ALU_WWRR0_W_Inst<"addw", []> {
@@ -5116,6 +5290,7 @@ class ALU_DWRR1_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = rY;
   let Inst{30-28}  = 0b110;
   let Inst{17-12}  = 0b101010;
+  let hasSideEffects = 0;
 }
 
 def ADDSD_DWRR1            : ALU_DWRR1_Inst<"addsd", []> {
@@ -5170,6 +5345,7 @@ class ALU_DWRR1_M_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-28}  = 0b1110;
   let Inst{17-12}  = 0b101010;
+  let hasSideEffects = 0;
 }
 
 def ADDSD_DWRR1_M          : ALU_DWRR1_M_Inst<"addsd", []> {
@@ -5222,6 +5398,7 @@ class ALU_WWRR1_Inst<string mnemonic, list<dag> pattern,
   let Inst{12}     = signextw;
   let Inst{30-28}  = 0b110;
   let Inst{17-13}  = 0b11101;
+  let hasSideEffects = 0;
 }
 
 def ADDSW_WWRR1            : ALU_WWRR1_Inst<"addsw", []> {
@@ -5277,6 +5454,7 @@ class ALU_WWRR1_W_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-28}  = 0b1110;
   let Inst{17-13}  = 0b11101;
   let Inst{11}     = 0b0;
+  let hasSideEffects = 0;
 }
 
 def ADDSW_WWRR1_W          : ALU_WWRR1_W_Inst<"addsw", []> {
@@ -5327,6 +5505,7 @@ class ALU_DSWRI_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = imm;
   let Inst{30-27}  = 0b1101;
   let Inst{17-12}  = 0b101000;
+  let hasSideEffects = 0;
 }
 
 def SRLD_DSWRI             : ALU_DSWRI_Inst<"srld", [], ALU_TINY> {
@@ -5371,6 +5550,7 @@ class ALU_DSWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = rY;
   let Inst{30-27}  = 0b1100;
   let Inst{17-12}  = 0b101000;
+  let hasSideEffects = 0;
 }
 
 def SRLD_DSWRR             : ALU_DSWRR_Inst<"srld", [], ALU_TINY> {
@@ -5417,6 +5597,7 @@ class ALU_WSWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{12}     = signextw;
   let Inst{30-27}  = 0b1100;
   let Inst{17-13}  = 0b11100;
+  let hasSideEffects = 0;
 }
 
 def SRLW_WSWRR             : ALU_WSWRR_Inst<"srlw", [], ALU_TINY> {
@@ -5463,6 +5644,7 @@ class ALU_WSWRI_Inst<string mnemonic, list<dag> pattern,
   let Inst{12}     = signextw;
   let Inst{30-27}  = 0b1101;
   let Inst{17-13}  = 0b11100;
+  let hasSideEffects = 0;
 }
 
 def SRLW_WSWRI             : ALU_WSWRI_Inst<"srlw", [], ALU_TINY> {
@@ -5511,6 +5693,7 @@ class ALU_DBMWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = rY;
   let Inst{30-25}  = 0b110111;
   let Inst{17-12}  = 0b100010;
+  let hasSideEffects = 0;
 }
 
 def SBMM8D_DBMWRR          : ALU_DBMWRR_Inst<"sbmm8d", []> {
@@ -5547,6 +5730,7 @@ class ALU_DBMWRR_M_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-25}  = 0b1110111;
   let Inst{17-12}  = 0b100010;
+  let hasSideEffects = 0;
 }
 
 def SBMM8D_DBMWRR_M        : ALU_DBMWRR_M_Inst<"sbmm8d", []> {
@@ -5579,6 +5763,7 @@ class ALU_DBMWRI_Inst<string mnemonic, list<dag> pattern,
   let Inst{15-6}   = imm;
   let Inst{30-25}  = 0b110111;
   let Inst{17-16}  = 0b01;
+  let hasSideEffects = 0;
 }
 
 def SBMM8D_DBMWRI          : ALU_DBMWRI_Inst<"sbmm8d", []> {
@@ -5613,6 +5798,7 @@ class ALU_DBMWRI_X_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-25}  = 0b1110111;
   let Inst{17-16}  = 0b01;
+  let hasSideEffects = 0;
 }
 
 def SBMM8D_DBMWRI_X        : ALU_DBMWRI_X_Inst<"sbmm8d", []> {
@@ -5649,6 +5835,7 @@ class ALU_DBMWRI_Y_Inst<string mnemonic, list<dag> pattern,
   let Inst{63-61}  = 0b100;
   let Inst{31-25}  = 0b1110111;
   let Inst{17-16}  = 0b01;
+  let hasSideEffects = 0;
 }
 
 def SBMM8D_DBMWRI_Y        : ALU_DBMWRI_Y_Inst<"sbmm8d", []> {
@@ -5682,6 +5869,7 @@ class ALU_DBMWRRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = rY;
   let Inst{30-25}  = 0b110110;
   let Inst{17-12}  = 0b100010;
+  let hasSideEffects = 0;
 }
 
 def SBMM8EORD_DBMWRRR      : ALU_DBMWRRR_Inst<"sbmm8eord", []> {
@@ -5713,6 +5901,7 @@ class ALU_DBMWRRR_M_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-25}  = 0b1110110;
   let Inst{17-12}  = 0b100010;
+  let hasSideEffects = 0;
 }
 
 def SBMM8EORD_DBMWRRR_M    : ALU_DBMWRRR_M_Inst<"sbmm8eord", []> {
@@ -5741,6 +5930,7 @@ class ALU_WAVG_Inst<string mnemonic, list<dag> pattern,
   let Inst{12}     = signextw;
   let Inst{30-26}  = 0b11011;
   let Inst{17-13}  = 0b11001;
+  let hasSideEffects = 0;
 }
 
 def AVGW_WAVG              : ALU_WAVG_Inst<"avgw", []> {
@@ -5778,6 +5968,7 @@ class ALU_WAVG_W_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-26}  = 0b111011;
   let Inst{17-13}  = 0b11001;
   let Inst{11}     = 0b0;
+  let hasSideEffects = 0;
 }
 
 def AVGW_WAVG_W            : ALU_WAVG_W_Inst<"avgw", []> {
@@ -5810,6 +6001,7 @@ class ALU_DWRR2_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = rY;
   let Inst{30-26}  = 0b11000;
   let Inst{17-12}  = 0b100100;
+  let hasSideEffects = 0;
 }
 
 def LANDD_DWRR2            : ALU_DWRR2_Inst<"landd", []> {
@@ -5842,6 +6034,7 @@ class ALU_WWRR2_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = rY;
   let Inst{30-26}  = 0b11000;
   let Inst{17-12}  = 0b110100;
+  let hasSideEffects = 0;
 }
 
 def LANDW_WWRR2            : ALU_WWRR2_Inst<"landw", []> {
@@ -5873,6 +6066,7 @@ class ALU_FDMO1_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-24}  = 0b1111111;
   let Inst{17-11}  = 0b0000000;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FNEGD_FDMO1            : ALU_FDMO1_Inst<"fnegd", []> {
@@ -5907,6 +6101,7 @@ class ALU_FWMO1_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-24}  = 0b1111111;
   let Inst{17-11}  = 0b0100000;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FNEGW_FWMO1            : ALU_FWMO1_Inst<"fnegw", []> {
@@ -5941,6 +6136,7 @@ class ALU_FWPMO1_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-24}  = 0b1111111;
   let Inst{17-11}  = 0b0000010;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FNEGWP_FWPMO1          : ALU_FWPMO1_Inst<"fnegwp", []> {
@@ -5976,6 +6172,7 @@ class ALU_FHMO1_Inst<string mnemonic, list<dag> pattern,
   let Inst{17-11}  = 0b0100010;
   let Inst{9}      = 0b1;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FNEGH_FHMO1            : ALU_FHMO1_Inst<"fnegh", []> {
@@ -6009,6 +6206,7 @@ class ALU_FDWIDEN_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-24}  = 0b1111111;
   let Inst{17-8}   = 0b0000001000;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FWIDENWD_FDWIDEN       : ALU_FDWIDEN_Inst<"fwidenwd", []>;
@@ -6031,6 +6229,7 @@ class ALU_FWWIDEN_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-24}  = 0b1111111;
   let Inst{17-8}   = 0b0100001000;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FWIDENHW_FWWIDEN       : ALU_FWWIDEN_Inst<"fwidenhw", []>;
@@ -6053,6 +6252,7 @@ class ALU_FWPWIDEN_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-24}  = 0b1111111;
   let Inst{17-8}   = 0b0000011000;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FWIDENHWP_FWPWIDEN     : ALU_FWPWIDEN_Inst<"fwidenhwp", []>;
@@ -6075,6 +6275,7 @@ class ALU_FWWR_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-27}  = 0b1111;
   let Inst{17-8}   = 0b0100101100;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FNARROWDW_FWWR         : ALU_FWWR_Inst<"fnarrowdw", []>;
@@ -6097,6 +6298,7 @@ class ALU_FHWR_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-27}  = 0b1111;
   let Inst{17-8}   = 0b0100111100;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FNARROWWH_FHWR         : ALU_FHWR_Inst<"fnarrowwh", []>;
@@ -6125,6 +6327,7 @@ class ALU_BFWR_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = startbit;
   let Inst{30-26}  = 0b11000;
   let Inst{17-16}  = 0b01;
+  let hasSideEffects = 0;
 }
 
 def INSF_BFWR              : ALU_BFWR_Inst<"insf", []>;
@@ -6152,6 +6355,7 @@ class ALU_BFWR_2_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = startbit;
   let Inst{30-28}  = 0b110;
   let Inst{17-16}  = 0b01;
+  let hasSideEffects = 0;
 }
 
 def EXTFZ_BFWR             : ALU_BFWR_2_Inst<"extfz", []> {
@@ -6204,6 +6408,7 @@ class ALU_QCWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{27-24}  = intcomp;
   let Inst{30-28}  = 0b110;
   let Inst{17-12}  = 0b100011;
+  let hasSideEffects = 0;
 }
 
 def COMPQ_QCWRR            : ALU_QCWRR_Inst<"compq", []>;
@@ -6227,6 +6432,7 @@ class ALU_DCWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{27-24}  = intcomp;
   let Inst{30-28}  = 0b110;
   let Inst{17-12}  = 0b100010;
+  let hasSideEffects = 0;
 }
 
 def COMPD_DCWRR            : ALU_DCWRR_Inst<"compd", []>;
@@ -6252,6 +6458,7 @@ class ALU_DCWRR_W_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-28}  = 0b1110;
   let Inst{17-11}  = 0b1000100;
+  let hasSideEffects = 0;
 }
 
 def COMPD_DCWRR_W          : ALU_DCWRR_W_Inst<"compd", []>;
@@ -6277,6 +6484,7 @@ class ALU_WCWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{12}     = signextw;
   let Inst{30-28}  = 0b110;
   let Inst{17-13}  = 0b11001;
+  let hasSideEffects = 0;
 }
 
 def COMPW_WCWRR            : ALU_WCWRR_Inst<"compw", []>;
@@ -6305,6 +6513,7 @@ class ALU_WCWRR_W_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-28}  = 0b1110;
   let Inst{17-13}  = 0b11001;
   let Inst{11}     = 0b0;
+  let hasSideEffects = 0;
 }
 
 def COMPW_WCWRR_W          : ALU_WCWRR_W_Inst<"compw", []>;
@@ -6329,6 +6538,7 @@ class ALU_QCMWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{27-24}  = bcucond;
   let Inst{30-28}  = 0b110;
   let Inst{17-12}  = 0b100111;
+  let hasSideEffects = 0;
 }
 
 def CMOVEQ_QCMWRR          : ALU_QCMWRR_Inst<"cmoveq", []>;
@@ -6353,6 +6563,7 @@ class ALU_DCMWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{27-24}  = bcucond;
   let Inst{30-28}  = 0b110;
   let Inst{17-12}  = 0b100110;
+  let hasSideEffects = 0;
 }
 
 def CMOVED_DCMWRR          : ALU_DCMWRR_Inst<"cmoved", []>;
@@ -6381,6 +6592,7 @@ class ALU_DCMWRR_M_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-28}  = 0b1110;
   let Inst{17-12}  = 0b100110;
+  let hasSideEffects = 0;
 }
 
 def CMOVED_DCMWRR_M        : ALU_DCMWRR_M_Inst<"cmoved", []>;
@@ -6400,6 +6612,7 @@ class ALU_DWI_Inst<string mnemonic, list<dag> pattern,
   let Inst{15-0}   = imm;
   let Inst{30-25}  = 0b110000;
   let Inst{17-16}  = 0b00;
+  let hasSideEffects = 0;
 }
 
 def MAKED_DWI              : ALU_DWI_Inst<"maked", []> {
@@ -6427,6 +6640,7 @@ class ALU_DWI_X_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-25}  = 0b1110000;
   let Inst{17-16}  = 0b00;
+  let hasSideEffects = 0;
 }
 
 def MAKED_DWI_X            : ALU_DWI_X_Inst<"maked", []> {
@@ -6455,6 +6669,7 @@ class ALU_DWI_Y_Inst<string mnemonic, list<dag> pattern,
   let Inst{63-61}  = 0b100;
   let Inst{31-25}  = 0b1110000;
   let Inst{17-16}  = 0b00;
+  let hasSideEffects = 0;
 }
 
 def MAKED_DWI_Y            : ALU_DWI_Y_Inst<"maked", []> {
@@ -6480,6 +6695,7 @@ class ALU_QBWR_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-24}  = 0b1101111;
   let Inst{17-12}  = 0b101011;
   let Inst{10-6}   = 0b00000;
+  let hasSideEffects = 0;
 }
 
 def NOTQ_QBWR              : ALU_QBWR_Inst<"notq", []> {
@@ -6505,6 +6721,7 @@ class ALU_DBWR_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-24}  = 0b1101111;
   let Inst{17-12}  = 0b101010;
   let Inst{7-6}    = 0b00;
+  let hasSideEffects = 0;
 }
 
 def NOTD_DBWR              : ALU_DBWR_Inst<"notd", []> {
@@ -6553,6 +6770,7 @@ class ALU_BWRW_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-24}  = 0b1101111;
   let Inst{17-13}  = 0b11101;
   let Inst{7-6}    = 0b00;
+  let hasSideEffects = 0;
 }
 
 def NOTW_BWRW              : ALU_BWRW_Inst<"notw", []> {
@@ -6602,6 +6820,7 @@ class ALU_FDCWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{26-24}  = floatcomp;
   let Inst{30-27}  = 0b1110;
   let Inst{17-12}  = 0b000100;
+  let hasSideEffects = 0;
 }
 
 def FCOMPD_FDCWRR          : ALU_FDCWRR_Inst<"fcompd", []>;
@@ -6627,6 +6846,7 @@ class ALU_FDCWRR_W_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-27}  = 0b11110;
   let Inst{17-11}  = 0b0001000;
+  let hasSideEffects = 0;
 }
 
 def FCOMPD_FDCWRR_W        : ALU_FDCWRR_W_Inst<"fcompd", []>;
@@ -6650,6 +6870,7 @@ class ALU_FWCWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{26-24}  = floatcomp;
   let Inst{30-27}  = 0b1110;
   let Inst{17-12}  = 0b010100;
+  let hasSideEffects = 0;
 }
 
 def FCOMPW_FWCWRR          : ALU_FWCWRR_Inst<"fcompw", []>;
@@ -6675,6 +6896,7 @@ class ALU_FWCWRR_W_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-27}  = 0b11110;
   let Inst{17-11}  = 0b0101000;
+  let hasSideEffects = 0;
 }
 
 def FCOMPW_FWCWRR_W        : ALU_FWCWRR_W_Inst<"fcompw", []>;
@@ -6698,6 +6920,7 @@ class ALU_FHCWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{26-24}  = floatcomp;
   let Inst{30-27}  = 0b1110;
   let Inst{17-12}  = 0b010101;
+  let hasSideEffects = 0;
 }
 
 def FCOMPH_FHCWRR          : ALU_FHCWRR_Inst<"fcomph", []>;
@@ -6723,6 +6946,7 @@ class ALU_FHCWRR_W_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-27}  = 0b11110;
   let Inst{17-11}  = 0b0101010;
+  let hasSideEffects = 0;
 }
 
 def FCOMPH_FHCWRR_W        : ALU_FHCWRR_W_Inst<"fcomph", []>;
@@ -6744,6 +6968,7 @@ class ALU_FDMMWR_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = rY;
   let Inst{30-27}  = 0b1111;
   let Inst{17-12}  = 0b000000;
+  let hasSideEffects = 0;
 }
 
 def FMIND_FDMMWR           : ALU_FDMMWR_Inst<"fmind", []> {
@@ -6785,6 +7010,7 @@ class ALU_FWMMWR_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = rY;
   let Inst{30-27}  = 0b1111;
   let Inst{17-12}  = 0b010000;
+  let hasSideEffects = 0;
 }
 
 def FMINW_FWMMWR           : ALU_FWMMWR_Inst<"fminw", []> {
@@ -6826,6 +7052,7 @@ class ALU_FHMMWR_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = rY;
   let Inst{30-27}  = 0b1111;
   let Inst{17-12}  = 0b010111;
+  let hasSideEffects = 0;
 }
 
 def FMINH_FHMMWR           : ALU_FHMMWR_Inst<"fminh", []> {
@@ -6868,6 +7095,7 @@ class ALU_FDFLOAT_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-27}  = 0b1111;
   let Inst{17-10}  = 0b00001000;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FLOATD_FDFLOAT         : ALU_FDFLOAT_Inst<"floatd", []> {
@@ -6901,6 +7129,7 @@ class ALU_FWFLOAT_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-27}  = 0b1111;
   let Inst{17-10}  = 0b01001000;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FLOATW_FWFLOAT         : ALU_FWFLOAT_Inst<"floatw", []> {
@@ -6934,6 +7163,7 @@ class ALU_FWPFLOAT_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-27}  = 0b1111;
   let Inst{17-9}   = 0b000011000;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FLOATWP_FWPFLOAT       : ALU_FWPFLOAT_Inst<"floatwp", []> {
@@ -6961,6 +7191,7 @@ class ALU_FDFIXED_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-27}  = 0b1111;
   let Inst{17-10}  = 0b00001001;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FIXEDD_FDFIXED         : ALU_FDFIXED_Inst<"fixedd", []> {
@@ -6994,6 +7225,7 @@ class ALU_FWFIXED_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-27}  = 0b1111;
   let Inst{17-10}  = 0b01001001;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FIXEDW_FWFIXED         : ALU_FWFIXED_Inst<"fixedw", []> {
@@ -7027,6 +7259,7 @@ class ALU_FWPFIXED_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-27}  = 0b1111;
   let Inst{17-9}   = 0b000011010;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FIXEDWP_FWPFIXED       : ALU_FWPFIXED_Inst<"fixedwp", []> {
@@ -7054,6 +7287,7 @@ class ALU_FDMO0_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-27}  = 0b1111;
   let Inst{17-9}   = 0b000010100;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FRINTD_FDMO0           : ALU_FDMO0_Inst<"frintd", [], ALU_LITE> {
@@ -7081,6 +7315,7 @@ class ALU_FWMO0_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-27}  = 0b1111;
   let Inst{17-9}   = 0b010010100;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FRINTW_FWMO0           : ALU_FWMO0_Inst<"frintw", [], ALU_LITE> {
@@ -7108,6 +7343,7 @@ class ALU_FHMO0_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-27}  = 0b1111;
   let Inst{17-9}   = 0b010011100;
   let Inst{6}      = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FRINTH_FHMO0           : ALU_FHMO0_Inst<"frinth", [], ALU_LITE> {
@@ -7136,6 +7372,7 @@ class ALU_DMWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{25-24}  = highmult;
   let Inst{30-27}  = 0b1100;
   let Inst{17-12}  = 0b101100;
+  let hasSideEffects = 0;
 }
 
 def MULD_DMWRR             : ALU_DMWRR_Inst<"muld", []> {
@@ -7168,6 +7405,7 @@ class ALU_DMWRR_M_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-27}  = 0b11100;
   let Inst{17-12}  = 0b101100;
+  let hasSideEffects = 0;
 }
 
 def MULD_DMWRR_M           : ALU_DMWRR_M_Inst<"muld", []> {
@@ -7198,6 +7436,7 @@ class ALU_WMWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{12}     = signextw;
   let Inst{30-27}  = 0b1100;
   let Inst{17-13}  = 0b11110;
+  let hasSideEffects = 0;
 }
 
 def MULW_WMWRR             : ALU_WMWRR_Inst<"mulw", []> {
@@ -7231,6 +7470,7 @@ class ALU_WMWRR_W_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-27}  = 0b11100;
   let Inst{17-13}  = 0b11110;
   let Inst{11}     = 0b0;
+  let hasSideEffects = 0;
 }
 
 def MULW_WMWRR_W           : ALU_WMWRR_W_Inst<"mulw", []> {
@@ -7259,6 +7499,7 @@ class ALU_QMEWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{25-24}  = widemult;
   let Inst{30-27}  = 0b1100;
   let Inst{17-12}  = 0b101111;
+  let hasSideEffects = 0;
 }
 
 def MULXDQ_QMEWRR          : ALU_QMEWRR_Inst<"mulxdq", []> {
@@ -7287,6 +7528,7 @@ class ALU_DMEWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{25-24}  = widemult;
   let Inst{30-27}  = 0b1100;
   let Inst{17-12}  = 0b101110;
+  let hasSideEffects = 0;
 }
 
 def MULXWD_DMEWRR          : ALU_DMEWRR_Inst<"mulxwd", []> {
@@ -7319,6 +7561,7 @@ class ALU_DMEWRR_M_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-27}  = 0b11100;
   let Inst{17-12}  = 0b101110;
+  let hasSideEffects = 0;
 }
 
 def MULXWD_DMEWRR_M        : ALU_DMEWRR_M_Inst<"mulxwd", []> {
@@ -7348,6 +7591,7 @@ class ALU_DMWRRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{25-24}  = highmult;
   let Inst{30-27}  = 0b1101;
   let Inst{17-12}  = 0b101100;
+  let hasSideEffects = 0;
 }
 
 def MADDD_DMWRRR           : ALU_DMWRRR_Inst<"maddd", []> {
@@ -7381,6 +7625,7 @@ class ALU_DMWRRR_M_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-27}  = 0b11101;
   let Inst{17-12}  = 0b101100;
+  let hasSideEffects = 0;
 }
 
 def MADDD_DMWRRR_M         : ALU_DMWRRR_M_Inst<"maddd", []> {
@@ -7412,6 +7657,7 @@ class ALU_WMWRRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{12}     = signextw;
   let Inst{30-27}  = 0b1101;
   let Inst{17-13}  = 0b11110;
+  let hasSideEffects = 0;
 }
 
 def MADDW_WMWRRR           : ALU_WMWRRR_Inst<"maddw", []> {
@@ -7446,6 +7692,7 @@ class ALU_WMWRRR_W_Inst<string mnemonic, list<dag> pattern,
   let Inst{31-27}  = 0b11101;
   let Inst{17-13}  = 0b11110;
   let Inst{11}     = 0b0;
+  let hasSideEffects = 0;
 }
 
 def MADDW_WMWRRR_W         : ALU_WMWRRR_W_Inst<"maddw", []> {
@@ -7475,6 +7722,7 @@ class ALU_QMEWRRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{25-24}  = widemult;
   let Inst{30-27}  = 0b1101;
   let Inst{17-12}  = 0b101111;
+  let hasSideEffects = 0;
 }
 
 def MADDXDQ_QMEWRRR        : ALU_QMEWRRR_Inst<"maddxdq", []> {
@@ -7504,6 +7752,7 @@ class ALU_DMEWRRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{25-24}  = widemult;
   let Inst{30-27}  = 0b1101;
   let Inst{17-12}  = 0b101110;
+  let hasSideEffects = 0;
 }
 
 def MADDXWD_DMEWRRR        : ALU_DMEWRRR_Inst<"maddxwd", []> {
@@ -7537,6 +7786,7 @@ class ALU_DMEWRRR_M_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-27}  = 0b11101;
   let Inst{17-12}  = 0b101110;
+  let hasSideEffects = 0;
 }
 
 def MADDXWD_DMEWRRR_M      : ALU_DMEWRRR_M_Inst<"maddxwd", []> {
@@ -7563,6 +7813,7 @@ class ALU_DDMWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = rY;
   let Inst{30-25}  = 0b110110;
   let Inst{17-12}  = 0b101010;
+  let hasSideEffects = 0;
 }
 
 def DIVMODD_DDMWRR         : ALU_DDMWRR_Inst<"divmodd", []> {
@@ -7591,6 +7842,7 @@ class ALU_WDMWRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{12}     = signextw;
   let Inst{30-25}  = 0b110110;
   let Inst{17-13}  = 0b11101;
+  let hasSideEffects = 0;
 }
 
 def DIVMODW_WDMWRR         : ALU_WDMWRR_Inst<"divmodw", []> {
@@ -7618,6 +7870,7 @@ class ALU_WCWRRR_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = rY;
   let Inst{30-26}  = 0b11001;
   let Inst{17-12}  = 0b110101;
+  let hasSideEffects = 0;
 }
 
 def CRCBELMW_WCWRRR        : ALU_WCWRRR_Inst<"crcbelmw", []> {
@@ -7653,6 +7906,7 @@ class ALU_WCWRRR_W_Inst<string mnemonic, list<dag> pattern,
   let Inst{62-61}  = 0b00;
   let Inst{31-26}  = 0b111001;
   let Inst{17-11}  = 0b1101010;
+  let hasSideEffects = 0;
 }
 
 def CRCBELMW_WCWRRR_W      : ALU_WCWRRR_W_Inst<"crcbelmw", []> {
@@ -7688,6 +7942,7 @@ class ALU_FDADD_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-27}  = 0b1110;
   let Inst{17-14}  = 0b0000;
   let Inst{12}     = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FADDD_FDADD            : ALU_FDADD_Inst<"faddd", []> {
@@ -7717,6 +7972,7 @@ class ALU_FWADD_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-27}  = 0b1110;
   let Inst{17-14}  = 0b0100;
   let Inst{12}     = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FADDW_FWADD            : ALU_FWADD_Inst<"faddw", []> {
@@ -7746,6 +8002,7 @@ class ALU_FHADD_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-27}  = 0b1110;
   let Inst{17-14}  = 0b0100;
   let Inst{12}     = 0b1;
+  let hasSideEffects = 0;
 }
 
 def FADDH_FHADD            : ALU_FHADD_Inst<"faddh", []> {
@@ -7777,6 +8034,7 @@ class ALU_FDMUL_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-28}  = 0b111;
   let Inst{17-14}  = 0b0011;
   let Inst{12}     = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FMULD_FDMUL            : ALU_FDMUL_Inst<"fmuld", [], ALU_LITE> {
@@ -7808,6 +8066,7 @@ class ALU_FWMUL_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-28}  = 0b111;
   let Inst{17-14}  = 0b0111;
   let Inst{12}     = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FMULW_FWMUL            : ALU_FWMUL_Inst<"fmulw", [], ALU_LITE> {
@@ -7839,6 +8098,7 @@ class ALU_FHMUL_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-28}  = 0b111;
   let Inst{17-14}  = 0b0111;
   let Inst{12}     = 0b1;
+  let hasSideEffects = 0;
 }
 
 def FMULH_FHMUL            : ALU_FHMUL_Inst<"fmulh", [], ALU_LITE> {
@@ -7871,6 +8131,7 @@ class ALU_FDFMA_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-28}  = 0b111;
   let Inst{17-14}  = 0b0010;
   let Inst{12}     = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FFMAD_FDFMA            : ALU_FDFMA_Inst<"ffmad", []> {
@@ -7903,6 +8164,7 @@ class ALU_FWFMA_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-28}  = 0b111;
   let Inst{17-14}  = 0b0110;
   let Inst{12}     = 0b0;
+  let hasSideEffects = 0;
 }
 
 def FFMAW_FWFMA            : ALU_FWFMA_Inst<"ffmaw", []> {
@@ -7935,6 +8197,7 @@ class ALU_FHFMA_Inst<string mnemonic, list<dag> pattern,
   let Inst{30-28}  = 0b111;
   let Inst{17-14}  = 0b0110;
   let Inst{12}     = 0b1;
+  let hasSideEffects = 0;
 }
 
 def FFMAH_FHFMA            : ALU_FHFMA_Inst<"ffmah", []> {
@@ -7947,9 +8210,52 @@ def FFMSH_FHFMA            : ALU_FHFMA_Inst<"ffmsh", []> {
 //===----------------------------------------------------------------------===//
 // ALU_FWCOP — ALU Floating-Point Word Complex Operations
 // simple (32 bits), syntax: %0%6%5%4 %1 = %2, %3
+// One of 2 classes for this format: its instructions do not all
+// read and write the same operands, so they cannot share an operand list.
+// This one covers FADDWC_FWCOP, FSBFWC_FWCOP, FMULWC_FWCOP.
 //===----------------------------------------------------------------------===//
 class ALU_FWCOP_Inst<string mnemonic, list<dag> pattern,
                      InstrItinClass itin = ALU_LITE>
+    : LVXInst32<(outs GPR:$rW), (ins GPR:$rZ, GPR:$rY, floatmode:$floatmode, imultiply:$imultiply, conjugate:$conjugate),
+                !strconcat(mnemonic, "${conjugate}${imultiply}${floatmode} $rW = $rZ, $rY"),
+                pattern, itin> {
+  bits<6>  rW;
+  bits<6>  rZ;
+  bits<6>  rY;
+  bits<3>  floatmode;
+  bits<1>  imultiply;
+  bits<1>  conjugate;
+  let Inst{23-18}  = rW;
+  let Inst{5-0}    = rZ;
+  let Inst{11-6}   = rY;
+  let Inst{26-24}  = floatmode;
+  let Inst{27}     = imultiply;
+  let Inst{13}     = conjugate;
+  let Inst{30-28}  = 0b111;
+  let Inst{17-16}  = 0b00;
+  let Inst{12}     = 0b1;
+  let hasSideEffects = 0;
+}
+
+def FADDWC_FWCOP           : ALU_FWCOP_Inst<"faddwc", []> {
+  let Inst{15-14}  = 0b00;
+}
+def FSBFWC_FWCOP           : ALU_FWCOP_Inst<"fsbfwc", []> {
+  let Inst{15-14}  = 0b01;
+}
+def FMULWC_FWCOP           : ALU_FWCOP_Inst<"fmulwc", []> {
+  let Inst{15-14}  = 0b10;
+}
+
+//===----------------------------------------------------------------------===//
+// ALU_FWCOP — ALU Floating-Point Word Complex Operations
+// simple (32 bits), syntax: %0%6%5%4 %1 = %2, %3
+// One of 2 classes for this format: its instructions do not all
+// read and write the same operands, so they cannot share an operand list.
+// This one covers FFMAWC_FWCOP.
+//===----------------------------------------------------------------------===//
+class ALU_FWCOP_2_Inst<string mnemonic, list<dag> pattern,
+                       InstrItinClass itin = ALU_LITE>
     : LVXInst32<(outs GPR:$rW), (ins GPR:$rWsrc, GPR:$rZ, GPR:$rY, floatmode:$floatmode, imultiply:$imultiply, conjugate:$conjugate),
                 !strconcat(mnemonic, "${conjugate}${imultiply}${floatmode} $rW = $rZ, $rY"),
                 pattern, itin> {
@@ -7967,22 +8273,12 @@ class ALU_FWCOP_Inst<string mnemonic, list<dag> pattern,
   let Inst{27}     = imultiply;
   let Inst{13}     = conjugate;
   let Inst{30-28}  = 0b111;
-  let Inst{17-16}  = 0b00;
+  let Inst{17-14}  = 0b0011;
   let Inst{12}     = 0b1;
+  let hasSideEffects = 0;
 }
 
-def FADDWC_FWCOP           : ALU_FWCOP_Inst<"faddwc", []> {
-  let Inst{15-14}  = 0b00;
-}
-def FSBFWC_FWCOP           : ALU_FWCOP_Inst<"fsbfwc", []> {
-  let Inst{15-14}  = 0b01;
-}
-def FMULWC_FWCOP           : ALU_FWCOP_Inst<"fmulwc", []> {
-  let Inst{15-14}  = 0b10;
-}
-def FFMAWC_FWCOP           : ALU_FWCOP_Inst<"ffmawc", []> {
-  let Inst{15-14}  = 0b11;
-}
+def FFMAWC_FWCOP           : ALU_FWCOP_2_Inst<"ffmawc", []>;
 
 //===----------------------------------------------------------------------===//
 // LSU_COPYO — LSU Copy Octuple Word
@@ -7999,6 +8295,7 @@ class LSU_COPYO_Inst<string mnemonic, list<dag> pattern,
   let Inst{5-2}    = rR;
   let Inst{30-24}  = 0b0110100;
   let Inst{19-16}  = 0b1101;
+  let hasSideEffects = 0;
 }
 
 def COPYO_COPYO            : LSU_COPYO_Inst<"copyo", []>;
@@ -8020,6 +8317,7 @@ class ALU_CATDQ_Inst<string mnemonic, list<dag> pattern,
   let Inst{11-6}   = rY;
   let Inst{30-24}  = 0b1101111;
   let Inst{17-12}  = 0b100101;
+  let hasSideEffects = 0;
 }
 
 def CATDQ_CATDQ            : ALU_CATDQ_Inst<"catdq", []>;
