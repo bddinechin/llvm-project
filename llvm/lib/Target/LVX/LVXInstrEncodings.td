@@ -96,7 +96,6 @@ def ALU_LITE_MISC            : InstrItinClass;
 def ALU_FULL                 : InstrItinClass;
 def ALU_FULL_X               : InstrItinClass;
 def ALU_FULL_Y               : InstrItinClass;
-def ALU_LITE2                : InstrItinClass;
 def LSU                      : InstrItinClass;
 def LSU_X                    : InstrItinClass;
 def LSU_Y                    : InstrItinClass;

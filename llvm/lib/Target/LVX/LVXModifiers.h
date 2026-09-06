@@ -619,24 +619,6 @@ inline int parseAccesses(StringRef s) {
 }
 
 // ────────────────────────────────────────────────────────────────
-// channel — 1 bit  (Extension Channel)
-static const char *ChannelSuffixes[2] = {
-  ".f",     // 0: Forward Channel
-  ".b",     // 1: Backward Channel
-};
-
-inline const char *getChannelSuffix(uint8_t enc) {
-  if (enc >= 2) return nullptr;
-  return ChannelSuffixes[enc];
-}
-
-inline int parseChannel(StringRef s) {
-  if (s == ".f"        ) return 0;
-  if (s == ".b"        ) return 1;
-  return -1;
-}
-
-// ────────────────────────────────────────────────────────────────
 // conjugate — 1 bit  (Complex Conjugate)
 static const char *ConjugateSuffixes[2] = {
   "",       // 0: Default
@@ -669,71 +651,6 @@ inline const char *getImultiplySuffix(uint8_t enc) {
 inline int parseImultiply(StringRef s) {
   if (s == ""          ) return 0;
   if (s == ".mi"       ) return 1;
-  return -1;
-}
-
-// ────────────────────────────────────────────────────────────────
-// realimag — 1 bit  (Complex Part)
-static const char *RealimagSuffixes[2] = {
-  ".r",     // 0: Real Part
-  ".i",     // 1: Imaginary Part
-};
-
-inline const char *getRealimagSuffix(uint8_t enc) {
-  if (enc >= 2) return nullptr;
-  return RealimagSuffixes[enc];
-}
-
-inline int parseRealimag(StringRef s) {
-  if (s == ".r"        ) return 0;
-  if (s == ".i"        ) return 1;
-  return -1;
-}
-
-// ────────────────────────────────────────────────────────────────
-// shuffleV — 1 bit  (Shuffle a Word Vector (1024 bits))
-static const char *ShufflevSuffixes[2] = {
-  "",       // 0: No Shuffle
-  ".td",    // 1: Transpose Double Words 4x4
-};
-
-inline const char *getShufflevSuffix(uint8_t enc) {
-  if (enc >= 2) return nullptr;
-  return ShufflevSuffixes[enc];
-}
-
-inline int parseShufflev(StringRef s) {
-  if (s == ""          ) return 0;
-  if (s == ".td"       ) return 1;
-  return -1;
-}
-
-// ────────────────────────────────────────────────────────────────
-// shuffleX — 3 bits  (Shuffle a Word Hexadecuple (512 bits))
-static const char *ShufflexSuffixes[8] = {
-  "",       // 0: No Shuffle
-  ".zd",    // 1: Zip Double Words
-  ".ud",    // 2: Unzip Double Words
-  ".tq",    // 3: Transpose Quadruple Words 2x2
-  ".tw",    // 4: Transpose Words 4x4
-  ".zw",    // 5: Zip Words
-  ".uw",    // 6: Unzip Words
-  nullptr,  // 7: undefined
-};
-
-inline const char *getShufflexSuffix(uint8_t enc) {
-  if (enc >= 8) return nullptr;
-  return ShufflexSuffixes[enc];
-}
-
-inline int parseShufflex(StringRef s) {
-  if (s == ""          ) return 0;
-  if (s == ".zd"       ) return 1;
-  if (s == ".ud"       ) return 2;
-  if (s == ".tq"       ) return 3;
-  if (s == ".tw"       ) return 4;
-  if (s == ".zw"       ) return 5;
-  if (s == ".uw"       ) return 6;
   return -1;
 }
 
@@ -783,12 +700,8 @@ inline int parseSplat32(StringRef s) {
   X(Coherency, coherency, 2) \
   X(Boolcas, boolcas, 1) \
   X(Accesses, accesses, 2) \
-  X(Channel, channel, 1) \
   X(Conjugate, conjugate, 1) \
   X(Imultiply, imultiply, 1) \
-  X(Realimag, realimag, 1) \
-  X(Shufflev, shuffleV, 1) \
-  X(Shufflex, shuffleX, 3) \
   X(Splat32, splat32, 1)
 
 } // end namespace LVXModifier

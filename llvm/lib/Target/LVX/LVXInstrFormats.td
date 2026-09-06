@@ -366,20 +366,6 @@ def accesses : Operand<i32> {
   let OperandType      = "OPERAND_IMMEDIATE";
 }
 
-// channel — 1 bit  (Extension Channel)
-def LVXChannelAsmOperand : AsmOperandClass {
-  let Name           = "Channel";
-  let ParserMethod   = "parseModifier";
-  let DiagnosticType = "InvalidChannel";
-}
-def channel : Operand<i32> {
-  let PrintMethod      = "printChannel";
-  let EncoderMethod    = "getChannelOpValue";
-  let DecoderMethod    = "decodeChannel";
-  let ParserMatchClass = LVXChannelAsmOperand;
-  let OperandType      = "OPERAND_IMMEDIATE";
-}
-
 // conjugate — 1 bit  (Complex Conjugate)
 def LVXConjugateAsmOperand : AsmOperandClass {
   let Name           = "Conjugate";
@@ -405,48 +391,6 @@ def imultiply : Operand<i32> {
   let EncoderMethod    = "getImultiplyOpValue";
   let DecoderMethod    = "decodeImultiply";
   let ParserMatchClass = LVXImultiplyAsmOperand;
-  let OperandType      = "OPERAND_IMMEDIATE";
-}
-
-// realimag — 1 bit  (Complex Part)
-def LVXRealimagAsmOperand : AsmOperandClass {
-  let Name           = "Realimag";
-  let ParserMethod   = "parseModifier";
-  let DiagnosticType = "InvalidRealimag";
-}
-def realimag : Operand<i32> {
-  let PrintMethod      = "printRealimag";
-  let EncoderMethod    = "getRealimagOpValue";
-  let DecoderMethod    = "decodeRealimag";
-  let ParserMatchClass = LVXRealimagAsmOperand;
-  let OperandType      = "OPERAND_IMMEDIATE";
-}
-
-// shuffleV — 1 bit  (Shuffle a Word Vector (1024 bits))
-def LVXShufflevAsmOperand : AsmOperandClass {
-  let Name           = "Shufflev";
-  let ParserMethod   = "parseModifier";
-  let DiagnosticType = "InvalidShufflev";
-}
-def shuffleV : Operand<i32> {
-  let PrintMethod      = "printShufflev";
-  let EncoderMethod    = "getShufflevOpValue";
-  let DecoderMethod    = "decodeShufflev";
-  let ParserMatchClass = LVXShufflevAsmOperand;
-  let OperandType      = "OPERAND_IMMEDIATE";
-}
-
-// shuffleX — 3 bits  (Shuffle a Word Hexadecuple (512 bits))
-def LVXShufflexAsmOperand : AsmOperandClass {
-  let Name           = "Shufflex";
-  let ParserMethod   = "parseModifier";
-  let DiagnosticType = "InvalidShufflex";
-}
-def shuffleX : Operand<i32> {
-  let PrintMethod      = "printShufflex";
-  let EncoderMethod    = "getShufflexOpValue";
-  let DecoderMethod    = "decodeShufflex";
-  let ParserMatchClass = LVXShufflexAsmOperand;
   let OperandType      = "OPERAND_IMMEDIATE";
 }
 
