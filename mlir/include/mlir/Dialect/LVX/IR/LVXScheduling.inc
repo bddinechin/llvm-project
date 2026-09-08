@@ -32,7 +32,7 @@ enum class Resource : unsigned {
   auxw   = 10,  // Auxiliary core register write port shared with LSU (256 bits).
   xfer   = 11,  // Unconditional control-flow transfer.
   memw   = 12,  // Memory write or memory read-modify-write resource.
-  misc   = 13,  // Extension miscellaneous execution unit.
+  misc   = 13,  // Extension miscellaneous execution units.
   accr   = 14,  // Extension compute execution unit addend port.
   outw   = 15,  // Extension miscellaneous execution unit write port.
 };
@@ -72,7 +72,7 @@ inline constexpr unsigned kResourceAvailability[kNumResources] = {
   2,  // auxw,
   1,  // xfer,
   1,  // memw,
-  1,  // misc,
+  2,  // misc,
   1,  // accr,
   1,  // outw
 };

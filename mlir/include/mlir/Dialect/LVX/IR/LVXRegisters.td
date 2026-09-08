@@ -126,17 +126,11 @@ def LVX_RegisterAttr : I64EnumAttr<
       I64EnumAttrCase<"teh",    94,  "teh"    >,  // s30
       I64EnumAttrCase<"ixc",    95,  "ixc"    >,  // s31
       I64EnumAttrCase<"syo",    96,  "syo"    >,  // s32
-      I64EnumAttrCase<"syow",   160, "syow"   >,  // s96
       I64EnumAttrCase<"hto",    97,  "hto"    >,  // s33
-      I64EnumAttrCase<"htow",   161, "htow"   >,  // s97
       I64EnumAttrCase<"ito",    98,  "ito"    >,  // s34
-      I64EnumAttrCase<"itow",   162, "itow"   >,  // s98
       I64EnumAttrCase<"do_",    99,  "do"     >,  // s35
-      I64EnumAttrCase<"dow",    163, "dow"    >,  // s99
       I64EnumAttrCase<"mo",     100, "mo"     >,  // s36
-      I64EnumAttrCase<"mow",    164, "mow"    >,  // s100
       I64EnumAttrCase<"pso",    101, "pso"    >,  // s37
-      I64EnumAttrCase<"psow",   165, "psow"   >,  // s101
       I64EnumAttrCase<"tpcm0",  102, "tpcm0"  >,  // s38
       I64EnumAttrCase<"tpcm1",  103, "tpcm1"  >,  // s39
       I64EnumAttrCase<"res40",  104, "res40"  >,  // s40
@@ -195,6 +189,12 @@ def LVX_RegisterAttr : I64EnumAttr<
       I64EnumAttrCase<"sr1_pl1", 157, "sr1_pl1">,  // s93
       I64EnumAttrCase<"sr1_pl2", 158, "sr1_pl2">,  // s94
       I64EnumAttrCase<"sr1_pl3", 159, "sr1_pl3">,  // s95
+      I64EnumAttrCase<"syow",   160, "syow"   >,  // s96
+      I64EnumAttrCase<"htow",   161, "htow"   >,  // s97
+      I64EnumAttrCase<"itow",   162, "itow"   >,  // s98
+      I64EnumAttrCase<"dow",    163, "dow"    >,  // s99
+      I64EnumAttrCase<"mow",    164, "mow"    >,  // s100
+      I64EnumAttrCase<"psow",   165, "psow"   >,  // s101
       I64EnumAttrCase<"res102", 166, "res102" >,  // s102
       I64EnumAttrCase<"res103", 167, "res103" >,  // s103
       I64EnumAttrCase<"tpcc_pl0", 168, "tpcc_pl0">,  // s104

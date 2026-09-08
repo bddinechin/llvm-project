@@ -264,43 +264,6 @@ def LVX_AccessesAttr : I64EnumAttr<
   let cppNamespace = "::mlir::lvx";
 }
 
-// `channel` -- Extension Channel.  1 bit.
-def LVX_ChannelAttr : I64EnumAttr<
-    "Channel", "LVX Extension Channel modifier",
-    [
-      I64EnumAttrCase<"f", 0,   "f">,  // Forward Channel
-      I64EnumAttrCase<"b", 1,   "b">,  // Backward Channel
-    ]> {
-  let cppNamespace = "::mlir::lvx";
-}
-
-// `realimag` -- Complex Part.  1 bit.
-def LVX_RealImagAttr : I64EnumAttr<
-    "RealImag", "LVX Complex Part modifier",
-    [
-      I64EnumAttrCase<"r", 0,   "r">,  // Real Part
-      I64EnumAttrCase<"i", 1,   "i">,  // Imaginary Part
-    ]> {
-  let cppNamespace = "::mlir::lvx";
-}
-
-// `shuffleX` -- Shuffle a Word Hexadecuple (512 bits).  3 bits.
-//
-// Absent attribute means the default encoding, which has no member
-// here by design -- see the BE/MLIR design document, O4.
-def LVX_ShuffleXAttr : I64EnumAttr<
-    "ShuffleX", "LVX Shuffle a Word Hexadecuple (512 bits) modifier",
-    [
-      I64EnumAttrCase<"zd", 1,   "zd">,  // Zip Double Words
-      I64EnumAttrCase<"ud", 2,   "ud">,  // Unzip Double Words
-      I64EnumAttrCase<"tq", 3,   "tq">,  // Transpose Quadruple Words 2x2
-      I64EnumAttrCase<"tw", 4,   "tw">,  // Transpose Words 4x4
-      I64EnumAttrCase<"zw", 5,   "zw">,  // Zip Words
-      I64EnumAttrCase<"uw", 6,   "uw">,  // Unzip Words
-    ]> {
-  let cppNamespace = "::mlir::lvx";
-}
-
 // Two-state modifiers.  These carry no enum: the dialect spells them as a
 // UnitAttr on each op that has them -- present or absent -- so their defs
 // live with the ops rather than here.
@@ -315,7 +278,6 @@ def LVX_ShuffleXAttr : I64EnumAttr<
 //   boolcas      .v       Boolean Compare-and-Swap
 //   conjugate    .c       Complex Conjugate
 //   imultiply    .mi      Multiply by Imaginary Unit
-//   shuffleV     .td      Shuffle a Word Vector (1024 bits)
 //   splat32      .@       Splat 32-bit Immediate
 
 // Format-extension suffix (O1). The bare format has NO member: absence
