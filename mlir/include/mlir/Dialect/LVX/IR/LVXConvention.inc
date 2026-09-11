@@ -3,7 +3,7 @@
 // The 'regular' calling convention's register sets.
 //
 // Generated from the LVX Machine Description System by MDS/BE/MLIR, for core
-// lvx_v1.  DO NOT EDIT -- your changes will be overwritten by the next
+// lvx_v2.  DO NOT EDIT -- your changes will be overwritten by the next
 // `make -C BE/MLIR install`.  Change lvx-mds/lvx-family's YAML description,
 // or the generator in MDS/BE/MLIR/BIN, instead.
 //

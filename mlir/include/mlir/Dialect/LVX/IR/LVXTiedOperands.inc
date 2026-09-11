@@ -3,7 +3,7 @@
 // Operands tied to a result, by op mnemonic.
 //
 // Generated from the LVX Machine Description System by MDS/BE/MLIR, for core
-// lvx_v1.  DO NOT EDIT -- your changes will be overwritten by the next
+// lvx_v2.  DO NOT EDIT -- your changes will be overwritten by the next
 // `make -C BE/MLIR install`.  Change lvx-mds/lvx-family's YAML description,
 // or the generator in MDS/BE/MLIR/BIN, instead.
 //
@@ -111,9 +111,17 @@ inline ::llvm::ArrayRef<TiedOperand> tiedOperandsOf(::llvm::StringRef mnemonic) 
   static constexpr TiedOperand k_aswaph_i[] = {TiedOperand{1, 0}};
   static constexpr TiedOperand k_aswapw[] = {TiedOperand{1, 0}};
   static constexpr TiedOperand k_aswapw_i[] = {TiedOperand{1, 0}};
+  static constexpr TiedOperand k_cmovebx[] = {TiedOperand{2, 1}};
+  static constexpr TiedOperand k_cmovebx_i[] = {TiedOperand{1, 1}};
   static constexpr TiedOperand k_cmoved[] = {TiedOperand{2, 0}};
   static constexpr TiedOperand k_cmoved_i[] = {TiedOperand{1, 0}};
+  static constexpr TiedOperand k_cmovedp[] = {TiedOperand{2, 1}};
+  static constexpr TiedOperand k_cmovedp_i[] = {TiedOperand{1, 1}};
+  static constexpr TiedOperand k_cmoveho[] = {TiedOperand{2, 1}};
+  static constexpr TiedOperand k_cmoveho_i[] = {TiedOperand{1, 1}};
   static constexpr TiedOperand k_cmoveq[] = {TiedOperand{2, 1}};
+  static constexpr TiedOperand k_cmovewq[] = {TiedOperand{2, 1}};
+  static constexpr TiedOperand k_cmovewq_i[] = {TiedOperand{1, 1}};
   static constexpr TiedOperand k_crcbellw[] = {TiedOperand{2, 0}};
   static constexpr TiedOperand k_crcbellw_i[] = {TiedOperand{1, 0}};
   static constexpr TiedOperand k_crcbelmw[] = {TiedOperand{2, 0}};
@@ -126,12 +134,18 @@ inline ::llvm::ArrayRef<TiedOperand> tiedOperandsOf(::llvm::StringRef mnemonic) 
   static constexpr TiedOperand k_csrrs[] = {TiedOperand{0, 0}};
   static constexpr TiedOperand k_csrrw[] = {TiedOperand{0, 0}};
   static constexpr TiedOperand k_ffmad[] = {TiedOperand{2, 0}};
+  static constexpr TiedOperand k_ffmadp[] = {TiedOperand{2, 1}};
   static constexpr TiedOperand k_ffmah[] = {TiedOperand{2, 0}};
+  static constexpr TiedOperand k_ffmaho[] = {TiedOperand{2, 1}};
   static constexpr TiedOperand k_ffmaw[] = {TiedOperand{2, 0}};
   static constexpr TiedOperand k_ffmawc[] = {TiedOperand{2, 0}};
+  static constexpr TiedOperand k_ffmawq[] = {TiedOperand{2, 1}};
   static constexpr TiedOperand k_ffmsd[] = {TiedOperand{2, 0}};
+  static constexpr TiedOperand k_ffmsdp[] = {TiedOperand{2, 1}};
   static constexpr TiedOperand k_ffmsh[] = {TiedOperand{2, 0}};
+  static constexpr TiedOperand k_ffmsho[] = {TiedOperand{2, 1}};
   static constexpr TiedOperand k_ffmsw[] = {TiedOperand{2, 0}};
+  static constexpr TiedOperand k_ffmswq[] = {TiedOperand{2, 1}};
   static constexpr TiedOperand k_frcsr[] = {TiedOperand{0, 0}};
   static constexpr TiedOperand k_frflags[] = {TiedOperand{0, 0}};
   static constexpr TiedOperand k_frrm[] = {TiedOperand{0, 0}};
@@ -142,23 +156,39 @@ inline ::llvm::ArrayRef<TiedOperand> tiedOperandsOf(::llvm::StringRef mnemonic) 
   static constexpr TiedOperand k_insf[] = {TiedOperand{1, 0}};
   static constexpr TiedOperand k_maddd[] = {TiedOperand{2, 0}};
   static constexpr TiedOperand k_maddd_i[] = {TiedOperand{1, 0}};
+  static constexpr TiedOperand k_madddp[] = {TiedOperand{2, 1}};
+  static constexpr TiedOperand k_maddho[] = {TiedOperand{2, 1}};
   static constexpr TiedOperand k_maddw[] = {TiedOperand{2, 0}};
   static constexpr TiedOperand k_maddw_i[] = {TiedOperand{1, 0}};
+  static constexpr TiedOperand k_maddwq[] = {TiedOperand{2, 1}};
+  static constexpr TiedOperand k_maddxbho[] = {TiedOperand{2, 1}};
   static constexpr TiedOperand k_maddxdq[] = {TiedOperand{2, 1}};
+  static constexpr TiedOperand k_maddxhwq[] = {TiedOperand{2, 1}};
   static constexpr TiedOperand k_maddxwd[] = {TiedOperand{2, 0}};
   static constexpr TiedOperand k_maddxwd_i[] = {TiedOperand{1, 0}};
+  static constexpr TiedOperand k_maddxwdp[] = {TiedOperand{2, 1}};
   static constexpr TiedOperand k_msbfd[] = {TiedOperand{2, 0}};
   static constexpr TiedOperand k_msbfd_i[] = {TiedOperand{1, 0}};
+  static constexpr TiedOperand k_msbfdp[] = {TiedOperand{2, 1}};
+  static constexpr TiedOperand k_msbfho[] = {TiedOperand{2, 1}};
   static constexpr TiedOperand k_msbfw[] = {TiedOperand{2, 0}};
   static constexpr TiedOperand k_msbfw_i[] = {TiedOperand{1, 0}};
+  static constexpr TiedOperand k_msbfwq[] = {TiedOperand{2, 1}};
+  static constexpr TiedOperand k_msbfxbho[] = {TiedOperand{2, 1}};
   static constexpr TiedOperand k_msbfxdq[] = {TiedOperand{2, 1}};
+  static constexpr TiedOperand k_msbfxhwq[] = {TiedOperand{2, 1}};
   static constexpr TiedOperand k_msbfxwd[] = {TiedOperand{2, 0}};
   static constexpr TiedOperand k_msbfxwd_i[] = {TiedOperand{1, 0}};
+  static constexpr TiedOperand k_msbfxwdp[] = {TiedOperand{2, 1}};
   static constexpr TiedOperand k_rswap[] = {TiedOperand{0, 0}, TiedOperand{1, 1}};
   static constexpr TiedOperand k_sbmm8eord[] = {TiedOperand{2, 0}};
   static constexpr TiedOperand k_sbmm8eord_i[] = {TiedOperand{1, 0}};
+  static constexpr TiedOperand k_sbmm8eordp[] = {TiedOperand{2, 1}};
+  static constexpr TiedOperand k_sbmm8eordp_i[] = {TiedOperand{1, 1}};
   static constexpr TiedOperand k_sbmmt8eord[] = {TiedOperand{2, 0}};
   static constexpr TiedOperand k_sbmmt8eord_i[] = {TiedOperand{1, 0}};
+  static constexpr TiedOperand k_sbmmt8eordp[] = {TiedOperand{2, 1}};
+  static constexpr TiedOperand k_sbmmt8eordp_i[] = {TiedOperand{1, 1}};
   static constexpr TiedOperand k_waitit[] = {TiedOperand{0, 0}};
   return ::llvm::StringSwitch<::llvm::ArrayRef<TiedOperand>>(mnemonic)
       .Case("aladdb",          k_aladdb)
@@ -241,9 +271,17 @@ inline ::llvm::ArrayRef<TiedOperand> tiedOperandsOf(::llvm::StringRef mnemonic) 
       .Case("aswaph_i",        k_aswaph_i)
       .Case("aswapw",          k_aswapw)
       .Case("aswapw_i",        k_aswapw_i)
+      .Case("cmovebx",         k_cmovebx)
+      .Case("cmovebx_i",       k_cmovebx_i)
       .Case("cmoved",          k_cmoved)
       .Case("cmoved_i",        k_cmoved_i)
+      .Case("cmovedp",         k_cmovedp)
+      .Case("cmovedp_i",       k_cmovedp_i)
+      .Case("cmoveho",         k_cmoveho)
+      .Case("cmoveho_i",       k_cmoveho_i)
       .Case("cmoveq",          k_cmoveq)
+      .Case("cmovewq",         k_cmovewq)
+      .Case("cmovewq_i",       k_cmovewq_i)
       .Case("crcbellw",        k_crcbellw)
       .Case("crcbellw_i",      k_crcbellw_i)
       .Case("crcbelmw",        k_crcbelmw)
@@ -256,12 +294,18 @@ inline ::llvm::ArrayRef<TiedOperand> tiedOperandsOf(::llvm::StringRef mnemonic) 
       .Case("csrrs",           k_csrrs)
       .Case("csrrw",           k_csrrw)
       .Case("ffmad",           k_ffmad)
+      .Case("ffmadp",          k_ffmadp)
       .Case("ffmah",           k_ffmah)
+      .Case("ffmaho",          k_ffmaho)
       .Case("ffmaw",           k_ffmaw)
       .Case("ffmawc",          k_ffmawc)
+      .Case("ffmawq",          k_ffmawq)
       .Case("ffmsd",           k_ffmsd)
+      .Case("ffmsdp",          k_ffmsdp)
       .Case("ffmsh",           k_ffmsh)
+      .Case("ffmsho",          k_ffmsho)
       .Case("ffmsw",           k_ffmsw)
+      .Case("ffmswq",          k_ffmswq)
       .Case("frcsr",           k_frcsr)
       .Case("frflags",         k_frflags)
       .Case("frrm",            k_frrm)
@@ -272,23 +316,39 @@ inline ::llvm::ArrayRef<TiedOperand> tiedOperandsOf(::llvm::StringRef mnemonic) 
       .Case("insf",            k_insf)
       .Case("maddd",           k_maddd)
       .Case("maddd_i",         k_maddd_i)
+      .Case("madddp",          k_madddp)
+      .Case("maddho",          k_maddho)
       .Case("maddw",           k_maddw)
       .Case("maddw_i",         k_maddw_i)
+      .Case("maddwq",          k_maddwq)
+      .Case("maddxbho",        k_maddxbho)
       .Case("maddxdq",         k_maddxdq)
+      .Case("maddxhwq",        k_maddxhwq)
       .Case("maddxwd",         k_maddxwd)
       .Case("maddxwd_i",       k_maddxwd_i)
+      .Case("maddxwdp",        k_maddxwdp)
       .Case("msbfd",           k_msbfd)
       .Case("msbfd_i",         k_msbfd_i)
+      .Case("msbfdp",          k_msbfdp)
+      .Case("msbfho",          k_msbfho)
       .Case("msbfw",           k_msbfw)
       .Case("msbfw_i",         k_msbfw_i)
+      .Case("msbfwq",          k_msbfwq)
+      .Case("msbfxbho",        k_msbfxbho)
       .Case("msbfxdq",         k_msbfxdq)
+      .Case("msbfxhwq",        k_msbfxhwq)
       .Case("msbfxwd",         k_msbfxwd)
       .Case("msbfxwd_i",       k_msbfxwd_i)
+      .Case("msbfxwdp",        k_msbfxwdp)
       .Case("rswap",           k_rswap)
       .Case("sbmm8eord",       k_sbmm8eord)
       .Case("sbmm8eord_i",     k_sbmm8eord_i)
+      .Case("sbmm8eordp",      k_sbmm8eordp)
+      .Case("sbmm8eordp_i",    k_sbmm8eordp_i)
       .Case("sbmmt8eord",      k_sbmmt8eord)
       .Case("sbmmt8eord_i",    k_sbmmt8eord_i)
+      .Case("sbmmt8eordp",     k_sbmmt8eordp)
+      .Case("sbmmt8eordp_i",   k_sbmmt8eordp_i)
       .Case("waitit",          k_waitit)
       .Default(::llvm::ArrayRef<TiedOperand>());
 }

@@ -3,7 +3,7 @@
 // Enumerated attributes for the LVX instruction modifiers.
 //
 // Generated from the LVX Machine Description System by MDS/BE/MLIR, for core
-// lvx_v1.  DO NOT EDIT -- your changes will be overwritten by the next
+// lvx_v2.  DO NOT EDIT -- your changes will be overwritten by the next
 // `make -C BE/MLIR install`.  Change lvx-mds/lvx-family's YAML description,
 // or the generator in MDS/BE/MLIR/BIN, instead.
 //
@@ -288,12 +288,12 @@ def LVX_AccessesAttr : I64EnumAttr<
 def LVX_FormatAttr : I64EnumAttr<
     "Format", "LVX format-extension suffix",
     [
-      I64EnumAttrCase<"d",  0, "d"  >,  // 93 formats
-      I64EnumAttrCase<"m",  1, "m"  >,  // 57 formats
-      I64EnumAttrCase<"o",  2, "o"  >,  // 93 formats
+      I64EnumAttrCase<"d",  0, "d"  >,  // 129 formats
+      I64EnumAttrCase<"m",  1, "m"  >,  // 167 formats
+      I64EnumAttrCase<"o",  2, "o"  >,  // 129 formats
       I64EnumAttrCase<"w",  3, "w"  >,  // 43 formats
-      I64EnumAttrCase<"x",  4, "x"  >,  // 44 formats
-      I64EnumAttrCase<"y",  5, "y"  >,  // 40 formats
+      I64EnumAttrCase<"x",  4, "x"  >,  // 48 formats
+      I64EnumAttrCase<"y",  5, "y"  >,  // 44 formats
     ]> {
   let cppNamespace = "::mlir::lvx";
 }
