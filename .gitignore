@@ -88,3 +88,11 @@ pythonenv*
 /clang/utils/analyzer/projects/*/RefScanBuildResults
 # automodapi puts generated documentation files here.
 /lldb/docs/python_api/
+
+# Delivered by lvx-mds from lvx-refs (superproject: make export); not versioned here.
+/llvm/lib/Target/LVX/LVXModifiers.h
+/llvm/lib/Target/LVX/LVXInstrFormats.td
+/llvm/lib/Target/LVX/LVXInstrEncodings.td
+/llvm/lib/Target/LVX/LVXInstrPatterns.td
+/llvm/lib/Target/LVX/LVXImmediateExtensions.inc
+/llvm/lib/Target/LVX/LVXMemoryTable.inc
