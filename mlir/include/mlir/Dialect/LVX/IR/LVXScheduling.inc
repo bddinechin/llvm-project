@@ -1198,6 +1198,10 @@ inline constexpr const Reservation *kS_sluswq[] = {nullptr, nullptr, nullptr, nu
 inline constexpr const Reservation *kS_sluswq_i[] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &kR_ALU_LITE};
 inline constexpr const Reservation *kS_so[] = {nullptr, nullptr, nullptr, nullptr, &kR_LSU_MEMW_AUXR_X, &kR_LSU_MEMW_AUXR_Y, &kR_LSU_MEMW_AUXR};
 inline constexpr const Reservation *kS_so_r[] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &kR_LSU_MEMW_AUXR};
+inline constexpr const Reservation *kS_splatbq[] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &kR_ALU_LITE};
+inline constexpr const Reservation *kS_splatdq[] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &kR_ALU_LITE};
+inline constexpr const Reservation *kS_splathq[] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &kR_ALU_LITE};
+inline constexpr const Reservation *kS_splatwq[] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &kR_ALU_LITE};
 inline constexpr const Reservation *kS_sq[] = {nullptr, nullptr, nullptr, nullptr, &kR_LSU_MEMW_AUXR_X, &kR_LSU_MEMW_AUXR_Y, &kR_LSU_MEMW_AUXR};
 inline constexpr const Reservation *kS_sq_r[] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &kR_LSU_MEMW_AUXR};
 inline constexpr const Reservation *kS_srabx[] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &kR_ALU_LITE};
@@ -2270,6 +2274,10 @@ inline const Reservation *reservationOf(::llvm::StringRef mnemonic,
           .Case("sluswq_i",        kS_sluswq_i)
           .Case("so",              kS_so)
           .Case("so_r",            kS_so_r)
+          .Case("splatbq",         kS_splatbq)
+          .Case("splatdq",         kS_splatdq)
+          .Case("splathq",         kS_splathq)
+          .Case("splatwq",         kS_splatwq)
           .Case("sq",              kS_sq)
           .Case("sq_r",            kS_sq_r)
           .Case("srabx",           kS_srabx)
