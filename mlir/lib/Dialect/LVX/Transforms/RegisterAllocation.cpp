@@ -91,6 +91,11 @@ struct AllocItem {
   // Coalesced `lvx_scf.for` channels aren't spillable yet -- see
   // lvx-mlir/docs/RegisterAllocation.md, "What remains a hard error".
   bool isGroup() const { return members.size() > 1; }
+  /// Whether the scan may evict this item, or spill it when it cannot be
+  /// placed: not a group, and not a quad -- the scratch set has no quad to
+  /// reload one into (lvx-mlir/docs/RegisterAllocation.md, "Spilling a
+  /// tuple").
+  bool isSpillable() const { return !isGroup() && width < 4; }
 
   unsigned base() const { return fixed ? fixed->base : *assigned; }
   PhysLoc loc() const { return {base(), width}; }
@@ -899,10 +904,14 @@ struct LVXAllocateRegistersPass
     };
 
     unsigned frameSize = 0;
+    // A slot is 8 * width bytes, aligned to its own size: `sq`/`so` want
+    // their natural alignment, and the frame's base is 32-byte aligned.
     auto allocateSpillSlot = [&](AllocItem &victim) {
+      unsigned size = 8 * victim.width;
+      frameSize = (frameSize + size - 1) / size * size;
       victim.spilled = true;
       victim.spillOffset = frameSize;
-      frameSize += 8;
+      frameSize += size;
     };
     for (unsigned idx = 0, e = items.size(); idx != e; ++idx) {
       AllocItem &item = items[idx];
@@ -928,31 +937,69 @@ struct LVXAllocateRegistersPass
         continue;
       }
 
-      // SpillAtInterval (Fig. 1): among the currently-active items whose
-      // register would actually help `item` (in its allowed pool, not
-      // fixed, not an unspillable coalesced group), spill whichever ends
-      // furthest -- `active` is sorted by increasing end, so scan from the
-      // back for the first eligible one. See lvx-mlir/docs/RegisterAllocation.md,
-      // "Spill heuristic".
-      std::optional<unsigned> victimIdx;
-      for (auto it = active.rbegin(), ie = active.rend(); it != ie; ++it) {
-        const AllocItem &cand = items[*it];
-        if (cand.isFixed() || cand.isGroup())
+      // SpillAtInterval (Fig. 1), over blocks (lvx-mlir/docs/
+      // RegisterAllocation.md, "Step 4", "The scan"): for each candidate
+      // block of `item`'s width in its pool, the occupants are the active
+      // items whose block overlaps it -- one for a single, possibly several
+      // narrower ones or one wider one for a tuple. A block is eligible if
+      // every occupant is spillable, and its cost is the earliest occupant
+      // end: the block is worth taking only if every occupant outlives
+      // `item`, which is Fig. 1's `victim.end > item.end` applied to all of
+      // them. Take the eligible block of greatest cost; among equals, the
+      // one that spills fewest, then the one whose occupant sits latest in
+      // `active` -- which for a single is exactly "scan `active` from the
+      // back for the first eligible item", the rule this had before.
+      std::optional<unsigned> bestBase;
+      unsigned bestCost = 0, bestCount = 0, bestLast = 0;
+      SmallVector<unsigned, 4> bestOccupants, occupants;
+      for (unsigned base : orderFor(item.width)) {
+        PhysLoc loc{base, item.width};
+        if (!inPool(loc, item.crossesCall, this->maxRegisters))
           continue;
-        if (!inPool(cand.loc(), item.crossesCall, this->maxRegisters))
+        occupants.clear();
+        unsigned cost = ~0u, last = 0;
+        bool eligible = true;
+        for (auto [pos, actIdx] : llvm::enumerate(active)) {
+          const AllocItem &cand = items[actIdx];
+          if (!cand.loc().overlaps(loc))
+            continue;
+          if (cand.isFixed() || !cand.isSpillable()) {
+            eligible = false;
+            break;
+          }
+          occupants.push_back(actIdx);
+          cost = std::min(cost, cand.end);
+          last = pos;
+        }
+        if (!eligible || occupants.empty())
           continue;
-        victimIdx = *it;
-        break;
+        unsigned count = occupants.size();
+        bool better = !bestBase || cost > bestCost ||
+                      (cost == bestCost &&
+                       (count < bestCount ||
+                        (count == bestCount && last > bestLast)));
+        if (better) {
+          bestBase = base;
+          bestCost = cost;
+          bestCount = count;
+          bestLast = last;
+          bestOccupants = occupants;
+        }
       }
 
-      if (victimIdx && items[*victimIdx].end > item.end) {
-        AllocItem &victim = items[*victimIdx];
-        unsigned freed = *victim.assigned;
-        victim.assigned = std::nullopt;
-        allocateSpillSlot(victim);
-        active.erase(llvm::find(active, *victimIdx));
-        item.assigned = freed;
-        // inUse[freed] stays true -- it moves from victim to item.
+      if (bestBase && bestCost > item.end) {
+        for (unsigned victimIdx : bestOccupants) {
+          AllocItem &victim = items[victimIdx];
+          // The whole of a wider occupant's block is released, not just
+          // the part under `item` -- evicting a quad for a pair frees the
+          // other two units too.
+          markInUse(inUse, victim.loc(), false);
+          victim.assigned = std::nullopt;
+          allocateSpillSlot(victim);
+          active.erase(llvm::find(active, victimIdx));
+        }
+        item.assigned = *bestBase;
+        markInUse(inUse, item.loc(), true);
         insertActive(idx);
         continue;
       }
@@ -964,6 +1011,14 @@ struct LVXAllocateRegistersPass
                "channel, lvx_cf branch edge, or ffma/ffms accumulator) is "
                "not yet implemented (live range [" << item.start << ", "
             << item.end << "])";
+        return signalPassFailure();
+      }
+      if (!item.isSpillable()) {
+        mlir::emitError(item.frontValue().getLoc())
+            << "linear scan register allocation failed: no free aligned "
+               "quadruple, and a quad cannot be spilled -- the scratch set "
+               "has no quad to reload it into (live range [" << item.start
+            << ", " << item.end << "])";
         return signalPassFailure();
       }
       allocateSpillSlot(item);
