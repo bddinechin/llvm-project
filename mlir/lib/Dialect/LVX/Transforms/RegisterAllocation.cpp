@@ -59,10 +59,10 @@ namespace {
 /// see lvx-mlir/docs/RegisterAllocation.md.
 ///
 /// An item occupies a block of `width` units (RegisterUnits.h); each member
-/// sits at an `offset` within it. Today every member is at offset 0 with the
-/// item's own width -- the coalescing edges all join values of one type --
-/// and the offset exists for lane views (lvx-mlir/docs/RegisterAllocation.md,
-/// "Lane views"), where a `!lvx.reg` is lane k of a pair.
+/// sits at an `offset` within it. The coalescing edges above all join values
+/// of one type, at offset 0; a lane view (`lvx.lane %p[k]`, lvx-mlir/docs/
+/// RegisterAllocation.md, "Lane views") joins the narrower value at offset
+/// k, so that after allocation it is the register that lane is.
 struct AllocMember {
   Value value;
   unsigned offset;
@@ -87,14 +87,20 @@ struct AllocItem {
   bool spilled = false;
   std::optional<unsigned> spillOffset;
 
+  /// Whether some member was joined by a loop-carried, branch-edge or
+  /// tied-operand edge. Such a group is tied together by control flow, and
+  /// reloading one member does not put the value where the others expect
+  /// it, so it is not spillable -- lvx-mlir/docs/RegisterAllocation.md,
+  /// "What remains a hard error". A group joined only by lane views is tied
+  /// by layout, which a spill slot preserves, and spills like any item.
+  bool coalescedByControl = false;
+
   bool isFixed() const { return fixed.has_value(); }
-  // Coalesced `lvx_scf.for` channels aren't spillable yet -- see
-  // lvx-mlir/docs/RegisterAllocation.md, "What remains a hard error".
-  bool isGroup() const { return members.size() > 1; }
+  bool isGroup() const { return coalescedByControl; }
   /// Whether the scan may evict this item, or spill it when it cannot be
-  /// placed: not a group, and not a quad -- the scratch set has no quad to
-  /// reload one into (lvx-mlir/docs/RegisterAllocation.md, "Spilling a
-  /// tuple").
+  /// placed: not a control group, and not a quad -- the scratch set has no
+  /// quad to reload one into (lvx-mlir/docs/RegisterAllocation.md,
+  /// "Spilling a tuple").
   bool isSpillable() const { return !isGroup() && width < 4; }
 
   unsigned base() const { return fixed ? fixed->base : *assigned; }
@@ -187,9 +193,8 @@ static bool isCalleeSaved(Register r) { return isIn(r, kCalleeSavedRegs); }
 // handed to an ordinary long-lived item), used exclusively for a spilled
 // value's transient def-then-store or reload-then-use window. Sized for
 // the worst case among currently-defined ops needing several
-// simultaneously (lvx.cmoved/cmovew's 3 register operands,
-// lvx.divmodd/.../'s 2 results) -- see lvx-mlir/docs/RegisterAllocation.md,
-// "Reserved scratch registers".
+// simultaneously (lvx.cmoved/cmovew's 3 register operands) -- see
+// lvx-mlir/docs/RegisterAllocation.md, "Reserved scratch registers".
 //
 // These must be *caller*-saved (R61-R63 are, per `Convention.table`): the
 // scratch window is transient and never crosses a call, so nothing has to
@@ -197,8 +202,8 @@ static bool isCalleeSaved(Register r) { return isIn(r, kCalleeSavedRegs); }
 // clobber the caller's value in a register it is entitled to get back,
 // with no save to match. R29-R31 (the previous choice) are callee-saved,
 // which made every spilling function ABI-illegal against lvx-gcc callers.
-// R62:R63 is an even/odd aligned pair, which `lvx.divmodd`'s `registerM`
-// destination requires (see RewriteDivmod.cpp).
+// R62:R63 is an even/odd aligned pair: the scratch a spilled `!lvx.pair`
+// is stored from and reloaded into (ScratchUnits below).
 //===----------------------------------------------------------------------===//
 
 static constexpr const Register *kSpillScratchRegs = kScratchRegs;
@@ -502,8 +507,10 @@ static void insertFmaAccumulatorPreservingCopies(lvx_func::FuncOp func) {
 
 static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
                                               const LVXLiveIntervals &live,
-                                              bool &conflictingFixedGroup) {
+                                              bool &conflictingFixedGroup,
+                                              bool &conflictingLaneGroup) {
   conflictingFixedGroup = false;
+  conflictingLaneGroup = false;
   DenseSet<Value> grouped;
   SmallVector<AllocItem> items;
 
@@ -516,23 +523,53 @@ static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
   // inner and outer channels as two independent groups can each pick a
   // different register for that shared value, which is exactly the bug
   // this fixes (lvx-mlir/docs/RegisterAllocation.md, "nested lvx_scf.for").
+  //
+  // The union-find is weighted: each value has an offset within its group's
+  // block, and `delta[v]` is offset(v) - offset(parent[v]). Every edge but a
+  // lane view joins two values at the same offset; a lane view joins the
+  // lane at `index` above its source. Offsets are relative to the root and
+  // may be negative until the item normalizes them.
   DenseMap<Value, Value> parent;
-  auto find = [&](Value v) {
+  DenseMap<Value, int> delta;
+  // Returns the root and v's offset relative to it.
+  auto find = [&](Value v) -> std::pair<Value, int> {
+    SmallVector<Value, 8> path;
     Value root = v;
+    int offset = 0;
     for (auto it = parent.find(root); it != parent.end() && it->second != root;
-        it = parent.find(root))
+         it = parent.find(root)) {
+      path.push_back(root);
+      offset += delta.lookup(root);
       root = it->second;
-    for (Value cur = v; cur != root;) {
-      Value next = parent.lookup(cur);
-      parent[cur] = root;
-      cur = next;
     }
-    return root;
+    // Path compression, keeping each node's offset relative to the root.
+    int acc = offset;
+    for (Value cur : path) {
+      int own = delta.lookup(cur);
+      parent[cur] = root;
+      delta[cur] = acc;
+      acc -= own;
+    }
+    return {root, offset};
   };
+  // Records offset(a) == offset(b) + d; false if the group already says
+  // otherwise.
+  auto uniteAt = [&](Value a, Value b, int d) {
+    auto [ra, oa] = find(a);
+    auto [rb, ob] = find(b);
+    if (ra == rb)
+      return oa == ob + d;
+    parent[ra] = rb;
+    delta[ra] = ob + d - oa;
+    return true;
+  };
+  // The control-flow edges: a value joined by one makes its group
+  // unspillable (AllocItem::coalescedByControl).
+  DenseSet<Value> controlJoined;
   auto unite = [&](Value a, Value b) {
-    Value ra = find(a), rb = find(b);
-    if (ra != rb)
-      parent[ra] = rb;
+    (void)uniteAt(a, b, 0);
+    controlJoined.insert(a);
+    controlJoined.insert(b);
   };
 
   SmallVector<Value> orderedValues;
@@ -607,21 +644,44 @@ static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
     }
   });
 
+  // Lane views: `lvx.lane %s[k]` names the units `k .. k+width` of `%s`'s
+  // block, so the result joins the source's group at offset k. Two views
+  // that would place one value at two offsets -- a branch that merges lane
+  // 0 with lane 1, say -- cannot be satisfied and are reported.
+  func.walk([&](LaneOp lane) {
+    if (!uniteAt(lane.getResult(), lane.getSource(), lane.getIndex()))
+      conflictingLaneGroup = true;
+    orderedValues.append({lane.getSource(), lane.getResult()});
+  });
+
   // Build one AllocItem per union-find root, in first-encountered order
   // (deterministic -- driven by `orderedValues`, not by DenseMap iteration
   // order). A value already merged into its group (`grouped`) is skipped
   // on later occurrences, which is exactly how a shared inner/outer value
   // ends up contributing to its group only once despite appearing in two
   // tuples above.
+  //
+  // Offsets are normalized per item so the lowest member sits at 0: the
+  // root's offset is 0 by construction, but a tuple joined *after* one of
+  // its lanes sits below it.
   DenseMap<Value, unsigned> rootToItemIndex;
+  DenseMap<Value, int> lowestOffset;
+  for (Value v : orderedValues) {
+    auto [root, offset] = find(v);
+    auto [it, inserted] = lowestOffset.try_emplace(root, offset);
+    if (!inserted)
+      it->second = std::min(it->second, offset);
+  }
   for (Value v : orderedValues) {
     if (!grouped.insert(v).second)
       continue;
-    Value root = find(v);
+    auto [root, offset] = find(v);
     auto [it, inserted] = rootToItemIndex.try_emplace(root, items.size());
     if (inserted)
       items.emplace_back();
-    mergeValue(items[it->second], v, live);
+    AllocItem &item = items[it->second];
+    mergeValue(item, v, live, offset - lowestOffset.lookup(root));
+    item.coalescedByControl |= controlJoined.contains(v);
   }
 
   // Detect a genuine conflicting-fixed-register case across each merged
@@ -781,61 +841,156 @@ static Value insertPrologueEpilogue(lvx_func::FuncOp func, unsigned frameSize,
   return spBase;
 }
 
+/// The spill scratch, by width (lvx-mlir/docs/RegisterAllocation.md,
+/// "Reserved scratch registers", "Step 4 changes the pair's job"): the
+/// three singles, and the one aligned pair among them. Nothing here for a
+/// quad; a quad is never spilled (AllocItem::isSpillable).
+///
+/// Within one consuming op the reloads share the three units, so they are
+/// handed out as units: a single takes the first free of r61, r62, r63 and
+/// a pair takes r62r63 whole. One single and one pair fit together; two
+/// singles and a pair are four units and do not, whichever order they come.
+struct ScratchUnits {
+  bool used[kNumSpillScratchRegs] = {};
+  static constexpr unsigned kPairIndex = 1; // kScratchPairLo
+
+  std::optional<PhysLoc> take(unsigned width) {
+    if (width == 1) {
+      for (unsigned i = 0; i != kNumSpillScratchRegs; ++i)
+        if (!used[i]) {
+          used[i] = true;
+          return PhysLoc{static_cast<unsigned>(kSpillScratchRegs[i]), 1};
+        }
+      return std::nullopt;
+    }
+    if (width == 2 && !used[kPairIndex] && !used[kPairIndex + 1]) {
+      used[kPairIndex] = used[kPairIndex + 1] = true;
+      return PhysLoc{static_cast<unsigned>(kScratchPairLo), 2};
+    }
+    return std::nullopt;
+  }
+};
+static_assert(static_cast<unsigned>(kScratchPairHi) ==
+                  static_cast<unsigned>(kScratchPairLo) + 1 &&
+              static_cast<unsigned>(kScratchPairLo) % 2 == 0,
+              "the scratch pair must be an aligned pair");
+
+/// The store that spills a `width`-unit value and the load that reloads
+/// one: `sd`/`ld`, `sq`/`lq`.
+static void createSpillStore(OpBuilder &b, Location loc, Value v, Value base,
+                             TypedAttr offset) {
+  switch (widthOf(v.getType())) {
+  case 1:
+    b.create<SdOp>(loc, v, base, offset);
+    return;
+  case 2:
+    b.create<SqOp>(loc, v, base, offset);
+    return;
+  }
+  llvm_unreachable("only singles and pairs are spilled");
+}
+static Value createSpillLoad(OpBuilder &b, Location loc, Type ty, Value base,
+                             TypedAttr offset) {
+  switch (widthOf(ty)) {
+  case 1:
+    return b.create<LdOp>(loc, ty, base, offset);
+  case 2:
+    return b.create<LqOp>(loc, ty, base, offset);
+  }
+  llvm_unreachable("only singles and pairs are spilled");
+}
+
 /// Rewrites every spilled item: gives its defining site a scratch-register
 /// type and a store right after it, and replaces each use with a freshly
 /// inserted reload (sharing one reload per consuming op across repeated
 /// operand slots referencing the same spilled value, e.g. `lvx.addd
 /// %spilled, %spilled`, rather than double-reloading it).
+///
+/// A lane group spills as one block: the tuple is stored whole at the slot
+/// and each lane view's uses reload at `slot + 8 * offset` with the lane's
+/// own width -- the `lvx.lane` op itself, which named a register the item
+/// no longer holds, is erased (lvx-mlir/docs/RegisterAllocation.md, "Lane
+/// groups are spillable").
 static LogicalResult rewriteSpills(MLIRContext *ctx, ArrayRef<AllocItem> items,
                                    Value spBase) {
-  Type storeScratchTy = RegisterType::get(ctx, kSpillScratchRegs[0]);
-  DenseMap<Operation *, unsigned> scratchCountForOp;
+  DenseMap<Operation *, ScratchUnits> scratchForOp;
   OpBuilder builder(ctx);
 
   for (const AllocItem &item : items) {
     if (!item.spilled)
       continue;
-    // Groups are never spilled -- the scan hard-errors first; see
+    // Control groups are never spilled -- the scan hard-errors first; see
     // lvx-mlir/docs/RegisterAllocation.md, "What remains a hard error".
-    assert(!item.isGroup() && "coalesced group reached spill rewrite");
-    Value v = item.frontValue();
-    auto offsetAttr = builder.getI64IntegerAttr(*item.spillOffset);
+    assert(!item.isGroup() && "coalesced control group reached spill rewrite");
 
-    // Snapshot uses before inserting the store, which itself uses `v` --
-    // otherwise the store would show up as one more "use" to reload.
-    SmallVector<OpOperand *> uses;
-    for (OpOperand &use : v.getUses())
-      uses.push_back(&use);
+    // The members that are lane views of another member, whose ops go, and
+    // the one that is not, which is stored.
+    SmallVector<Operation *> laneOpsToErase;
+    for (const AllocMember &m : item.members) {
+      auto offsetAttr =
+          builder.getI64IntegerAttr(*item.spillOffset + 8 * m.offset);
+      Value v = m.value;
+      auto lane = v.getDefiningOp<LaneOp>();
+      bool isView = lane && llvm::any_of(item.members, [&](const AllocMember &o) {
+        return o.value == lane.getSource();
+      });
 
-    v.setType(storeScratchTy);
-    if (Operation *defOp = v.getDefiningOp())
-      builder.setInsertionPointAfter(defOp);
-    else
-      builder.setInsertionPointToStart(cast<BlockArgument>(v).getOwner());
-    builder.create<SdOp>(v.getLoc(), v, spBase, offsetAttr);
+      // Snapshot uses before inserting the store, which itself uses `v` --
+      // otherwise the store would show up as one more "use" to reload.
+      SmallVector<OpOperand *> uses;
+      for (OpOperand &use : v.getUses())
+        uses.push_back(&use);
 
-    DenseMap<Operation *, Value> reloadForThisItem;
-    for (OpOperand *usePtr : uses) {
-      OpOperand &use = *usePtr;
-      Operation *useOp = use.getOwner();
-      Value reload = reloadForThisItem.lookup(useOp);
-      if (!reload) {
-        unsigned scratchIdx = scratchCountForOp[useOp]++;
-        if (scratchIdx >= kNumSpillScratchRegs) {
-          mlir::emitError(useOp->getLoc())
-              << "linear scan register allocation failed: instruction "
-                 "needs more than "
-              << kNumSpillScratchRegs
-              << " simultaneously-reloaded spilled operands";
-          return failure();
-        }
-        Type scratchTy = RegisterType::get(ctx, kSpillScratchRegs[scratchIdx]);
-        builder.setInsertionPoint(useOp);
-        reload =
-            builder.create<LdOp>(useOp->getLoc(), scratchTy, spBase, offsetAttr);
-        reloadForThisItem[useOp] = reload;
+      if (!isView) {
+        ScratchUnits storeScratch;
+        std::optional<PhysLoc> loc = storeScratch.take(m.width);
+        assert(loc && "a spillable width has a store scratch");
+        v.setType(typeFor(ctx, *loc));
+        if (Operation *defOp = v.getDefiningOp())
+          builder.setInsertionPointAfter(defOp);
+        else
+          builder.setInsertionPointToStart(cast<BlockArgument>(v).getOwner());
+        createSpillStore(builder, v.getLoc(), v, spBase, offsetAttr);
+      } else {
+        laneOpsToErase.push_back(lane);
       }
-      use.set(reload);
+
+      DenseMap<Operation *, Value> reloadForThisMember;
+      for (OpOperand *usePtr : uses) {
+        OpOperand &use = *usePtr;
+        Operation *useOp = use.getOwner();
+        // A lane op of this same item reads nothing: it is erased below.
+        if (isa<LaneOp>(useOp) &&
+            llvm::any_of(item.members, [&](const AllocMember &o) {
+              return o.value == useOp->getResult(0);
+            }))
+          continue;
+        Value reload = reloadForThisMember.lookup(useOp);
+        if (!reload) {
+          std::optional<PhysLoc> loc = scratchForOp[useOp].take(m.width);
+          if (!loc) {
+            if (m.width == 1)
+              return mlir::emitError(useOp->getLoc())
+                     << "linear scan register allocation failed: "
+                        "instruction needs more than "
+                     << kNumSpillScratchRegs
+                     << " simultaneously-reloaded spilled operands";
+            return mlir::emitError(useOp->getLoc())
+                   << "linear scan register allocation failed: instruction "
+                      "needs more than one simultaneously-reloaded spilled "
+                      "pair operand (the scratch set has one aligned pair)";
+          }
+          builder.setInsertionPoint(useOp);
+          reload = createSpillLoad(builder, useOp->getLoc(), typeFor(ctx, *loc),
+                                   spBase, offsetAttr);
+          reloadForThisMember[useOp] = reload;
+        }
+        use.set(reload);
+      }
+    }
+    for (Operation *lane : laneOpsToErase) {
+      assert(lane->use_empty() && "lane view still used after spill rewrite");
+      lane->erase();
     }
   }
   return success();
@@ -860,9 +1015,15 @@ struct LVXAllocateRegistersPass
     insertFmaAccumulatorPreservingCopies(func);
 
     LVXLiveIntervals live(func);
-    bool conflictingFixedGroup = false;
-    SmallVector<AllocItem> items =
-        buildAllocItems(func, live, conflictingFixedGroup);
+    bool conflictingFixedGroup = false, conflictingLaneGroup = false;
+    SmallVector<AllocItem> items = buildAllocItems(
+        func, live, conflictingFixedGroup, conflictingLaneGroup);
+    if (conflictingLaneGroup) {
+      func.emitError("a value is placed at two different lanes of one "
+                     "register tuple (lvx.lane views joined by a "
+                     "loop-carried channel, branch edge or tie)");
+      return signalPassFailure();
+    }
     if (conflictingFixedGroup) {
       func.emitError("a coalesced register group (lvx_scf.for loop-carried "
                       "channel, lvx_cf branch edge, or ffma/ffms "
@@ -1025,11 +1186,13 @@ struct LVXAllocateRegistersPass
       // Not inserted into `active`: a spilled item holds no register.
     }
 
-    // Rewrite: every item with a newly-assigned register updates all of
-    // its member values' types in place. Already-fixed items are already
-    // correctly typed and are left untouched.
+    // Rewrite: every item holding a block updates all of its member values'
+    // types in place -- a fixed item too, since a lane view of a pinned
+    // tuple is a member whose own type is not yet pinned. (Re-setting the
+    // pinned member's type is a no-op.) Spilled items are typed by
+    // rewriteSpills.
     for (AllocItem &item : items) {
-      if (!item.assigned)
+      if (item.spilled || (!item.assigned && !item.fixed))
         continue;
       for (const AllocMember &m : item.members) {
         Value v = m.value;
@@ -1053,9 +1216,9 @@ struct LVXAllocateRegistersPass
     // back to the caller unchanged (`Convention.table`'s `callee` set), so
     // reserve a frame slot per distinct one and save/restore it around the
     // body. Walking the final types rather than `items` catches the
-    // registers pinned by other means too -- ABI-pinned entry arguments,
-    // and RewriteDivmod's result pair -- which never appear as an assigned
-    // item. Sorted, so the prologue is deterministic.
+    // registers pinned by other means too -- ABI-pinned entry arguments --
+    // which never appear as an assigned item. Sorted, so the prologue is
+    // deterministic.
     SmallVector<std::pair<Register, unsigned>> calleeSaved;
     {
       llvm::SmallSet<Register, 16> used;

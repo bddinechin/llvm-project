@@ -18,8 +18,12 @@ lvx_func.func @scalar_ops(%a: !lvx.reg, %b: !lvx.reg) -> !lvx.reg {
   %3 = lvx.andd %a, %b : (!lvx.reg, !lvx.reg) -> !lvx.reg
   // CHECK: lvx.slld %{{.*}}, %{{.*}} : (!lvx.reg, !lvx.reg) -> !lvx.reg
   %4 = lvx.slld %a, %b : (!lvx.reg, !lvx.reg) -> !lvx.reg
-  // CHECK: %{{.*}}, %{{.*}} = lvx.divmodd %{{.*}}, %{{.*}} : (!lvx.reg, !lvx.reg) -> (!lvx.reg, !lvx.reg)
-  %q, %r = lvx.divmodd %a, %b : (!lvx.reg, !lvx.reg) -> (!lvx.reg, !lvx.reg)
+  // CHECK: lvx.divmodd %{{.*}}, %{{.*}} : (!lvx.reg, !lvx.reg) -> !lvx.pair
+  %qr = lvx.divmodd %a, %b : (!lvx.reg, !lvx.reg) -> !lvx.pair
+  // CHECK: lvx.lane %{{.*}}[0] : (!lvx.pair) -> !lvx.reg
+  %q = lvx.lane %qr[0] : (!lvx.pair) -> !lvx.reg
+  // CHECK: lvx.lane %{{.*}}[1] : (!lvx.pair) -> !lvx.reg
+  %r = lvx.lane %qr[1] : (!lvx.pair) -> !lvx.reg
   // CHECK: lvx.compd lt %{{.*}}, %{{.*}} : (!lvx.reg, !lvx.reg) -> !lvx.reg
   %5 = lvx.compd lt %a, %b : (!lvx.reg, !lvx.reg) -> !lvx.reg
   // CHECK: lvx.cmoved wnez %{{.*}}, %{{.*}}, %{{.*}} : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg

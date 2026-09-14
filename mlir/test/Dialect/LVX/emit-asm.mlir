@@ -1,4 +1,4 @@
-// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-rewrite-divmod),any(lvx-scf-to-cf),lvx-emit-asm)' -o /dev/null | FileCheck %s
+// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-scf-to-cf),lvx-emit-asm)' -o /dev/null | FileCheck %s
 
 // This is also, deliberately, an integration test against the real
 // sibling-project toolchain (lvx-mlir/docs/AssemblyEmission.md, "Testing"):
@@ -15,7 +15,7 @@
 // spell that directive out here, even in prose -- lit scans every line of the
 // file for it and would take the mention as the real thing.)
 //
-// RUN: %if lvx-mbr-as %{ mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-rewrite-divmod),any(lvx-scf-to-cf),lvx-emit-asm)' -o /dev/null 2>/dev/null | %lvx_mbr_as - -o %t.o %} %else %{ true %}
+// RUN: %if lvx-mbr-as %{ mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-scf-to-cf),lvx-emit-asm)' -o /dev/null 2>/dev/null | %lvx_mbr_as - -o %t.o %} %else %{ true %}
 
 // Straight-line code: `lvx.mv`/`lvx.li` lower to real `copyd`/`maked`
 // opcodes, and every op gets its own `;;`-terminated bundle.
@@ -179,21 +179,18 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // spelled `$r<even>r<odd>` with no separator (confirmed by hand-assembling
 // with the real `lvx-mbr-as` and disassembling the result, and the
 // low=quotient/high=remainder assignment confirmed by actually executing a
-// `divmodd` on real gem5 -- lvx-mlir/docs/AssemblyEmission.md). `-lvx-rewrite-
-// divmod` pins both results to r62:r63 and copies each used one back out
-// to wherever Steps 1-3 originally allocated it (`$r2`/`$r3` below).
+// `divmodd` on real gem5 -- lvx-mlir/docs/AssemblyEmission.md). The result
+// is one `!lvx.pair`, allocated like any pair (r2r3 here: r0/r1 hold the
+// copied-in arguments), and the quotient and remainder are `lvx.lane`
+// views of it, which are the registers r2 and r3 and print nothing.
 // CHECK-LABEL: divmod:
 // CHECK-NEXT: copyd $r2 = $r0
 // CHECK-NEXT: ;;
 // CHECK-NEXT: copyd $r0 = $r1
 // CHECK-NEXT: ;;
-// CHECK-NEXT: divmodd $r62r63 = $r2, $r0
+// CHECK-NEXT: divmodd $r4r5 = $r2, $r0
 // CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r3 = $r63
-// CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r1 = $r62
-// CHECK-NEXT: ;;
-// CHECK-NEXT: addd $r0 = $r1, $r3
+// CHECK-NEXT: addd $r0 = $r4, $r5
 // CHECK-NEXT: ;;
 // CHECK-NEXT: copyd $r0 = $r0
 // CHECK-NEXT: ;;
@@ -202,10 +199,41 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 lvx_func.func @divmod(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg
-  %q, %r = lvx.divmodd %0, %1 : (!lvx.reg, !lvx.reg) -> (!lvx.reg, !lvx.reg)
+  %qr = lvx.divmodd %0, %1 : (!lvx.reg, !lvx.reg) -> !lvx.pair
+  %q = lvx.lane %qr[0] : (!lvx.pair) -> !lvx.reg
+  %r = lvx.lane %qr[1] : (!lvx.pair) -> !lvx.reg
   %sum = lvx.addd %q, %r : (!lvx.reg, !lvx.reg) -> !lvx.reg
   %p = lvx.mv %sum : (!lvx.reg) -> !lvx.reg<r0>
   lvx_func.return %p : !lvx.reg<r0>
+}
+
+// Pair ops print their tuple operands by primary name: `splatwq $r2r3 =
+// $r1`, `lq`/`sq` with a pair, `ffmawq` with its tied accumulator dropped
+// from the printed shape, and `lvx.mv` of a pair as `copyq` from the
+// source's two lanes.
+// CHECK-LABEL: pairs:
+// CHECK-NEXT: splatwq $r2r3 = $r1
+// CHECK-NEXT: ;;
+// CHECK-NEXT: lq $r4r5 = 0[$r0]
+// CHECK-NEXT: ;;
+// CHECK-NEXT: lq $r6r7 = 16[$r0]
+// CHECK-NEXT: ;;
+// CHECK-NEXT: ffmawq $r4r5 = $r2r3, $r6r7
+// CHECK-NEXT: ;;
+// CHECK-NEXT: copyq $r2r3 = $r4, $r5
+// CHECK-NEXT: ;;
+// CHECK-NEXT: sq 0[$r0] = $r2r3
+// CHECK-NEXT: ;;
+// CHECK-NEXT: ret
+// CHECK-NEXT: ;;
+lvx_func.func @pairs(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
+  %s = lvx.splatwq %x : (!lvx.reg<r1>) -> !lvx.pair
+  %acc = lvx.lq %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.pair
+  %v = lvx.lq %base, 16 : i64 : (!lvx.reg<r0>) -> !lvx.pair
+  %f = lvx.ffmawq %s, %v, %acc : (!lvx.pair, !lvx.pair, !lvx.pair) -> !lvx.pair
+  %c = lvx.mv %f : (!lvx.pair) -> !lvx.pair
+  lvx.sq %c, %base, 0 : i64 : (!lvx.pair, !lvx.reg<r0>)
+  lvx_func.return
 }
 
 // `ffmad`/`ffmsd`: real hardware has no separate destination register --

@@ -7,11 +7,13 @@
 //===----------------------------------------------------------------------===//
 //
 // The registers held out of the general allocation pool for post-allocation
-// passes to pin values to. Shared because three passes need the same answer
+// passes to pin values to. Shared because two passes need the same answer
 // and previously each spelled it out for itself: -lvx-allocate-registers
 // (spill def-then-store / reload-then-use windows and the prologue's frame
-// offset), -lvx-rewrite-divmod (the `registerM` result pair), and
-// -lvx-scf-to-cf (the hardware-loop trip count and the branch-test compare).
+// offset) and -lvx-scf-to-cf (the hardware-loop trip count and the
+// branch-test compare). (A third, -lvx-rewrite-divmod, pinned divmod's
+// result pair here until divmod returned a `!lvx.pair` the allocator
+// places itself.)
 //
 // That duplication was a live bug, not a style problem: when the pool moved
 // off R29-R31, SCFToCF kept pinning to R29 with a comment asserting R29 was
@@ -27,9 +29,9 @@
 //    callee-saved choice clobbers the caller's value in a register it is
 //    entitled to get back, with no save to match, making every spilling
 //    function ABI-illegal against lvx-gcc callers.
-//  - **An even/odd aligned pair among them.** `lvx.divmodd` and friends
-//    write an aligned register pair (the `registerM` operand class, a 5-bit
-//    field naming one of 32 pairs). R62:R63 is pair index 31.
+//  - **An even/odd aligned pair among them.** A spilled `!lvx.pair` has the
+//    same def-then-`sq` and `lq`-then-use windows a single has, and needs
+//    an aligned pair to hold it through them. R62:R63 is `$r62r63`.
 //
 //===----------------------------------------------------------------------===//
 
@@ -54,7 +56,7 @@ inline constexpr unsigned kNumScratchRegs = 3;
 /// trip count, branch-test compare result).
 inline constexpr Register kScratchReg = kScratchRegs[0];
 
-/// The aligned pair `lvx.divmodd` and friends write their two results to.
+/// The aligned pair a spilled `!lvx.pair` is stored from and reloaded into.
 /// Must stay even/odd adjacent -- see the header comment.
 inline constexpr Register kScratchPairLo = kScratchRegs[1];
 inline constexpr Register kScratchPairHi = kScratchRegs[2];

@@ -8,9 +8,11 @@ func.func @arith_ops(%a: i64, %b: i64, %c: i32) -> i64 {
   %1 = arith.addi %c, %c : i32
   // CHECK: lvx.muld
   %2 = arith.muli %a, %b : i64
-  // CHECK: %{{.*}}, %{{.*}} = lvx.divmodd
+  // CHECK: %[[QR0:.*]] = lvx.divmodd %{{.*}} -> !lvx.pair
+  // CHECK: lvx.lane %[[QR0]][0] : (!lvx.pair) -> !lvx.reg
   %3 = arith.divsi %a, %b : i64
-  // CHECK: %{{.*}}, %{{.*}} = lvx.divmodd
+  // CHECK: %[[QR1:.*]] = lvx.divmodd %{{.*}} -> !lvx.pair
+  // CHECK: lvx.lane %[[QR1]][1] : (!lvx.pair) -> !lvx.reg
   %4 = arith.remsi %a, %b : i64
   // CHECK: lvx.compd eq
   %5 = arith.cmpi eq, %a, %b : i64

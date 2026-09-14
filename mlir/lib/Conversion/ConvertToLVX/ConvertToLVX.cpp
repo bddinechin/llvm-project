@@ -148,10 +148,14 @@ using ShRUIToLVX = IntBinaryToLVX<arith::ShRUIOp, lvx::SrldOp, lvx::SrlwOp>;
 
 // Signed/unsigned divide and remainder: LVX only offers a fused divide-modulo
 // instruction, so each of {div,rem}{s,u}i independently emits its own
-// `divmod{d,w}{,u}` and picks the quotient or remainder result. This
-// duplicates the divmod computation when a kernel needs both quotient and
-// remainder from the same operands; a future CSE pass can merge them.
-template <typename SourceOp, typename DOp, typename WOp, unsigned ResultIdx>
+// `divmod{d,w}{,u}` and reads the quotient or remainder out of its result.
+// That result is one `!lvx.pair` -- the hardware writes an aligned register
+// pair, quotient in the even register -- and the lane it wants is an
+// `lvx.lane` view, which costs no instruction once the pair is allocated
+// (lvx-mlir/docs/RegisterAllocation.md, "Lane views"). This duplicates the
+// divmod computation when a kernel needs both quotient and remainder from
+// the same operands; a future CSE pass can merge them.
+template <typename SourceOp, typename DOp, typename WOp, unsigned Lane>
 struct DivModToLVX : public OpConversionPattern<SourceOp> {
   using OpConversionPattern<SourceOp>::OpConversionPattern;
   using OpAdaptor = typename OpConversionPattern<SourceOp>::OpAdaptor;
@@ -159,15 +163,16 @@ struct DivModToLVX : public OpConversionPattern<SourceOp> {
   matchAndRewrite(SourceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Type regTy = this->getTypeConverter()->convertType(op.getType());
+    Type pairTy = lvx::PairType::get(rewriter.getContext());
     unsigned width = getScalarBitWidth(op.getType());
-    Operation *divmod;
+    Value divmod;
     if (width <= 32)
-      divmod = rewriter.create<WOp>(op.getLoc(), TypeRange{regTy, regTy},
-                                    adaptor.getLhs(), adaptor.getRhs());
+      divmod = rewriter.create<WOp>(op.getLoc(), pairTy, adaptor.getLhs(),
+                                    adaptor.getRhs());
     else
-      divmod = rewriter.create<DOp>(op.getLoc(), TypeRange{regTy, regTy},
-                                    adaptor.getLhs(), adaptor.getRhs());
-    rewriter.replaceOp(op, divmod->getResult(ResultIdx));
+      divmod = rewriter.create<DOp>(op.getLoc(), pairTy, adaptor.getLhs(),
+                                    adaptor.getRhs());
+    rewriter.replaceOpWithNewOp<lvx::LaneOp>(op, regTy, divmod, Lane);
     return success();
   }
 };

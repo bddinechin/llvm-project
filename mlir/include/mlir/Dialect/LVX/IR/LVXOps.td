@@ -50,11 +50,48 @@ def LVX_LiOp : LVX_Op<"li", [Pure]> {
   let hasVerifier = 1;
 }
 
+// A value of any of the three register types: what the two pseudos below
+// take, since a copy or a lane is the same operation at every width.
+def LVX_AnyRegType : AnyTypeOf<[LVX_RegType, LVX_PairType, LVX_QuadType]>;
+
 def LVX_MvOp : LVX_Op<"mv", [Pure]> {
-  let summary = "register-to-register move";
-  let arguments = (ins LVX_RegType:$source);
-  let results = (outs LVX_RegType:$result);
+  let summary = "register-to-register move, at any width";
+  let description = [{
+    The copy the register allocator inserts (loop-carried and tied-operand
+    preservation) and `lvx_func` uses for ABI bridging. A pseudo at every
+    width because the ISA's tuple copies do not have the shape a copy of a
+    tuple-typed value needs before its lanes are pinned: `copyq $rM = $rZ,
+    $rY` takes two singles, `copyo $rN = $rR` a quad. `-lvx-emit-asm`
+    prints it by width -- `copyd`, `copyq` from the source's two lanes,
+    `copyo`. Source and result must be the same width.
+  }];
+  let arguments = (ins LVX_AnyRegType:$source);
+  let results = (outs LVX_AnyRegType:$result);
   let assemblyFormat = "$source attr-dict `:` functional-type($source, $result)";
+  let hasVerifier = 1;
+}
+
+def LVX_LaneOp : LVX_Op<"lane", [Pure]> {
+  let summary = "a lane of a tuple, as a value (pseudo)";
+  let description = [{
+    Names lane `index` of a pair or quad as a value of the narrower type:
+    `lvx.lane %p[1] : !lvx.pair -> !lvx.reg` is the high single of `%p`,
+    `lvx.lane %q[2] : !lvx.quad -> !lvx.pair` its high pair. `index` is the
+    unit offset within the source and must be a multiple of the result's
+    width.
+
+    A lane of a pinned tuple *is* a register -- `!lvx.pair<r2r3>`'s high
+    half is `!lvx.reg<r3>` (lvx-mds/docs/MLIR-backend-design.md §8.1) --
+    so this emits no instruction: the register allocator coalesces the
+    result into its source's block at `index` (lvx-mlir/docs/
+    RegisterAllocation.md, "Lane views") and after allocation the op is a
+    type-level identity. `divmod`'s quotient and remainder are read this
+    way; so is `vector.extract` from a pair.
+  }];
+  let arguments = (ins LVX_AnyRegType:$source, I64Attr:$index);
+  let results = (outs LVX_AnyRegType:$result);
+  let assemblyFormat = "$source `[` $index `]` attr-dict `:` functional-type($source, $result)";
+  let hasVerifier = 1;
 }
 
 def LVX_SpOp : LVX_Op<"sp", [Pure]> {

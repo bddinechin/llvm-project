@@ -37,3 +37,16 @@ lvx_func.func @too_many_simultaneous_reloads(
   %r = lvx_func.call @callee(%0, %1, %2, %3) : (!lvx.reg, !lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg<r0>
   lvx_func.return %r : !lvx.reg<r0>
 }
+
+// -----
+
+// A quad that cannot be placed is a hard error rather than a spill: the
+// scratch set has no quad to reload one into (lvx-mlir/docs/
+// RegisterAllocation.md, "Spilling a tuple"). Pool r0..r3 with r0 live
+// leaves no free aligned quadruple, and r0 is fixed, so no eviction helps.
+lvx_func.func @quad_unspillable(%base: !lvx.reg<r0>) {
+  // expected-error@+1 {{no free aligned quadruple, and a quad cannot be spilled}}
+  %q = lvx.lo %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.quad
+  lvx.so %q, %base, 0 : i64 : (!lvx.quad, !lvx.reg<r0>)
+  lvx_func.return
+}

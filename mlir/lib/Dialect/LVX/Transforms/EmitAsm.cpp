@@ -14,6 +14,7 @@
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
 #include "mlir/Dialect/LVX/IR/LVXTiedOperands.h"
+#include "mlir/Dialect/LVX/IR/RegisterUnits.h"
 
 #include "mlir/Dialect/LVXCF/IR/LVXCF.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
@@ -59,15 +60,50 @@ private:
   // Operand printing
   //===--------------------------------------------------------------------===//
 
-  /// `v` must already be allocated (`!lvx.reg<rN>`) -- true of every value
-  /// reaching this pass, since it runs after `-lvx-allocate-registers`.
+  /// `v` must already be allocated (`!lvx.reg<rN>`, `!lvx.pair<rNrN+1>`,
+  /// `!lvx.quad<...>`) -- true of every value reaching this pass, since it
+  /// runs after `-lvx-allocate-registers`. A tuple prints as its primary
+  /// name, `$r0r1`, never as a lane of something wider (design §8.8).
   FailureOr<std::string> reg(Value v) {
-    auto ty = dyn_cast<RegisterType>(v.getType());
-    if (!ty || !ty.isAllocated())
+    std::optional<PhysLoc> loc = pinnedLoc(v.getType());
+    if (!loc)
       return emitError(v.getLoc())
              << "value reaching lvx-emit-asm has no assigned physical "
                 "register -- run -lvx-allocate-registers first";
-    return ("$" + stringifyRegister(*ty.getReg())).str();
+    return ("$" + spellingOf(*loc)).str();
+  }
+
+  /// A lane of `v`'s register: the single at unit `index` of a pinned
+  /// tuple. What `copyq $rM = $rZ, $rY` wants for a pair copy.
+  FailureOr<std::string> lane(Value v, unsigned index) {
+    std::optional<PhysLoc> loc = pinnedLoc(v.getType());
+    if (!loc)
+      return emitError(v.getLoc())
+             << "value reaching lvx-emit-asm has no assigned physical "
+                "register -- run -lvx-allocate-registers first";
+    return ("$" + spellingOf({loc->base + index, 1})).str();
+  }
+
+  /// `lvx.mv` at every width: `copyd $rd = $rs`; `copyq $rd = $rs.lo,
+  /// $rs.hi`, the ISA's pair copy taking two singles, spelled as the singles
+  /// they are; `copyo $rd = $rs`.
+  LogicalResult emitMv(MvOp mv) {
+    switch (widthOf(mv.getResult().getType())) {
+    case 1:
+      return emitUnary(mv, "copyd");
+    case 2: {
+      FailureOr<std::string> rd = reg(mv.getResult());
+      FailureOr<std::string> lo = lane(mv.getSource(), 0);
+      FailureOr<std::string> hi = lane(mv.getSource(), 1);
+      if (failed(rd) || failed(lo) || failed(hi))
+        return failure();
+      os << "\tcopyq " << *rd << " = " << *lo << ", " << *hi << "\n\t;;\n";
+      return success();
+    }
+    case 4:
+      return emitUnary(mv, "copyo");
+    }
+    llvm_unreachable("lvx.mv is 1, 2 or 4 units wide");
   }
 
   std::string label(Block *block) {
@@ -358,40 +394,6 @@ private:
     return success();
   }
 
-  /// Real hardware's divmod destination is the `registerM` operand class:
-  /// one aligned register pair, spelled `$r<even>r<odd>` with no separator
-  /// or dot (confirmed by hand-assembling with the real `lvx-mbr-as` and
-  /// disassembling the result -- see lvx-mlir/docs/AssemblyEmission.md). By the
-  /// time this pass runs, `-lvx-rewrite-divmod` has already retyped both
-  /// results to that fixed pair (r30:r31 today); this only re-derives the
-  /// pair from the actual result types rather than hard-coding r30/r31, so
-  /// a future change to which pair is reserved doesn't need a matching
-  /// change here, and a mis-ordered pipeline (this pass run without
-  /// -lvx-rewrite-divmod first) is caught as an error instead of emitting
-  /// wrong syntax silently.
-  LogicalResult emitDivmod(Operation *op, StringRef mnemonic) {
-    FailureOr<std::string> rs1 = reg(op->getOperand(0));
-    FailureOr<std::string> rs2 = reg(op->getOperand(1));
-    if (failed(rs1) || failed(rs2))
-      return failure();
-    auto qTy = dyn_cast<RegisterType>(op->getResult(0).getType());
-    auto rTy = dyn_cast<RegisterType>(op->getResult(1).getType());
-    if (!qTy || !qTy.isAllocated() || !rTy || !rTy.isAllocated())
-      return op->emitError(
-          "lvx-emit-asm: divmod's quotient/remainder has no assigned "
-          "physical register -- run -lvx-allocate-registers and "
-          "-lvx-rewrite-divmod first");
-    Register q = *qTy.getReg(), r = *rTy.getReg();
-    if (static_cast<unsigned>(r) != static_cast<unsigned>(q) + 1 ||
-        static_cast<unsigned>(q) % 2 != 0)
-      return op->emitError(
-          "lvx-emit-asm: divmod's quotient/remainder are not an aligned "
-          "register pair -- run -lvx-rewrite-divmod before -lvx-emit-asm");
-    os << "\t" << mnemonic << " $" << stringifyRegister(q)
-       << stringifyRegister(r) << " = " << *rs1 << ", " << *rs2 << "\n\t;;\n";
-    return success();
-  }
-
   LogicalResult emitOp(Operation *op) {
     return llvm::TypeSwitch<Operation *, LogicalResult>(op)
         // Pseudo-ops.
@@ -415,7 +417,11 @@ private:
                << "\n\t;;\n";
           return success();
         })
-        .Case([&](MvOp mv) { return emitUnary(mv, "copyd"); })
+        .Case([&](MvOp mv) { return emitMv(mv); })
+        // A lane of a pinned tuple is a register, not an instruction: the
+        // allocator typed the result as that register (lvx-mlir/docs/
+        // RegisterAllocation.md, "Lane views"), and there is nothing to emit.
+        .Case([&](LaneOp) { return success(); })
         // $ra save/restore (lvx-mlir/docs/RegisterAllocation.md, "Return-
         // address save/restore"): real `get`/`set` on the RA system
         // register, confirmed via the real lvx-mbr-as/lvx-mbr-objdump.
@@ -432,10 +438,14 @@ private:
         .Case([&](LwzOp op) { return emitLoad(op, "lwz", op.getBase(), op.getOffset(), op.getVariant()); })
         .Case([&](LwsOp op) { return emitLoad(op, "lws", op.getBase(), op.getOffset(), op.getVariant()); })
         .Case([&](LdOp op) { return emitLoad(op, "ld", op.getBase(), op.getOffset(), op.getVariant()); })
+        .Case([&](LqOp op) { return emitLoad(op, "lq", op.getBase(), op.getOffset(), op.getVariant()); })
+        .Case([&](LoOp op) { return emitLoad(op, "lo", op.getBase(), op.getOffset(), op.getVariant()); })
         .Case([&](SbOp op) { return emitStore(op, "sb", op.getValue(), op.getBase(), op.getOffset()); })
         .Case([&](ShOp op) { return emitStore(op, "sh", op.getValue(), op.getBase(), op.getOffset()); })
         .Case([&](SwOp op) { return emitStore(op, "sw", op.getValue(), op.getBase(), op.getOffset()); })
         .Case([&](SdOp op) { return emitStore(op, "sd", op.getValue(), op.getBase(), op.getOffset()); })
+        .Case([&](SqOp op) { return emitStore(op, "sq", op.getValue(), op.getBase(), op.getOffset()); })
+        .Case([&](SoOp op) { return emitStore(op, "so", op.getValue(), op.getBase(), op.getOffset()); })
         // Unary float ops carrying a rounding-mode suffix.
         .Case([&](FsqrtdOp op) { return emitUnaryMode(op, "fsqrtd", op.getFloatmode()); })
         .Case([&](FsqrtwOp op) { return emitUnaryMode(op, "fsqrtw", op.getFloatmode()); })
@@ -471,11 +481,8 @@ private:
         // Predicated in-place move: operand #2 is tied to the result, see
         // emitCmove's comment.
         .Case([&](CmovedOp op) { return emitCmove(op, "cmoved"); })
-        // divmod: pairedReg destination, see emitDivmod's comment.
-        .Case([&](DivmoddOp op) { return emitDivmod(op, "divmodd"); })
-        .Case([&](DivmodudOp op) { return emitDivmod(op, "divmodud"); })
-        .Case([&](DivmodwOp op) { return emitDivmod(op, "divmodw"); })
-        .Case([&](DivmoduwOp op) { return emitDivmod(op, "divmoduw"); })
+        // divmod needs no case: its result is one `!lvx.pair`, printed as
+        // `$r<even>r<odd>` by the binary rule like any pair-writing op.
         // ffma/ffms and the 125 other ops with a tied operand need no case:
         // the arity dispatch below drops the tied suffix, see tiedSuffix.
         // `lvx_func.call` is not a terminator -- a real `call` returns
