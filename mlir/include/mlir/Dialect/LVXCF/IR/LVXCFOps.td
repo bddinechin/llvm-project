@@ -42,7 +42,7 @@ def LVXCF_BranchOp : LVXCF_Op<"br",
   // relaxation pass, which does not exist yet. Absent means the near form,
   // and the ranges are tight enough to matter: `ccb` reaches +/-4 KB, `cb`
   // +/-256 KB, `goto` and `call` +/-256 MB.
-  let arguments = (ins Variadic<LVX_RegType>:$destOperands,
+  let arguments = (ins Variadic<LVX_AnyRegType>:$destOperands,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let successors = (successor AnySuccessor:$dest);
   let builders = [
@@ -88,7 +88,7 @@ def LVXCF_LoopendOp : LVXCF_Op<"loopend",
     IR-level test failing. This op moves the decision into the IR, where it
     is stated rather than inferred.
   }];
-  let arguments = (ins Variadic<LVX_RegType>:$destOperands);
+  let arguments = (ins Variadic<LVX_AnyRegType>:$destOperands);
   let successors = (successor AnySuccessor:$dest);
   let builders = [
     OpBuilder<(ins "Block *":$dest,
@@ -112,8 +112,8 @@ def LVXCF_CondBranchOp : LVXCF_Op<"cond_br",
   // carry an attribute, so it is always the near form.
   let arguments = (ins LVX_RegType:$test,
                        LVX_BcuCondAttr:$condition,
-                       Variadic<LVX_RegType>:$trueDestOperands,
-                       Variadic<LVX_RegType>:$falseDestOperands,
+                       Variadic<LVX_AnyRegType>:$trueDestOperands,
+                       Variadic<LVX_AnyRegType>:$falseDestOperands,
                        OptionalAttr<LVX_FormatAttr>:$format);
   let successors = (successor AnySuccessor:$trueDest,
                               AnySuccessor:$falseDest);
@@ -161,8 +161,8 @@ def LVXCF_LoopdoOp : LVXCF_Op<"loopdo",
     `lvx_cf.loopend` and lvx-mlir/docs/HardwareLoops.md.
   }];
   let arguments = (ins LVX_RegType:$tripCount,
-                       Variadic<LVX_RegType>:$bodyOperands,
-                       Variadic<LVX_RegType>:$exitOperands);
+                       Variadic<LVX_AnyRegType>:$bodyOperands,
+                       Variadic<LVX_AnyRegType>:$exitOperands);
   let successors = (successor AnySuccessor:$body, AnySuccessor:$exit);
   let builders = [
     OpBuilder<(ins "Value":$tripCount,

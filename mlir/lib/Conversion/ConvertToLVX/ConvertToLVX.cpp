@@ -14,6 +14,7 @@
 #include "mlir/Dialect/Index/IR/IndexDialect.h"
 #include "mlir/Dialect/Index/IR/IndexOps.h"
 #include "mlir/Dialect/LVX/IR/LVX.h"
+#include "mlir/Dialect/LVX/IR/RegisterUnits.h"
 #include "mlir/Dialect/LVX/IR/LVXConvention.h"
 #include "mlir/Dialect/LVXCF/IR/LVXCF.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
@@ -21,6 +22,7 @@
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -81,6 +83,22 @@ public:
     });
     addConversion([ctx](MemRefType) -> Type {
       return RegisterType::get(ctx, std::nullopt);
+    });
+    // A vector is the register tuple that holds it: 128 bits a pair, 256 a
+    // quad (lvx-mds/docs/MLIR-backend-design.md §8.7). What the lanes are is
+    // not in the type -- it is in which op consumes the tuple, as with
+    // `!lvx.reg` and i32/i64/f64. Any other shape has no register to live
+    // in and is left unconverted, which fails the conversion loudly.
+    addConversion([ctx](VectorType type) -> std::optional<Type> {
+      if (type.isScalable() || type.getRank() != 1)
+        return std::nullopt;
+      switch (type.getElementTypeBitWidth() * type.getNumElements()) {
+      case 128:
+        return lvx::PairType::get(ctx, std::nullopt);
+      case 256:
+        return lvx::QuadType::get(ctx, std::nullopt);
+      }
+      return std::nullopt;
     });
   }
 };
@@ -731,6 +749,132 @@ struct MemRefStoreToLVX : public OpConversionPattern<memref::StoreOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// Vectors (lvx-mds/docs/MLIR-backend-design.md §8.7): the four ops the
+// vectorised `mymma` needs, over the tuple types. `vector.load`/`store` are
+// the memref patterns above at tuple width -- the same address, `lq`/`sq`
+// (`lo`/`so` for a quad) instead of a scalar access; `vector.broadcast` is
+// the ISA's splat of a scalar by element width; `vector.fma` is `ffmawq`/
+// `ffmadp`, the only element shapes the ISA has a pair fma for.
+//===----------------------------------------------------------------------===//
+
+/// The tuple width in units of a converted vector type, or 0.
+static unsigned tupleWidth(Type converted) {
+  return lvx::widthOf(converted) > 1 ? lvx::widthOf(converted) : 0;
+}
+
+struct VectorLoadToLVX : public OpConversionPattern<vector::LoadOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::LoadOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto memrefType = cast<MemRefType>(op.getBase().getType());
+    Type tupleTy = getTypeConverter()->convertType(op.getType());
+    Type regTy = getTypeConverter()->convertType(memrefType);
+    if (!tupleTy || !tupleWidth(tupleTy))
+      return rewriter.notifyMatchFailure(op, "vector shape has no register tuple");
+    FailureOr<Value> address =
+        computeAddress(rewriter, op.getLoc(), memrefType, adaptor.getBase(),
+                       adaptor.getIndices(), regTy);
+    if (failed(address))
+      return rewriter.notifyMatchFailure(
+          op, "unsupported memref layout for address linearization");
+    auto zeroOffset = rewriter.getI64IntegerAttr(0);
+    if (tupleWidth(tupleTy) == 2)
+      rewriter.replaceOpWithNewOp<lvx::LqOp>(op, tupleTy, *address, zeroOffset);
+    else
+      rewriter.replaceOpWithNewOp<lvx::LoOp>(op, tupleTy, *address, zeroOffset);
+    return success();
+  }
+};
+
+struct VectorStoreToLVX : public OpConversionPattern<vector::StoreOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::StoreOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto memrefType = cast<MemRefType>(op.getBase().getType());
+    Type regTy = getTypeConverter()->convertType(memrefType);
+    unsigned width = tupleWidth(adaptor.getValueToStore().getType());
+    if (!width)
+      return rewriter.notifyMatchFailure(op, "vector shape has no register tuple");
+    FailureOr<Value> address =
+        computeAddress(rewriter, op.getLoc(), memrefType, adaptor.getBase(),
+                       adaptor.getIndices(), regTy);
+    if (failed(address))
+      return rewriter.notifyMatchFailure(
+          op, "unsupported memref layout for address linearization");
+    auto zeroOffset = rewriter.getI64IntegerAttr(0);
+    if (width == 2)
+      rewriter.replaceOpWithNewOp<lvx::SqOp>(op, adaptor.getValueToStore(),
+                                             *address, zeroOffset);
+    else
+      rewriter.replaceOpWithNewOp<lvx::SoOp>(op, adaptor.getValueToStore(),
+                                             *address, zeroOffset);
+    return success();
+  }
+};
+
+// `vector.broadcast %s : T to vector<NxT>` of a scalar: `splat{b,h,w,d}q`
+// by element width, which fills a pair. (A quad broadcast, or a vector
+// source, has no single instruction and is not lowered.)
+struct VectorBroadcastToLVX : public OpConversionPattern<vector::BroadcastOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::BroadcastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Type sourceTy = op.getSource().getType();
+    if (isa<VectorType>(sourceTy))
+      return rewriter.notifyMatchFailure(op, "only a scalar source splats");
+    Type tupleTy = getTypeConverter()->convertType(op.getType());
+    if (!tupleTy || tupleWidth(tupleTy) != 2)
+      return rewriter.notifyMatchFailure(op, "the ISA splats into a pair only");
+    Value result;
+    switch (getScalarBitWidth(sourceTy)) {
+    case 8:
+      result = rewriter.create<lvx::SplatbqOp>(op.getLoc(), tupleTy, adaptor.getSource());
+      break;
+    case 16:
+      result = rewriter.create<lvx::SplathqOp>(op.getLoc(), tupleTy, adaptor.getSource());
+      break;
+    case 32:
+      result = rewriter.create<lvx::SplatwqOp>(op.getLoc(), tupleTy, adaptor.getSource());
+      break;
+    case 64:
+      result = rewriter.create<lvx::SplatdqOp>(op.getLoc(), tupleTy, adaptor.getSource());
+      break;
+    default:
+      return rewriter.notifyMatchFailure(op, "no splat for this element width");
+    }
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+// `vector.fma` on vector<4xf32> is `ffmawq`, on vector<2xf64> `ffmadp`; like
+// the scalar `ffmaw`/`ffmad`, the accumulator is tied to the result and the
+// allocator coalesces them.
+struct VectorFMAToLVX : public OpConversionPattern<vector::FMAOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::FMAOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = cast<VectorType>(op.getType());
+    Type tupleTy = getTypeConverter()->convertType(vecTy);
+    if (!tupleTy || tupleWidth(tupleTy) != 2 || !isa<FloatType>(vecTy.getElementType()))
+      return rewriter.notifyMatchFailure(op, "the ISA has a pair fma for f32 x4 and f64 x2 only");
+    Value result;
+    if (vecTy.getElementTypeBitWidth() == 32)
+      result = rewriter.create<lvx::FfmawqOp>(op.getLoc(), tupleTy, adaptor.getLhs(),
+                                              adaptor.getRhs(), adaptor.getAcc());
+    else
+      result = rewriter.create<lvx::FfmadpOp>(op.getLoc(), tupleTy, adaptor.getLhs(),
+                                              adaptor.getRhs(), adaptor.getAcc());
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // Control flow: cf.br/cf.cond_br -> lvx_cf; scf.for/scf.yield -> lvx_scf.
 //===----------------------------------------------------------------------===//
 
@@ -767,14 +911,24 @@ struct ForToLVX : public OpConversionPattern<scf::ForOp> {
   LogicalResult
   matchAndRewrite(scf::ForOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // Every loop-carried value keeps its own converted type: a scalar is a
+    // single, a vector<4xf32> accumulator a pair. The induction variable is
+    // always a single.
     Type regTy = RegisterType::get(getContext(), std::nullopt);
-    SmallVector<Type> resultTypes(op.getNumResults(), regTy);
+    SmallVector<Type> resultTypes;
+    for (Type t : op.getResultTypes()) {
+      Type converted = getTypeConverter()->convertType(t);
+      if (!converted)
+        return rewriter.notifyMatchFailure(op, "loop-carried type has no register");
+      resultTypes.push_back(converted);
+    }
     auto newFor = rewriter.create<lvx_scf::ForOp>(
         op.getLoc(), resultTypes, adaptor.getLowerBound(),
         adaptor.getUpperBound(), adaptor.getStep(), adaptor.getInitArgs());
 
     Block *oldBody = op.getBody();
-    SmallVector<Type> argTypes(oldBody->getNumArguments(), regTy);
+    SmallVector<Type> argTypes{regTy};
+    argTypes.append(resultTypes);
     SmallVector<Location> argLocs(oldBody->getNumArguments(), op.getLoc());
     Block *newBody =
         rewriter.createBlock(&newFor.getRegion(), {}, argTypes, argLocs);
@@ -944,7 +1098,8 @@ struct ConvertToLVXPass
                            lvx_scf::LVXSCFDialect, lvx_func::LVXFuncDialect>();
     target.addIllegalDialect<arith::ArithDialect, cf::ControlFlowDialect,
                              scf::SCFDialect, func::FuncDialect,
-                             memref::MemRefDialect, index::IndexDialect>();
+                             memref::MemRefDialect, index::IndexDialect,
+                             vector::VectorDialect>();
     // Only math.fma is lowered; the rest of `math` (transcendentals etc.)
     // has no LVX opcode, so leave the dialect legal and mark just this op.
     target.addIllegalOp<math::CountLeadingZerosOp,
@@ -987,6 +1142,8 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     ConstantToLVX, IndexConstantToLVX, SelectToLVX,
     // Memory
     MemRefLoadToLVX, MemRefStoreToLVX, FmaToLVX,
+    // Vectors
+    VectorLoadToLVX, VectorStoreToLVX, VectorBroadcastToLVX, VectorFMAToLVX,
     MinimumFToLVX, MaximumFToLVX, MinNumFToLVX, MaxNumFToLVX,
     AbsFToLVX, CtlzToLVX, CttzToLVX, CtpopToLVX, AbsIToLVX,
     SqrtToLVX, RoundEvenToLVX, MathTruncToLVX, FloorToLVX,

@@ -137,6 +137,11 @@ def LVX_QuadType : LVX_Type<"Quad", "quad"> {
   }];
 }
 
+// A value of any of the three register types. What the control dialects
+// carry across a loop or a branch edge, and what the copy and lane pseudos
+// take: a loop-carried accumulator is a pair as readily as a single.
+def LVX_AnyRegType : AnyTypeOf<[LVX_RegType, LVX_PairType, LVX_QuadType]>;
+
 //===----------------------------------------------------------------------===//
 // Modifier enums are generated: see LVXModifiers.td, included above. The two
 // facts that used to live here as comments now live in the generator -- that

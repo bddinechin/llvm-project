@@ -20,7 +20,7 @@ class LVXSCF_Op<string mnemonic, list<Trait> traits = []> :
 def LVXSCF_YieldOp : LVXSCF_Op<"yield",
     [Pure, ReturnLike, Terminator, HasParent<"ForOp">]> {
   let summary = "loop-carried values produced by one iteration of `lvx_scf.for`";
-  let arguments = (ins Variadic<LVX_RegType>:$results);
+  let arguments = (ins Variadic<LVX_AnyRegType>:$results);
   let assemblyFormat = "attr-dict ($results^ `:` qualified(type($results)))?";
   let builders = [OpBuilder<(ins), [{ build($_builder, $_state, {}); }]>];
 }
@@ -38,8 +38,8 @@ def LVXSCF_ForOp : LVXSCF_Op<"for",
   let arguments = (ins LVX_RegType:$lowerBound,
                        LVX_RegType:$upperBound,
                        LVX_RegType:$step,
-                       Variadic<LVX_RegType>:$initArgs);
-  let results = (outs Variadic<LVX_RegType>:$results);
+                       Variadic<LVX_AnyRegType>:$initArgs);
+  let results = (outs Variadic<LVX_AnyRegType>:$results);
   let regions = (region SizedRegion<1>:$region);
   let assemblyFormat = [{
     $lowerBound `:` qualified(type($lowerBound))

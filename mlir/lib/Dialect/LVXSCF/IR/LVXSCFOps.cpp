@@ -43,9 +43,12 @@ LogicalResult ForOp::verifyRegions() {
            << expectedArgs << " arguments (induction variable + "
            << getInitArgs().size() << " iter args), got "
            << body.getNumArguments();
-  for (BlockArgument arg : body.getArguments())
-    if (!isa<RegisterType>(arg.getType()))
-      return emitOpError("body arguments must have type !lvx.reg");
+  if (!isa<RegisterType>(body.getArgument(0).getType()))
+    return emitOpError("the induction variable must have type !lvx.reg");
+  for (BlockArgument arg : body.getArguments().drop_front())
+    if (!isa<RegisterType, lvx::PairType, lvx::QuadType>(arg.getType()))
+      return emitOpError(
+          "iter args must have type !lvx.reg, !lvx.pair or !lvx.quad");
 
   auto yield = cast<YieldOp>(body.getTerminator());
   if (yield.getResults().size() != getInitArgs().size())

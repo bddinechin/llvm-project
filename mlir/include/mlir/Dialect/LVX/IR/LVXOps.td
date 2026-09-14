@@ -50,10 +50,6 @@ def LVX_LiOp : LVX_Op<"li", [Pure]> {
   let hasVerifier = 1;
 }
 
-// A value of any of the three register types: what the two pseudos below
-// take, since a copy or a lane is the same operation at every width.
-def LVX_AnyRegType : AnyTypeOf<[LVX_RegType, LVX_PairType, LVX_QuadType]>;
-
 def LVX_MvOp : LVX_Op<"mv", [Pure]> {
   let summary = "register-to-register move, at any width";
   let description = [{

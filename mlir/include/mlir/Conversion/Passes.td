@@ -1834,7 +1834,7 @@ def ConvertToLVXPass : Pass<"convert-to-lvx", "ModuleOp"> {
   }];
   let dependentDialects = [
     "lvx::LVXDialect", "lvx_cf::LVXCFDialect", "lvx_scf::LVXSCFDialect",
-    "lvx_func::LVXFuncDialect"
+    "lvx_func::LVXFuncDialect", "vector::VectorDialect"
   ];
 }
 
