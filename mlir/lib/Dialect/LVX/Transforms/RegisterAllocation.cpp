@@ -24,6 +24,7 @@
 #include "mlir/Dialect/LVX/Transforms/ScratchRegisters.h"
 #include "mlir/Dialect/LVX/IR/LVXConvention.h"
 #include "mlir/Dialect/LVX/IR/LVXTiedOperands.h"
+#include "mlir/Dialect/LVX/IR/RegisterUnits.h"
 
 #include <array>
 
@@ -56,24 +57,61 @@ namespace {
 /// edge (forwarded operand and destination block argument), or an
 /// `ffma`/`ffms` accumulator (the `c` operand and the op's own result) --
 /// see lvx-mlir/docs/RegisterAllocation.md.
+///
+/// An item occupies a block of `width` units (RegisterUnits.h); each member
+/// sits at an `offset` within it. Today every member is at offset 0 with the
+/// item's own width -- the coalescing edges all join values of one type --
+/// and the offset exists for lane views (lvx-mlir/docs/RegisterAllocation.md,
+/// "Lane views"), where a `!lvx.reg` is lane k of a pair.
+struct AllocMember {
+  Value value;
+  unsigned offset;
+  unsigned width;
+};
+
 struct AllocItem {
-  SmallVector<Value, 4> values;
+  SmallVector<AllocMember, 4> members;
   unsigned start = 0;
   unsigned end = 0;
-  std::optional<Register> fixedReg;
+  /// The widest extent any member reaches: max over members of
+  /// `offset + width`.
+  unsigned width = 1;
+  /// The item's block, when some member's type is pinned.
+  std::optional<PhysLoc> fixed;
   bool crossesCall = false;
-  std::optional<Register> assigned;
+  /// The base unit the scan chose; the block is `{*assigned, width}`.
+  std::optional<unsigned> assigned;
   // Step 3: set when this item is memory-resident instead of assigned a
   // register. `spillOffset` is its 8-byte-aligned slot in the frame,
   // relative to the post-prologue stack pointer.
   bool spilled = false;
   std::optional<unsigned> spillOffset;
 
-  bool isFixed() const { return fixedReg.has_value(); }
+  bool isFixed() const { return fixed.has_value(); }
   // Coalesced `lvx_scf.for` channels aren't spillable yet -- see
   // lvx-mlir/docs/RegisterAllocation.md, "What remains a hard error".
-  bool isGroup() const { return values.size() > 1; }
+  bool isGroup() const { return members.size() > 1; }
+
+  unsigned base() const { return fixed ? fixed->base : *assigned; }
+  PhysLoc loc() const { return {base(), width}; }
+  PhysLoc locOf(const AllocMember &m) const {
+    return {base() + m.offset, m.width};
+  }
+  Value frontValue() const { return members.front().value; }
 };
+
+/// The block-marking view of `inUse[]`: a block is in use if any of its
+/// units is, and is taken or released as a whole.
+static bool anyInUse(const bool *inUse, PhysLoc l) {
+  for (unsigned u = l.base; u != l.end(); ++u)
+    if (inUse[u])
+      return true;
+  return false;
+}
+static void markInUse(bool *inUse, PhysLoc l, bool v) {
+  for (unsigned u = l.base; u != l.end(); ++u)
+    inUse[u] = v;
+}
 
 //===----------------------------------------------------------------------===//
 // Register pool: preference order per lvx-mlir/docs/RegisterAllocation.md
@@ -192,23 +230,31 @@ static std::optional<Register> pickFree(ArrayRef<Register> order,
 //===----------------------------------------------------------------------===//
 
 /// Merges the live interval of `value` (as computed by `live`) into the
-/// item under construction.
+/// item under construction, as a member at `offset`.
 static void mergeValue(AllocItem &item, Value value,
-                       const LVXLiveIntervals &live) {
+                       const LVXLiveIntervals &live, unsigned offset = 0) {
   const LiveInterval &iv = live.getInterval(value);
-  item.values.push_back(value);
-  item.start = item.values.size() == 1 ? iv.start : std::min(item.start, iv.start);
-  item.end = std::max(item.end, iv.end);
+  bool first = item.members.empty();
+  item.members.push_back({value, offset, iv.width});
+  item.start = first ? iv.start : std::min(item.start, iv.start);
+  item.end = first ? iv.end : std::max(item.end, iv.end);
+  item.width = first ? offset + iv.width
+                     : std::max(item.width, offset + iv.width);
   if (iv.isFixed()) {
-    if (item.fixedReg && *item.fixedReg != *iv.fixedReg) {
+    // A pinned member pins the item's block at `fixedBase - offset`.
+    PhysLoc block{iv.fixed->base - offset, item.width};
+    if (item.fixed && item.fixed->base != block.base) {
       // Two members of the same loop-carried channel are independently
       // pinned to different physical registers -- not satisfiable.
-      item.fixedReg = std::nullopt; // signal handled by caller via a
-                                     // dedicated conflict check below.
+      item.fixed = std::nullopt; // signal handled by caller via a
+                                 // dedicated conflict check below.
     } else {
-      item.fixedReg = iv.fixedReg;
+      item.fixed = block;
     }
   }
+  // A later, wider member widens the block the pin describes.
+  if (item.fixed)
+    item.fixed->width = item.width;
 }
 
 //===----------------------------------------------------------------------===//
@@ -458,15 +504,17 @@ static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
   }
 
   // Detect a genuine conflicting-fixed-register case across each merged
-  // group's full membership (mergeValue's own running `fixedReg` field
+  // group's full membership (mergeValue's own running `fixed` field
   // only reflects the *last* mismatch seen, not a durable "any conflict
   // occurred" signal).
+  // With members at offsets, "the same register" means the same block base:
+  // a pinned member at offset k pins the block at `base - k`.
   for (AllocItem &item : items) {
-    SmallVector<Register, 4> fixedRegsSeen;
-    for (Value v : item.values)
-      if (const LiveInterval &iv = live.getInterval(v); iv.isFixed())
-        fixedRegsSeen.push_back(*iv.fixedReg);
-    if (!fixedRegsSeen.empty() && !llvm::all_equal(fixedRegsSeen))
+    SmallVector<unsigned, 4> fixedBasesSeen;
+    for (const AllocMember &m : item.members)
+      if (const LiveInterval &iv = live.getInterval(m.value); iv.isFixed())
+        fixedBasesSeen.push_back(iv.fixed->base - m.offset);
+    if (!fixedBasesSeen.empty() && !llvm::all_equal(fixedBasesSeen))
       conflictingFixedGroup = true;
   }
 
@@ -474,10 +522,7 @@ static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
     if (grouped.contains(iv.value))
       continue;
     AllocItem item;
-    item.values.push_back(iv.value);
-    item.start = iv.start;
-    item.end = iv.end;
-    item.fixedReg = iv.fixedReg;
+    mergeValue(item, iv.value, live);
     items.push_back(std::move(item));
   }
 
@@ -632,7 +677,7 @@ static LogicalResult rewriteSpills(MLIRContext *ctx, ArrayRef<AllocItem> items,
     // Groups are never spilled -- the scan hard-errors first; see
     // lvx-mlir/docs/RegisterAllocation.md, "What remains a hard error".
     assert(!item.isGroup() && "coalesced group reached spill rewrite");
-    Value v = item.values.front();
+    Value v = item.frontValue();
     auto offsetAttr = builder.getI64IntegerAttr(*item.spillOffset);
 
     // Snapshot uses before inserting the store, which itself uses `v` --
@@ -710,9 +755,6 @@ struct LVXAllocateRegistersPass
     // active: indices into `items`, kept sorted by increasing `end`.
     SmallVector<unsigned> active;
 
-    auto regOf = [](const AllocItem &item) {
-      return item.isFixed() ? *item.fixedReg : *item.assigned;
-    };
     // `includeBoundary`: whether an active item ending *exactly* at `start`
     // should also be expired. Fig. 1's own rule (`end < start`, strict) is
     // what we want for ordinary items -- it's what forces e.g. an op's
@@ -728,7 +770,7 @@ struct LVXAllocateRegistersPass
       while (!active.empty() &&
              (includeBoundary ? items[active.front()].end <= start
                               : items[active.front()].end < start)) {
-        inUse[static_cast<unsigned>(regOf(items[active.front()]))] = false;
+        markInUse(inUse, items[active.front()].loc(), false);
         active.erase(active.begin());
       }
     };
@@ -757,14 +799,13 @@ struct LVXAllocateRegistersPass
       expireOldIntervals(item.start, item.isFixed());
 
       if (item.isFixed()) {
-        Register r = *item.fixedReg;
-        if (inUse[static_cast<unsigned>(r)]) {
-          mlir::emitError(item.values.front().getLoc())
-              << "register " << stringifyRegister(r)
+        if (anyInUse(inUse, *item.fixed)) {
+          mlir::emitError(item.frontValue().getLoc())
+              << "register " << spellingOf(*item.fixed)
               << " is already in use by an overlapping live range";
           return signalPassFailure();
         }
-        inUse[static_cast<unsigned>(r)] = true;
+        markInUse(inUse, *item.fixed, true);
         insertActive(idx);
         continue;
       }
@@ -775,8 +816,8 @@ struct LVXAllocateRegistersPass
               : kFullOrder;
       if (std::optional<Register> reg =
               pickFree(order, this->maxRegisters, inUse)) {
-        item.assigned = *reg;
-        inUse[static_cast<unsigned>(*reg)] = true;
+        item.assigned = static_cast<unsigned>(*reg);
+        markInUse(inUse, item.loc(), true);
         insertActive(idx);
         continue;
       }
@@ -792,7 +833,8 @@ struct LVXAllocateRegistersPass
         const AllocItem &cand = items[*it];
         if (cand.isFixed() || cand.isGroup())
           continue;
-        if (!isInPool(*cand.assigned, order, this->maxRegisters))
+        if (!isInPool(static_cast<Register>(*cand.assigned), order,
+                      this->maxRegisters))
           continue;
         victimIdx = *it;
         break;
@@ -800,7 +842,7 @@ struct LVXAllocateRegistersPass
 
       if (victimIdx && items[*victimIdx].end > item.end) {
         AllocItem &victim = items[*victimIdx];
-        Register freed = *victim.assigned;
+        unsigned freed = *victim.assigned;
         victim.assigned = std::nullopt;
         allocateSpillSlot(victim);
         active.erase(llvm::find(active, *victimIdx));
@@ -811,7 +853,7 @@ struct LVXAllocateRegistersPass
       }
 
       if (item.isGroup()) {
-        mlir::emitError(item.values.front().getLoc())
+        mlir::emitError(item.frontValue().getLoc())
             << "linear scan register allocation failed: spilling a "
                "coalesced register group (lvx_scf.for loop-carried "
                "channel, lvx_cf branch edge, or ffma/ffms accumulator) is "
@@ -829,9 +871,10 @@ struct LVXAllocateRegistersPass
     for (AllocItem &item : items) {
       if (!item.assigned)
         continue;
-      Type newTy = RegisterType::get(&getContext(), *item.assigned);
-      for (Value v : item.values)
-        v.setType(newTy);
+      for (const AllocMember &m : item.members) {
+        Value v = m.value;
+        v.setType(typeFor(&getContext(), item.locOf(m)));
+      }
     }
 
     // A function that itself executes a call clobbers its own $ra before
@@ -856,12 +899,15 @@ struct LVXAllocateRegistersPass
     SmallVector<std::pair<Register, unsigned>> calleeSaved;
     {
       llvm::SmallSet<Register, 16> used;
+      // A tuple type names every unit it covers: a pair in r18r19 uses
+      // both, and a pair in r14r15 uses the callee-saved r14 alone.
       auto note = [&](Type t) {
-        auto regTy = dyn_cast<RegisterType>(t);
-        if (!regTy || !regTy.isAllocated())
+        std::optional<PhysLoc> loc = pinnedLoc(t);
+        if (!loc)
           return;
-        if (isCalleeSaved(*regTy.getReg()))
-          used.insert(*regTy.getReg());
+        for (unsigned u = loc->base; u != loc->end(); ++u)
+          if (isCalleeSaved(static_cast<Register>(u)))
+            used.insert(static_cast<Register>(u));
       };
       func.walk([&](Operation *op) {
         for (Value r : op->getResults())

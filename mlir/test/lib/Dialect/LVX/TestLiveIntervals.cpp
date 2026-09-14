@@ -49,7 +49,7 @@ struct TestLVXLiveIntervalsPass
       llvm::errs() << " : [" << interval.start << ", " << interval.end
                    << "]";
       if (interval.isFixed())
-        llvm::errs() << " fixed=" << stringifyRegister(*interval.fixedReg);
+        llvm::errs() << " fixed=" << *interval.fixed;
       llvm::errs() << "\n";
     }
   }

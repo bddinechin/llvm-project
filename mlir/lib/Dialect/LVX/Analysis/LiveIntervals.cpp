@@ -44,13 +44,14 @@ static LiveInterval &getOrCreate(Value value,
     return intervals[it->second];
   unsigned idx = intervals.size();
   valueToIndex[value] = idx;
-  intervals.push_back(LiveInterval{value, 0, 0, std::nullopt});
+  intervals.push_back(LiveInterval{value, 0, 0, 1, std::nullopt});
   return intervals.back();
 }
 
 static void setFixedRegIfPinned(LiveInterval &iv) {
-  if (auto regTy = dyn_cast<RegisterType>(iv.value.getType()))
-    iv.fixedReg = regTy.getReg();
+  Type ty = iv.value.getType();
+  iv.width = std::max(1u, widthOf(ty));
+  iv.fixed = pinnedLoc(ty);
 }
 
 void LVXLiveIntervals::buildIntervals(lvx_func::FuncOp func) {

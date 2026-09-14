@@ -18,6 +18,7 @@
 #define MLIR_DIALECT_LVX_ANALYSIS_LIVEINTERVALS_H
 
 #include "mlir/Dialect/LVX/IR/LVX.h"
+#include "mlir/Dialect/LVX/IR/RegisterUnits.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
@@ -35,21 +36,22 @@ namespace lvx {
 /// this is deliberately ignored (matches the paper's base algorithm, which
 /// performs no live-range splitting).
 ///
-/// `fixedReg` is set when `value`'s type is already an allocated
-/// `!lvx.reg<rN>` (e.g. an ABI-pinned function argument or a pinned
-/// return value). Such intervals are not allocation candidates -- they are
-/// hard constraints a later register-assignment pass must not conflict
-/// with.
+/// `fixed` is set when `value`'s type is already pinned -- `!lvx.reg<rN>`,
+/// `!lvx.pair<rNrN+1>` or `!lvx.quad<...>` (e.g. an ABI-pinned function
+/// argument or a pinned return value). Such intervals are not allocation
+/// candidates -- they are hard constraints a later register-assignment pass
+/// must not conflict with. `width` is the type's, in units (RegisterUnits.h).
 struct LiveInterval {
   Value value;
   unsigned start = 0;
   unsigned end = 0;
-  std::optional<Register> fixedReg;
+  unsigned width = 1;
+  std::optional<PhysLoc> fixed;
 
-  bool isFixed() const { return fixedReg.has_value(); }
+  bool isFixed() const { return fixed.has_value(); }
 };
 
-/// Computes live intervals for every `!lvx.reg`-typed value defined in an
+/// Computes live intervals for every register-typed value defined in an
 /// `lvx_func::FuncOp` body.
 ///
 /// Instruction numbering: a reverse-postorder walk of the function's outer
