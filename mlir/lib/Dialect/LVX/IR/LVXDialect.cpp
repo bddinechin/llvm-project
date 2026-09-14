@@ -62,25 +62,61 @@ Operation *LVXDialect::materializeConstant(OpBuilder &builder, Attribute value,
 // RegisterType: `!lvx.reg` (unallocated) or `!lvx.reg<r5>` (allocated).
 //===----------------------------------------------------------------------===//
 
-Type RegisterType::parse(AsmParser &parser) {
+// The three register-parameterized types share one syntax; only the enum
+// and the wording of the error differ.
+template <typename TypeT, typename EnumT>
+static Type
+parseRegisterParameterized(AsmParser &parser,
+                           std::optional<EnumT> (*symbolize)(StringRef),
+                           StringRef what) {
   if (parser.parseOptionalLess())
-    return RegisterType::get(parser.getContext(), std::nullopt);
+    return TypeT::get(parser.getContext(), std::nullopt);
 
   StringRef keyword;
   if (parser.parseKeyword(&keyword))
     return {};
-  std::optional<Register> reg = symbolizeRegister(keyword);
+  std::optional<EnumT> reg = symbolize(keyword);
   if (!reg) {
     parser.emitError(parser.getCurrentLocation())
-        << "invalid LVX register name '" << keyword << "'";
+        << "invalid LVX " << what << " name '" << keyword << "'";
     return {};
   }
   if (parser.parseGreater())
     return {};
-  return RegisterType::get(parser.getContext(), reg);
+  return TypeT::get(parser.getContext(), reg);
+}
+
+Type RegisterType::parse(AsmParser &parser) {
+  return parseRegisterParameterized<RegisterType, Register>(
+      parser, symbolizeRegister, "register");
 }
 
 void RegisterType::print(AsmPrinter &printer) const {
   if (std::optional<Register> reg = getReg())
     printer << "<" << stringifyRegister(*reg) << ">";
+}
+
+//===----------------------------------------------------------------------===//
+// PairType / QuadType: `!lvx.pair<r0r1>`, `!lvx.quad<r0r1r2r3>` -- the same
+// shape at width 2 and 4 (lvx-mds/docs/MLIR-backend-design.md §8.3).
+//===----------------------------------------------------------------------===//
+
+Type PairType::parse(AsmParser &parser) {
+  return parseRegisterParameterized<PairType, PairRegister>(
+      parser, symbolizePairRegister, "register pair");
+}
+
+void PairType::print(AsmPrinter &printer) const {
+  if (std::optional<PairRegister> reg = getReg())
+    printer << "<" << stringifyPairRegister(*reg) << ">";
+}
+
+Type QuadType::parse(AsmParser &parser) {
+  return parseRegisterParameterized<QuadType, QuadRegister>(
+      parser, symbolizeQuadRegister, "register quadruple");
+}
+
+void QuadType::print(AsmPrinter &printer) const {
+  if (std::optional<QuadRegister> reg = getReg())
+    printer << "<" << stringifyQuadRegister(*reg) << ">";
 }

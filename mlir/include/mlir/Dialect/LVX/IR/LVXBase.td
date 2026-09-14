@@ -80,6 +80,64 @@ def LVX_RegType : LVX_Type<"Register", "reg"> {
 }
 
 //===----------------------------------------------------------------------===//
+// The tuple types: `!lvx.pair` / `!lvx.pair<r0r1>` and `!lvx.quad` /
+// `!lvx.quad<r0r1r2r3>` -- lvx-mds/docs/MLIR-backend-design.md §8.3.
+//
+// A pair is a register, not a convention over two registers: the ISA's
+// pairedReg file has 32 members, r0r1 .. r62r63, and there is no r1r2, so
+// the class *is* the aligned set and a pinned pair cannot be misaligned. The
+// three files are disjoint register sets with disjoint names, and a value
+// cannot move between them without an instruction -- which is why these are
+// types of their own rather than a width parameter on `!lvx.reg`: the
+// verifier must refuse `lvx.abddp %a, %b` with `%a : !lvx.reg`.
+//
+// The parameter enums are valued by the ISA's `address`, the number of the
+// first component, so pair `p` holds singles `p` and `p+1` and quad `q`
+// holds pairs `q` and `q+2` -- the arithmetic the register allocator
+// relies on to treat all three as blocks of one unit space.
+//===----------------------------------------------------------------------===//
+
+def LVX_PairType : LVX_Type<"Pair", "pair"> {
+  let summary = "an LVX aligned register-pair value (128 bits)";
+  let description = [{
+    The type of a 128-bit value held in an aligned pair of general-purpose
+    registers. `!lvx.pair` (no parameter) is a virtual pair, not yet
+    allocated; `!lvx.pair<r2r3>` is pinned to (or, after register allocation,
+    assigned to) the physical pair `$r2r3`.
+  }];
+  let parameters = (ins "std::optional<PairRegister>":$reg);
+  let hasCustomAssemblyFormat = 1;
+  let builders = [
+    TypeBuilder<(ins), [{
+      return $_get($_ctxt, std::optional<PairRegister>{});
+    }]>
+  ];
+  let extraClassDeclaration = [{
+    bool isAllocated() const { return getReg().has_value(); }
+  }];
+}
+
+def LVX_QuadType : LVX_Type<"Quad", "quad"> {
+  let summary = "an LVX aligned register-quadruple value (256 bits)";
+  let description = [{
+    The type of a 256-bit value held in an aligned quadruple of
+    general-purpose registers. `!lvx.quad` (no parameter) is a virtual quad,
+    not yet allocated; `!lvx.quad<r4r5r6r7>` is pinned to (or, after register
+    allocation, assigned to) the physical quadruple `$r4r5r6r7`.
+  }];
+  let parameters = (ins "std::optional<QuadRegister>":$reg);
+  let hasCustomAssemblyFormat = 1;
+  let builders = [
+    TypeBuilder<(ins), [{
+      return $_get($_ctxt, std::optional<QuadRegister>{});
+    }]>
+  ];
+  let extraClassDeclaration = [{
+    bool isAllocated() const { return getReg().has_value(); }
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // Modifier enums are generated: see LVXModifiers.td, included above. The two
 // facts that used to live here as comments now live in the generator -- that
 // floatmode has no `cs` member (design document O4) and that `.R5` is a
