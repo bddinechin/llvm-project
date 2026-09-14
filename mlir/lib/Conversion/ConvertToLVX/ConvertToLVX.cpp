@@ -826,8 +826,14 @@ struct VectorBroadcastToLVX : public OpConversionPattern<vector::BroadcastOp> {
     if (isa<VectorType>(sourceTy))
       return rewriter.notifyMatchFailure(op, "only a scalar source splats");
     Type tupleTy = getTypeConverter()->convertType(op.getType());
-    if (!tupleTy || tupleWidth(tupleTy) != 2)
-      return rewriter.notifyMatchFailure(op, "the ISA splats into a pair only");
+    if (!tupleTy || !tupleWidth(tupleTy))
+      return rewriter.notifyMatchFailure(op, "vector shape has no register tuple");
+    // The ISA splats into a pair only. A quad broadcast becomes the pair
+    // splat regardless: its consumers are the composite ops, whose parts
+    // read a pair-typed source whole (pairSplatOf below folds it there), and
+    // the pair-to-quad cast the framework inserts for any other consumer is
+    // left unresolved, which fails the conversion for exactly that consumer.
+    tupleTy = lvx::PairType::get(rewriter.getContext());
     Value result;
     switch (getScalarBitWidth(sourceTy)) {
     case 8:
@@ -852,7 +858,34 @@ struct VectorBroadcastToLVX : public OpConversionPattern<vector::BroadcastOp> {
 
 // `vector.fma` on vector<4xf32> is `ffmawq`, on vector<2xf64> `ffmadp`; like
 // the scalar `ffmaw`/`ffmad`, the accumulator is tied to the result and the
-// allocator coalesces them.
+// allocator coalesces them. On vector<8xf32>/vector<4xf64> it is the
+// composite `ffmawo`/`ffmadq` (Builtin@split): the same instruction on each
+// pair of the quad, one op, issued in one bundle.
+//
+// A broadcast operand of the composite stays a pair: the ISA has no quad
+// splat, and the composite's parts read a pair-typed source whole
+// (LVX_PairOrQuadType), so `vector.broadcast` feeding a wide fma is folded
+// here into the pair splat rather than lowered to a quad it cannot become.
+// That is a fold of the *original* operand; a wide broadcast with another
+// use still has no lowering and fails the conversion, loudly.
+static Value pairSplatOf(ConversionPatternRewriter &rewriter, Location loc,
+                         Value converted, Value original) {
+  auto bcast = original.getDefiningOp<vector::BroadcastOp>();
+  if (!bcast || isa<VectorType>(bcast.getSource().getType()))
+    return converted;
+  Type pairTy = lvx::PairType::get(rewriter.getContext());
+  Value scalar = rewriter.getRemappedValue(bcast.getSource());
+  if (!scalar)
+    return converted;
+  switch (getScalarBitWidth(bcast.getSource().getType())) {
+  case 32:
+    return rewriter.create<lvx::SplatwqOp>(loc, pairTy, scalar);
+  case 64:
+    return rewriter.create<lvx::SplatdqOp>(loc, pairTy, scalar);
+  }
+  return converted;
+}
+
 struct VectorFMAToLVX : public OpConversionPattern<vector::FMAOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
@@ -860,15 +893,29 @@ struct VectorFMAToLVX : public OpConversionPattern<vector::FMAOp> {
                   ConversionPatternRewriter &rewriter) const override {
     auto vecTy = cast<VectorType>(op.getType());
     Type tupleTy = getTypeConverter()->convertType(vecTy);
-    if (!tupleTy || tupleWidth(tupleTy) != 2 || !isa<FloatType>(vecTy.getElementType()))
-      return rewriter.notifyMatchFailure(op, "the ISA has a pair fma for f32 x4 and f64 x2 only");
+    unsigned width = tupleTy ? tupleWidth(tupleTy) : 0;
+    if (!width || !isa<FloatType>(vecTy.getElementType()))
+      return rewriter.notifyMatchFailure(op, "the ISA has a pair fma for f32 x4 and f64 x2, and their composites, only");
+    bool f32 = vecTy.getElementTypeBitWidth() == 32;
+    Location loc = op.getLoc();
     Value result;
-    if (vecTy.getElementTypeBitWidth() == 32)
-      result = rewriter.create<lvx::FfmawqOp>(op.getLoc(), tupleTy, adaptor.getLhs(),
-                                              adaptor.getRhs(), adaptor.getAcc());
-    else
-      result = rewriter.create<lvx::FfmadpOp>(op.getLoc(), tupleTy, adaptor.getLhs(),
-                                              adaptor.getRhs(), adaptor.getAcc());
+    if (width == 2) {
+      if (f32)
+        result = rewriter.create<lvx::FfmawqOp>(loc, tupleTy, adaptor.getLhs(),
+                                                adaptor.getRhs(), adaptor.getAcc());
+      else
+        result = rewriter.create<lvx::FfmadpOp>(loc, tupleTy, adaptor.getLhs(),
+                                                adaptor.getRhs(), adaptor.getAcc());
+    } else {
+      Value lhs = pairSplatOf(rewriter, loc, adaptor.getLhs(), op.getLhs());
+      Value rhs = pairSplatOf(rewriter, loc, adaptor.getRhs(), op.getRhs());
+      if (f32)
+        result = rewriter.create<lvx::FfmawoOp>(loc, tupleTy, lhs, rhs,
+                                                adaptor.getAcc());
+      else
+        result = rewriter.create<lvx::FfmadqOp>(loc, tupleTy, lhs, rhs,
+                                                adaptor.getAcc());
+    }
     rewriter.replaceOp(op, result);
     return success();
   }

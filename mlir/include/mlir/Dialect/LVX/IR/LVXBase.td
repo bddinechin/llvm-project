@@ -142,6 +142,12 @@ def LVX_QuadType : LVX_Type<"Quad", "quad"> {
 // take: a loop-carried accumulator is a pair as readily as a single.
 def LVX_AnyRegType : AnyTypeOf<[LVX_RegType, LVX_PairType, LVX_QuadType]>;
 
+// A composite op's source (Builtin@split, LVXComposites.inc): the quad whose
+// two pairs the two parts take, or one pair that every part reads whole -- a
+// broadcast operand, which reaches a composite this way because the ISA has
+// no quad splat.
+def LVX_PairOrQuadType : AnyTypeOf<[LVX_PairType, LVX_QuadType]>;
+
 //===----------------------------------------------------------------------===//
 // Modifier enums are generated: see LVXModifiers.td, included above. The two
 // facts that used to live here as comments now live in the generator -- that

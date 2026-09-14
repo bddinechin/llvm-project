@@ -236,6 +236,34 @@ lvx_func.func @pairs(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
   lvx_func.return
 }
 
+// A composite (Builtin@split): `ffmawo` is `ffmawq` on each pair of its quad
+// operands, printed as two instructions with one `;;` -- they issue together,
+// which is what lets the result quad overlap the operands. The pair-typed
+// splat is read whole by both parts; the accumulator is tied to the result,
+// so it is not printed, and the allocator gave both the quad r4r5r6r7.
+// CHECK-LABEL: composite:
+// CHECK-NEXT: splatwq $r2r3 = $r1
+// CHECK-NEXT: ;;
+// CHECK-NEXT: lo $r4r5r6r7 = 0[$r0]
+// CHECK-NEXT: ;;
+// CHECK-NEXT: lo $r8r9r10r11 = 32[$r0]
+// CHECK-NEXT: ;;
+// CHECK-NEXT: ffmawq $r4r5 = $r2r3, $r8r9
+// CHECK-NEXT: ffmawq $r6r7 = $r2r3, $r10r11
+// CHECK-NEXT: ;;
+// CHECK-NEXT: so 0[$r0] = $r4r5r6r7
+// CHECK-NEXT: ;;
+// CHECK-NEXT: ret
+// CHECK-NEXT: ;;
+lvx_func.func @composite(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
+  %s = lvx.splatwq %x : (!lvx.reg<r1>) -> !lvx.pair
+  %acc = lvx.lo %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.quad
+  %v = lvx.lo %base, 32 : i64 : (!lvx.reg<r0>) -> !lvx.quad
+  %f = lvx.ffmawo %s, %v, %acc : (!lvx.pair, !lvx.quad, !lvx.quad) -> !lvx.quad
+  lvx.so %f, %base, 0 : i64 : (!lvx.quad, !lvx.reg<r0>)
+  lvx_func.return
+}
+
 // `ffmad`/`ffmsd`: real hardware has no separate destination register --
 // the `c` operand and the result share one physical register in place
 // (lvx-mlir/docs/RegisterAllocation.md, "`ffma`/`ffms` accumulator

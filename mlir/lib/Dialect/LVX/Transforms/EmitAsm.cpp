@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
+#include "mlir/Dialect/LVX/IR/LVXComposites.h"
 #include "mlir/Dialect/LVX/IR/LVXTiedOperands.h"
 #include "mlir/Dialect/LVX/IR/RegisterUnits.h"
 
@@ -52,6 +53,13 @@ public:
 
 private:
   llvm::raw_ostream &os;
+
+  /// While printing part k of a composite op (LVXComposites.h): every
+  /// quad-typed value prints as its k-th pair, and only the last part ends
+  /// the bundle -- the parts issue together, which is the point of them.
+  std::optional<unsigned> compositePart;
+  bool lastPart = true;
+  const char *endOfOp() const { return lastPart ? "\n\t;;\n" : "\n"; }
   DenseMap<Block *, unsigned> blockIds;
   Block *entryBlock = nullptr;
   unsigned nextBlockId = 0;
@@ -70,6 +78,10 @@ private:
       return emitError(v.getLoc())
              << "value reaching lvx-emit-asm has no assigned physical "
                 "register -- run -lvx-allocate-registers first";
+    // A composite's part takes the k-th pair of each quad; a pair-typed
+    // source is read whole by every part (a broadcast operand).
+    if (compositePart && loc->width == 4)
+      loc = PhysLoc{loc->base + 2 * *compositePart, 2};
     return ("$" + spellingOf(*loc)).str();
   }
 
@@ -97,7 +109,7 @@ private:
       FailureOr<std::string> hi = lane(mv.getSource(), 1);
       if (failed(rd) || failed(lo) || failed(hi))
         return failure();
-      os << "\tcopyq " << *rd << " = " << *lo << ", " << *hi << "\n\t;;\n";
+      os << "\tcopyq " << *rd << " = " << *lo << ", " << *hi << endOfOp();
       return success();
     }
     case 4:
@@ -169,7 +181,7 @@ private:
                  std::optional<Format> format = std::nullopt) {
     if (dest != nextBlock)
       os << "\t" << widened("goto", format) << " " << label(dest)
-         << "\n\t;;\n";
+         << endOfOp();
   }
 
   //===--------------------------------------------------------------------===//
@@ -193,7 +205,7 @@ private:
     if (failed(rd) || failed(rs1) || failed(rs2))
       return failure();
     os << "\t" << withSx(op, mnemonic) << " " << *rd << " = " << *rs1 << ", "
-       << *rs2 << "\n\t;;\n";
+       << *rs2 << endOfOp();
     return success();
   }
 
@@ -217,7 +229,7 @@ private:
     if (failed(rd) || failed(rs1) || failed(rs2))
       return failure();
     os << "\t" << withSx(op, mnemonic) << " " << *rd << " = " << *rs1 << ", " << *rs2
-       << "\n\t;;\n";
+       << endOfOp();
     return success();
   }
 
@@ -229,7 +241,7 @@ private:
     if (failed(rd) || failed(rs1) || failed(rs2) || failed(rs3))
       return failure();
     os << "\t" << mnemonic << " " << *rd << " = " << *rs1 << ", " << *rs2
-       << ", " << *rs3 << "\n\t;;\n";
+       << ", " << *rs3 << endOfOp();
     return success();
   }
 
@@ -278,7 +290,7 @@ private:
     if (failed(rd) || failed(rs))
       return failure();
     os << "\t" << withSx(op, mnemonic) << " " << *rd << " = " << *rs
-       << "\n\t;;\n";
+       << endOfOp();
     return success();
   }
 
@@ -298,7 +310,7 @@ private:
     // there is nothing to print. See LVXBase.td on why `cs` is not a member.
     if (mode)
       os << dotted(stringifyFloatMode(*mode));
-    os << " " << *rd << " = " << *rs << "\n\t;;\n";
+    os << " " << *rd << " = " << *rs << endOfOp();
     return success();
   }
 
@@ -310,7 +322,7 @@ private:
     if (failed(rd) || failed(rs1) || failed(rs2))
       return failure();
     os << "\t" << mnemonic << dotted(predicate) << " " << *rd << " = "
-       << *rs1 << ", " << *rs2 << "\n\t;;\n";
+       << *rs1 << ", " << *rs2 << endOfOp();
     return success();
   }
 
@@ -360,7 +372,7 @@ private:
     if (failed(rv) || failed(rb) || failed(disp))
       return failure();
     os << "\t" << mnemonic << " " << *disp << "[" << *rb << "] = " << *rv
-       << "\n\t;;\n";
+       << endOfOp();
     return success();
   }
 
@@ -390,7 +402,7 @@ private:
              << ") -- register allocation should have coalesced them";
 
     os << "\t" << mnemonic << "." << stringifyBcuCond(cond.getValue()) << " "
-       << *guard << "? " << *rd << " = " << *ry << "\n\t;;\n";
+       << *guard << "? " << *rd << " = " << *ry << endOfOp();
     return success();
   }
 
@@ -410,11 +422,11 @@ private:
             return failure();
           Attribute value = li.getValue();
           if (auto intAttr = dyn_cast<IntegerAttr>(value))
-            os << "\tmaked " << *rd << " = " << intAttr.getValue() << "\n\t;;\n";
+            os << "\tmaked " << *rd << " = " << intAttr.getValue() << endOfOp();
           else
             os << "\tmaked " << *rd << " = "
                << cast<FloatAttr>(value).getValue().bitcastToAPInt()
-               << "\n\t;;\n";
+               << endOfOp();
           return success();
         })
         .Case([&](MvOp mv) { return emitMv(mv); })
@@ -494,7 +506,7 @@ private:
         // `CallToLVX`, so nothing but the callee symbol needs printing.
         .Case([&](lvx_func::CallOp op) {
           os << "\t" << widened("call", op.getFormat()) << " "
-             << op.getCallee() << "\n\t;;\n";
+             << op.getCallee() << endOfOp();
           return success();
         })
         // Everything else with plain (unattributed) register
@@ -504,21 +516,43 @@ private:
         // arithmetic/cast op families (lvx-mlir/docs/AssemblyEmission.md).
         .Default([&](Operation *op) -> LogicalResult {
           StringRef mnemonic = op->getName().stripDialect();
-          // A tied operand is read through the destination and has no field
-          // of its own, so it is not part of the printed shape.
-          FailureOr<unsigned> tied = tiedSuffix(op);
-          if (failed(tied))
-            return failure();
-          unsigned printed = op->getNumOperands() - *tied;
-          if (op->getNumResults() == 1 && printed == 1)
-            return emitUnary(op, mnemonic);
-          if (op->getNumResults() == 1 && printed == 2)
-            return emitBinary(op, mnemonic);
-          if (op->getNumResults() == 1 && printed == 3)
-            return emitTernary(op, mnemonic);
-          return op->emitError(
-              "lvx-emit-asm: no emission rule for this op's shape");
+          // A composite op (Builtin@split): its part's instruction once per
+          // pair of the quad, in one bundle. Each part is printed by the
+          // same arity rule as the instruction itself, with `reg` folding
+          // the quads down to the part's pair.
+          if (std::optional<Composite> composite = compositeOf(mnemonic)) {
+            for (unsigned k = 0; k != composite->parts; ++k) {
+              compositePart = k;
+              lastPart = k + 1 == composite->parts;
+              LogicalResult r = emitByArity(op, composite->part);
+              compositePart = std::nullopt;
+              lastPart = true;
+              if (failed(r))
+                return failure();
+            }
+            return success();
+          }
+          return emitByArity(op, mnemonic);
         });
+  }
+
+  /// The arity rule: this dialect's mnemonics match real LVX mnemonics
+  /// verbatim (top-level CLAUDE.md), and the "$rd = $rs..." shape is uniform
+  /// across the arithmetic/cast op families (lvx-mlir/docs/AssemblyEmission.md).
+  LogicalResult emitByArity(Operation *op, StringRef mnemonic) {
+    // A tied operand is read through the destination and has no field of
+    // its own, so it is not part of the printed shape.
+    FailureOr<unsigned> tied = tiedSuffix(op);
+    if (failed(tied))
+      return failure();
+    unsigned printed = op->getNumOperands() - *tied;
+    if (op->getNumResults() == 1 && printed == 1)
+      return emitUnary(op, mnemonic);
+    if (op->getNumResults() == 1 && printed == 2)
+      return emitBinary(op, mnemonic);
+    if (op->getNumResults() == 1 && printed == 3)
+      return emitTernary(op, mnemonic);
+    return op->emitError("lvx-emit-asm: no emission rule for this op's shape");
   }
 
   //===--------------------------------------------------------------------===//
@@ -555,7 +589,7 @@ private:
       // edge just falls through to whatever comes textually next.
       os << "\t" << widened("cb", cbr.getFormat())
          << dotted(stringifyBcuCond(cbr.getCondition())) << " "
-         << *rt << "? " << label(cbr.getTrueDest()) << "\n\t;;\n";
+         << *rt << "? " << label(cbr.getTrueDest()) << endOfOp();
       // The fall-through edge is a goto with no op of its own, so there is
       // no attribute to widen it with -- see LVXCF_CondBranchOp's `format`.
       printGoto(cbr.getFalseDest(), nextBlock);
@@ -573,7 +607,7 @@ private:
       // immediately follows in block order -- see
       // lvx-mlir/docs/HardwareLoops.md). Only `exit` is a real operand, the
       // branch target encoded in the instruction itself.
-      os << "\tloopdo " << *rt << ", " << label(loopdo.getExit()) << "\n\t;;\n";
+      os << "\tloopdo " << *rt << ", " << label(loopdo.getExit()) << endOfOp();
       if (loopdo.getBody() != nextBlock)
         return loopdo.emitError(
             "lvx-emit-asm: lvx_cf.loopdo's body successor must be the "

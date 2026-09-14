@@ -64,3 +64,21 @@ func.func @dot_rows(%A: memref<4x8xf32>, %B: memref<8x4xf32>, %C: memref<4x4xf32
   vector.store %acc, %C[%i, %c0] : memref<4x4xf32>, vector<4xf32>
   return
 }
+
+// Eight lanes: the composite `ffmawo` (Builtin@split), one op over the quad
+// whose two halves are `ffmawq`. The broadcast operand stays a pair splat --
+// the composite's parts read a pair-typed source whole.
+// CHECK-LABEL: lvx_func.func @axpy8
+// CHECK: %[[X:.*]] = lvx.lo %{{.*}}, 0 : i64 : (!lvx.reg) -> !lvx.quad
+// CHECK: %[[Y:.*]] = lvx.lo %{{.*}}, 0 : i64 : (!lvx.reg) -> !lvx.quad
+// CHECK: %[[S:.*]] = lvx.splatwq %{{.*}} : (!lvx.reg) -> !lvx.pair
+// CHECK: %[[F:.*]] = lvx.ffmawo %[[S]], %[[X]], %[[Y]] : (!lvx.pair, !lvx.quad, !lvx.quad) -> !lvx.quad
+// CHECK: lvx.so %[[F]], %{{.*}}, 0 : i64 : (!lvx.quad, !lvx.reg)
+func.func @axpy8(%a: f32, %x: memref<16xf32>, %y: memref<16xf32>, %i: index) {
+  %av = vector.broadcast %a : f32 to vector<8xf32>
+  %xv = vector.load %x[%i] : memref<16xf32>, vector<8xf32>
+  %yv = vector.load %y[%i] : memref<16xf32>, vector<8xf32>
+  %r = vector.fma %av, %xv, %yv : vector<8xf32>
+  vector.store %r, %y[%i] : memref<16xf32>, vector<8xf32>
+  return
+}
