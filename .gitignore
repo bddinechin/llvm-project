@@ -99,3 +99,5 @@ pythonenv*
 /mlir/include/mlir/Dialect/LVX/IR/LVXTiedOperands.inc
 /mlir/include/mlir/Dialect/LVX/IR/LVXScheduling.inc
 /mlir/include/mlir/Dialect/LVX/IR/LVXComposites.inc
+/mlir/include/mlir/Dialect/LVX/IR/LVXLatency.inc
+/mlir/include/mlir/Dialect/LVX/IR/LVXImmediates.inc

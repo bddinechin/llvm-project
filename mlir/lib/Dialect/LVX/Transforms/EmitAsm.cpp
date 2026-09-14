@@ -59,7 +59,24 @@ private:
   /// the bundle -- the parts issue together, which is the point of them.
   std::optional<unsigned> compositePart;
   bool lastPart = true;
-  const char *endOfOp() const { return lastPart ? "\n\t;;\n" : "\n"; }
+  /// Whether the op being printed is the last of its bundle (`lvx.bundle`,
+  /// from -lvx-schedule); an op without the attribute is a bundle of its
+  /// own. Only the last op of a bundle prints the `;;`.
+  bool endsBundle = true;
+  const char *endOfOp() const {
+    return lastPart && endsBundle ? "\n\t;;\n" : "\n";
+  }
+
+  /// Whether `op` prints an instruction at all: the pseudos that only name a
+  /// register print nothing, and a branch to the block that follows is a
+  /// fall-through.
+  static bool prints(Operation *op, Block *nextBlock) {
+    if (isa<LaneOp, SpOp, RegLiveInOp, RegLiveOutOp, lvx_cf::LoopendOp>(op))
+      return false;
+    if (auto br = dyn_cast<lvx_cf::BranchOp>(op))
+      return br.getDest() != nextBlock;
+    return true;
+  }
   DenseMap<Block *, unsigned> blockIds;
   Block *entryBlock = nullptr;
   unsigned nextBlockId = 0;
@@ -360,7 +377,7 @@ private:
     if (failed(rd) || failed(rb) || failed(disp))
       return failure();
     os << "\t" << withVariant(variant, mnemonic) << " " << *rd << " = " << *disp
-       << "[" << *rb << "]\n\t;;\n";
+       << "[" << *rb << "]" << endOfOp();
     return success();
   }
 
@@ -615,7 +632,7 @@ private:
       return success();
     }
     if (isa<lvx_func::ReturnOp>(op)) {
-      os << "\tret\n\t;;\n";
+      os << "\tret" << endOfOp();
       return success();
     }
     return op->emitError("lvx-emit-asm: unsupported terminator");
@@ -624,13 +641,33 @@ private:
   LogicalResult emitBlock(Block *block, Block *nextBlock) {
     if (block != entryBlock)
       os << label(block) << ":\n";
+    // The bundle of each op, from -lvx-schedule; an unscheduled op is alone
+    // in its own. The last PRINTING op of a bundle ends it, since the ones
+    // that print nothing cannot.
+    auto bundleOf = [](Operation *op) -> std::optional<int64_t> {
+      if (auto b = op->getAttrOfType<IntegerAttr>("lvx.bundle"))
+        return b.getInt();
+      return std::nullopt;
+    };
     for (Operation &op : *block) {
-      if (op.hasTrait<OpTrait::IsTerminator>()) {
-        if (failed(emitTerminator(&op, nextBlock)))
-          return failure();
-      } else if (failed(emitOp(&op))) {
+      std::optional<int64_t> bundle = bundleOf(&op);
+      endsBundle = true;
+      if (bundle)
+        for (Operation *later = op.getNextNode(); later;
+             later = later->getNextNode()) {
+          if (bundleOf(later) != bundle)
+            break;
+          if (prints(later, nextBlock)) {
+            endsBundle = false;
+            break;
+          }
+        }
+      LogicalResult r = op.hasTrait<OpTrait::IsTerminator>()
+                            ? emitTerminator(&op, nextBlock)
+                            : emitOp(&op);
+      endsBundle = true;
+      if (failed(r))
         return failure();
-      }
     }
     return success();
   }

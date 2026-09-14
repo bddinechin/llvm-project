@@ -92,6 +92,25 @@ def LVXCombinePass : Pass<"lvx-combine"> {
   let dependentDialects = ["::mlir::lvx::LVXDialect"];
 }
 
+def LVXSchedulePass : Pass<"lvx-schedule", "::mlir::lvx_func::FuncOp"> {
+  let summary = "Bundle each block's ops by list scheduling, after allocation";
+  let description = [{
+    lvx-mlir/docs/Bundling.md. Runs after `-lvx-allocate-registers` and
+    `-lvx-scf-to-cf`, on blocks of ops over physical registers: builds each
+    block's dependence DAG (register RAW/WAR/WAW over units with latencies
+    from the generated LVXLatency.inc, memory ordering, barriers), then
+    places ops one bundle at a time by longest-path priority, a bundle being
+    legal when no resource of the generated LVXScheduling.inc reservations
+    is oversubscribed -- the same counted check `lvx-mbr-as` applies. An op
+    with an immediate and no `format` gets one chosen from the immediate's
+    value (LVXImmediates.inc), since the ISSUE count depends on it.
+
+    The result is an `lvx.bundle` index attribute on every op and the block
+    reordered by it; `-lvx-emit-asm` prints one `;;` per bundle. Without the
+    attribute the emitter prints one bundle per op, as before this pass.
+  }];
+}
+
 def LVXEmitAsmPass : Pass<"lvx-emit-asm", "::mlir::ModuleOp"> {
   let summary = "Print real LVX assembly text for every lvx_func.func";
   let description = [{
