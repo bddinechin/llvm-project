@@ -159,12 +159,6 @@ static constexpr std::array<Register, kAllocatableCount> kFullOrderStorage =
     makeFullOrder();
 static constexpr ArrayRef<Register> kFullOrder(kFullOrderStorage);
 
-// The callee-saved suffix of kFullOrder, in the same relative order --
-// used for items whose range straddles a call.
-static constexpr unsigned kCalleeSavedCount = kNumCalleeSavedRegs;
-static constexpr const Register *kCalleeSavedOrder =
-    kFullOrderStorage.data() + (kAllocatableCount - kCalleeSavedCount);
-
 static_assert(kAllocatableCount == 59,
               "expected 59 allocatable GPRs (all but R12/R13 and the 3 "
               "spill-scratch registers below)");
@@ -214,14 +208,136 @@ static constexpr unsigned kNumSpillScratchRegs = kNumScratchRegs;
 /// arrived (O5).
 static constexpr unsigned kRegisterIdBound = getMaxEnumValForRegister() + 1;
 
-/// Picks the first free register in `order` (truncated to `poolSize`
-/// entries), or nullopt if none is free.
-static std::optional<Register> pickFree(ArrayRef<Register> order,
-                                        unsigned poolSize,
+//===----------------------------------------------------------------------===//
+// The pool at every width (lvx-mlir/docs/RegisterAllocation.md, "Step 4",
+// "Preference orders"). The ABI states caller/callee for singles and a tuple
+// inherits by containment: a block of W units is allocatable iff every unit
+// is, and its preference is the same policy kFullOrder expresses for singles
+// -- the fewer callee-saved units it costs a save for, the earlier -- with
+// kFullOrder's own order breaking ties, so that makeOrder<1>() IS kFullOrder.
+//
+// Over lvx_v2's ABI that gives 29 pairs (21 wholly caller-saved, then
+// r14r15 -- r14 the frame pointer and callee-saved, r15 the struct-return
+// register and caller-saved -- then the 7 wholly callee-saved r18r19 ..
+// r30r31; absent: r12r13, reserved, and r60r61/r62r63, which contain
+// scratch) and 14 quads (10, then r16..r19, then r20..r31's three; absent:
+// r12..r15 and r60..r63).
+//===----------------------------------------------------------------------===//
+
+/// A unit's position in kFullOrder, or kNotAllocatable. The `max-registers`
+/// test knob bounds the pool by this rank, at every width: a block is in the
+/// pool iff every unit's rank is below the bound.
+static constexpr unsigned kNotAllocatable = ~0u;
+static constexpr std::array<unsigned, kRegisterIdBound> makePoolRank() {
+  std::array<unsigned, kRegisterIdBound> rank{};
+  for (unsigned &r : rank)
+    r = kNotAllocatable;
+  for (unsigned i = 0; i != kAllocatableCount; ++i)
+    rank[static_cast<unsigned>(kFullOrderStorage[i])] = i;
+  return rank;
+}
+static constexpr std::array<unsigned, kRegisterIdBound> kPoolRank =
+    makePoolRank();
+
+static constexpr bool isAllocatableBlock(unsigned base, unsigned width) {
+  for (unsigned u = base; u != base + width; ++u)
+    if (kPoolRank[u] == kNotAllocatable)
+      return false;
+  return true;
+}
+static constexpr unsigned calleeSavedUnits(unsigned base, unsigned width) {
+  unsigned n = 0;
+  for (unsigned u = base; u != base + width; ++u)
+    if (isIn(static_cast<Register>(u), kCalleeSavedRegs))
+      ++n;
+  return n;
+}
+
+template <unsigned W> static constexpr unsigned countBlocks() {
+  unsigned n = 0;
+  for (unsigned base = 0; base + W <= kNumGPRUnits; base += W)
+    if (isAllocatableBlock(base, W))
+      ++n;
+  return n;
+}
+
+/// The candidate bases of width W, in preference order.
+template <unsigned W>
+static constexpr std::array<unsigned, countBlocks<W>()> makeOrder() {
+  std::array<unsigned, countBlocks<W>()> order{};
+  unsigned n = 0;
+  for (unsigned base = 0; base + W <= kNumGPRUnits; base += W)
+    if (isAllocatableBlock(base, W))
+      order[n++] = base;
+  // Insertion sort by (callee-saved units, rank of the first unit) -- a
+  // constexpr-friendly sort over at most 59 entries.
+  auto before = [](unsigned a, unsigned b) {
+    unsigned ca = calleeSavedUnits(a, W), cb = calleeSavedUnits(b, W);
+    return ca != cb ? ca < cb : kPoolRank[a] < kPoolRank[b];
+  };
+  for (unsigned i = 1; i < n; ++i)
+    for (unsigned j = i; j > 0 && before(order[j], order[j - 1]); --j) {
+      unsigned tmp = order[j];
+      order[j] = order[j - 1];
+      order[j - 1] = tmp;
+    }
+  return order;
+}
+
+static constexpr auto kOrder1 = makeOrder<1>();
+static constexpr auto kOrder2 = makeOrder<2>();
+static constexpr auto kOrder4 = makeOrder<4>();
+
+// The single-width order must be kFullOrder itself, so that nothing about a
+// single register's allocation changed when the block machinery arrived.
+static constexpr bool singleOrderIsFullOrder() {
+  if (kOrder1.size() != kAllocatableCount)
+    return false;
+  for (unsigned i = 0; i != kAllocatableCount; ++i)
+    if (kOrder1[i] != static_cast<unsigned>(kFullOrderStorage[i]))
+      return false;
+  return true;
+}
+static_assert(singleOrderIsFullOrder(),
+              "makeOrder<1>() must reproduce kFullOrder");
+static_assert(kOrder2.size() == 29 && kOrder4.size() == 14,
+              "expected 29 allocatable pairs and 14 allocatable quads (see "
+              "the pool comment above)");
+
+static ArrayRef<unsigned> orderFor(unsigned width) {
+  switch (width) {
+  case 1:
+    return kOrder1;
+  case 2:
+    return kOrder2;
+  case 4:
+    return kOrder4;
+  }
+  llvm_unreachable("a block is 1, 2 or 4 units wide");
+}
+
+/// Whether `loc` may be handed to an item: every unit within the first
+/// `maxRegisters` of kFullOrder, and callee-saved if the item's range
+/// straddles a call.
+static bool inPool(PhysLoc loc, bool crossesCall, unsigned maxRegisters) {
+  for (unsigned u = loc.base; u != loc.end(); ++u) {
+    if (kPoolRank[u] >= maxRegisters)
+      return false;
+    if (crossesCall && !isIn(static_cast<Register>(u), kCalleeSavedRegs))
+      return false;
+  }
+  return true;
+}
+
+/// Picks the first free block of `width` units in the pool, or nullopt.
+static std::optional<unsigned> pickFree(unsigned width, bool crossesCall,
+                                        unsigned maxRegisters,
                                         const bool inUse[kRegisterIdBound]) {
-  for (Register r : order.take_front(std::min<size_t>(poolSize, order.size())))
-    if (!inUse[static_cast<unsigned>(r)])
-      return r;
+  for (unsigned base : orderFor(width)) {
+    PhysLoc loc{base, width};
+    if (inPool(loc, crossesCall, maxRegisters) && !anyInUse(inUse, loc))
+      return base;
+  }
   return std::nullopt;
 }
 
@@ -788,12 +904,6 @@ struct LVXAllocateRegistersPass
       victim.spillOffset = frameSize;
       frameSize += 8;
     };
-    auto isInPool = [](Register r, ArrayRef<Register> order,
-                       unsigned poolSize) {
-      return llvm::is_contained(
-          order.take_front(std::min<size_t>(poolSize, order.size())), r);
-    };
-
     for (unsigned idx = 0, e = items.size(); idx != e; ++idx) {
       AllocItem &item = items[idx];
       expireOldIntervals(item.start, item.isFixed());
@@ -810,13 +920,9 @@ struct LVXAllocateRegistersPass
         continue;
       }
 
-      ArrayRef<Register> order =
-          item.crossesCall
-              ? ArrayRef<Register>(kCalleeSavedOrder, kCalleeSavedCount)
-              : kFullOrder;
-      if (std::optional<Register> reg =
-              pickFree(order, this->maxRegisters, inUse)) {
-        item.assigned = static_cast<unsigned>(*reg);
+      if (std::optional<unsigned> base = pickFree(
+              item.width, item.crossesCall, this->maxRegisters, inUse)) {
+        item.assigned = *base;
         markInUse(inUse, item.loc(), true);
         insertActive(idx);
         continue;
@@ -833,8 +939,7 @@ struct LVXAllocateRegistersPass
         const AllocItem &cand = items[*it];
         if (cand.isFixed() || cand.isGroup())
           continue;
-        if (!isInPool(static_cast<Register>(*cand.assigned), order,
-                      this->maxRegisters))
+        if (!inPool(cand.loc(), item.crossesCall, this->maxRegisters))
           continue;
         victimIdx = *it;
         break;
