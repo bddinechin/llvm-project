@@ -43,7 +43,8 @@ def LVXCF_BranchOp : LVXCF_Op<"br",
   // and the ranges are tight enough to matter: `ccb` reaches +/-4 KB, `cb`
   // +/-256 KB, `goto` and `call` +/-256 MB.
   let arguments = (ins Variadic<LVX_AnyRegType>:$destOperands,
-                       OptionalAttr<LVX_FormatAttr>:$format);
+                       OptionalAttr<LVX_FormatAttr>:$format,
+                       LVX_CycleAttr:$cycle);
   let successors = (successor AnySuccessor:$dest);
   let builders = [
     OpBuilder<(ins "Block *":$dest,
@@ -88,7 +89,8 @@ def LVXCF_LoopendOp : LVXCF_Op<"loopend",
     IR-level test failing. This op moves the decision into the IR, where it
     is stated rather than inferred.
   }];
-  let arguments = (ins Variadic<LVX_AnyRegType>:$destOperands);
+  let arguments = (ins Variadic<LVX_AnyRegType>:$destOperands,
+                       LVX_CycleAttr:$cycle);
   let successors = (successor AnySuccessor:$dest);
   let builders = [
     OpBuilder<(ins "Block *":$dest,
@@ -114,7 +116,8 @@ def LVXCF_CondBranchOp : LVXCF_Op<"cond_br",
                        LVX_BcuCondAttr:$condition,
                        Variadic<LVX_AnyRegType>:$trueDestOperands,
                        Variadic<LVX_AnyRegType>:$falseDestOperands,
-                       OptionalAttr<LVX_FormatAttr>:$format);
+                       OptionalAttr<LVX_FormatAttr>:$format,
+                       LVX_CycleAttr:$cycle);
   let successors = (successor AnySuccessor:$trueDest,
                               AnySuccessor:$falseDest);
   let builders = [
@@ -124,7 +127,7 @@ def LVXCF_CondBranchOp : LVXCF_Op<"cond_br",
       // The near form: `format` absent. A relaxation pass sets it when a
       // displacement does not fit -- see the `format` argument above.
       build($_builder, $_state, test, condition, trueOperands, falseOperands,
-            /*format=*/nullptr, trueDest, falseDest);
+            /*format=*/nullptr, /*cycle=*/nullptr, trueDest, falseDest);
     }]>];
   let assemblyFormat = [{
     $condition $test `:` qualified(type($test)) `,`
@@ -162,14 +165,15 @@ def LVXCF_LoopdoOp : LVXCF_Op<"loopdo",
   }];
   let arguments = (ins LVX_RegType:$tripCount,
                        Variadic<LVX_AnyRegType>:$bodyOperands,
-                       Variadic<LVX_AnyRegType>:$exitOperands);
+                       Variadic<LVX_AnyRegType>:$exitOperands,
+                       LVX_CycleAttr:$cycle);
   let successors = (successor AnySuccessor:$body, AnySuccessor:$exit);
   let builders = [
     OpBuilder<(ins "Value":$tripCount,
                    "Block *":$body, "ValueRange":$bodyOperands,
                    "Block *":$exit, "ValueRange":$exitOperands), [{
       build($_builder, $_state, tripCount, bodyOperands, exitOperands,
-            body, exit);
+            /*cycle=*/nullptr, body, exit);
     }]>];
   let assemblyFormat = [{
     $tripCount `:` qualified(type($tripCount)) `,`

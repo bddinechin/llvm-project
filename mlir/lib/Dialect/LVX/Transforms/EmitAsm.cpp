@@ -59,12 +59,18 @@ private:
   /// the bundle -- the parts issue together, which is the point of them.
   std::optional<unsigned> compositePart;
   bool lastPart = true;
-  /// Whether the op being printed is the last of its bundle (`lvx.bundle`,
-  /// from -lvx-schedule); an op without the attribute is a bundle of its
-  /// own. Only the last op of a bundle prints the `;;`.
+  /// Whether the op being printed is the last of its bundle -- the last op
+  /// of its `cycle` (from -lvx-schedule); an op without the attribute is a
+  /// bundle of its own. Only the last op of a bundle prints the `;;`, with
+  /// the cycle it ends as a comment, the way lvx-gcc's output reads.
   bool endsBundle = true;
-  const char *endOfOp() const {
-    return lastPart && endsBundle ? "\n\t;;\n" : "\n";
+  std::optional<int64_t> cycle;
+  std::string endOfOp() const {
+    if (!(lastPart && endsBundle))
+      return "\n";
+    if (cycle)
+      return ("\n\t;;\t# (end cycle " + Twine(*cycle) + ")\n").str();
+    return "\n\t;;\n";
   }
 
   /// Whether `op` prints an instruction at all: the pseudos that only name a
@@ -641,21 +647,21 @@ private:
   LogicalResult emitBlock(Block *block, Block *nextBlock) {
     if (block != entryBlock)
       os << label(block) << ":\n";
-    // The bundle of each op, from -lvx-schedule; an unscheduled op is alone
-    // in its own. The last PRINTING op of a bundle ends it, since the ones
-    // that print nothing cannot.
-    auto bundleOf = [](Operation *op) -> std::optional<int64_t> {
-      if (auto b = op->getAttrOfType<IntegerAttr>("lvx.bundle"))
-        return b.getInt();
+    // The cycle of each op, from -lvx-schedule; an unscheduled op is alone
+    // in a bundle of its own. A bundle is the ops of one cycle, and its last
+    // PRINTING op ends it, since the ones that print nothing cannot.
+    auto cycleOf = [](Operation *op) -> std::optional<int64_t> {
+      if (auto c = op->getAttrOfType<IntegerAttr>("cycle"))
+        return c.getInt();
       return std::nullopt;
     };
     for (Operation &op : *block) {
-      std::optional<int64_t> bundle = bundleOf(&op);
+      cycle = cycleOf(&op);
       endsBundle = true;
-      if (bundle)
+      if (cycle)
         for (Operation *later = op.getNextNode(); later;
              later = later->getNextNode()) {
-          if (bundleOf(later) != bundle)
+          if (cycleOf(later) != cycle)
             break;
           if (prints(later, nextBlock)) {
             endsBundle = false;
@@ -666,6 +672,7 @@ private:
                             ? emitTerminator(&op, nextBlock)
                             : emitOp(&op);
       endsBundle = true;
+      cycle = std::nullopt;
       if (failed(r))
         return failure();
     }

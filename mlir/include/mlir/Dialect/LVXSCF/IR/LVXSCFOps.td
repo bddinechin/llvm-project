@@ -20,9 +20,13 @@ class LVXSCF_Op<string mnemonic, list<Trait> traits = []> :
 def LVXSCF_YieldOp : LVXSCF_Op<"yield",
     [Pure, ReturnLike, Terminator, HasParent<"ForOp">]> {
   let summary = "loop-carried values produced by one iteration of `lvx_scf.for`";
-  let arguments = (ins Variadic<LVX_AnyRegType>:$results);
+  let arguments = (ins Variadic<LVX_AnyRegType>:$results, LVX_CycleAttr:$cycle);
   let assemblyFormat = "attr-dict ($results^ `:` qualified(type($results)))?";
-  let builders = [OpBuilder<(ins), [{ build($_builder, $_state, {}); }]>];
+  let builders = [
+    OpBuilder<(ins), [{ build($_builder, $_state, {}, ::mlir::IntegerAttr()); }]>,
+    OpBuilder<(ins "::mlir::ValueRange":$results), [{
+      build($_builder, $_state, results, ::mlir::IntegerAttr());
+    }]>];
 }
 
 def LVXSCF_ForOp : LVXSCF_Op<"for",
@@ -38,7 +42,8 @@ def LVXSCF_ForOp : LVXSCF_Op<"for",
   let arguments = (ins LVX_RegType:$lowerBound,
                        LVX_RegType:$upperBound,
                        LVX_RegType:$step,
-                       Variadic<LVX_AnyRegType>:$initArgs);
+                       Variadic<LVX_AnyRegType>:$initArgs,
+                       LVX_CycleAttr:$cycle);
   let results = (outs Variadic<LVX_AnyRegType>:$results);
   let regions = (region SizedRegion<1>:$region);
   let assemblyFormat = [{
@@ -51,6 +56,13 @@ def LVXSCF_ForOp : LVXSCF_Op<"for",
   }];
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
+  let builders = [
+    OpBuilder<(ins "::mlir::TypeRange":$results, "::mlir::Value":$lowerBound,
+                   "::mlir::Value":$upperBound, "::mlir::Value":$step,
+                   "::mlir::ValueRange":$initArgs), [{
+      build($_builder, $_state, results, lowerBound, upperBound, step,
+            initArgs, ::mlir::IntegerAttr());
+    }]>];
   let extraClassDeclaration = [{
     Block *getBody() { return &getRegion().front(); }
     Value getInductionVar() { return getBody()->getArgument(0); }

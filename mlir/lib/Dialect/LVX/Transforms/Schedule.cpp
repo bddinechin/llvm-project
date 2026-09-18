@@ -26,10 +26,12 @@
 // the same bundle is not later (WAW >= 1), and a reader with a later writer
 // in the same bundle is fine (WAR >= 0).
 //
-// The result is an `lvx.bundle` index attribute on every op of the block,
-// with the block reordered so equal indices are contiguous; `-lvx-emit-asm`
-// prints one `;;` per bundle. An op without the attribute is printed as its
-// own bundle, so IR that never went through this pass emits as before.
+// The result is a `cycle` attribute on every op of the block -- its issue
+// cycle relative to the block's start, as lvx-gcc's scheduler records it --
+// with the block reordered so equal cycles are contiguous; `-lvx-emit-asm`
+// closes a bundle where the cycle changes. An op without the attribute is
+// printed as its own bundle, so IR that never went through this pass emits
+// as before.
 //
 //===----------------------------------------------------------------------===//
 
@@ -58,8 +60,11 @@ using namespace mlir::lvx;
 
 namespace {
 
-/// The attribute the schedule is recorded in.
-constexpr StringLiteral kBundleAttr = "lvx.bundle";
+/// The attribute the schedule is recorded in: `cycle`, the issue cycle
+/// relative to the block's start, declared on every op of the four dialects
+/// (LVX_CycleAttr in LVXBase.td), so it is the op's own typed state rather
+/// than a discardable annotation. A bundle is the ops of one cycle.
+constexpr StringLiteral kCycleAttr = "cycle";
 
 //===----------------------------------------------------------------------===//
 // What an op is to the scheduler: the instruction it prints (if any), and
@@ -430,7 +435,7 @@ private:
     OpBuilder builder(block.getParentOp()->getContext());
     Operation *prev = nullptr;
     for (Operation *op : order) {
-      op->setAttr(kBundleAttr,
+      op->setAttr(kCycleAttr,
                   builder.getI64IntegerAttr(*nodes[index[op]].bundle));
       if (prev)
         op->moveAfter(prev);

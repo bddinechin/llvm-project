@@ -44,10 +44,15 @@ def LVX_LiOp : LVX_Op<"li", [Pure]> {
     constants expand to a `MAKE` + refinement sequence at assembly-printing
     time, which is out of scope for this dialect.
   }];
-  let arguments = (ins TypedAttrInterface:$value);
+  let arguments = (ins TypedAttrInterface:$value, LVX_CycleAttr:$cycle);
   let results = (outs LVX_RegType:$result);
   let assemblyFormat = "attr-dict $value `:` qualified(type($result))";
   let hasVerifier = 1;
+  // The schedule's `bundle` is nobody's business at creation.
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::TypedAttr":$value), [{
+      build($_builder, $_state, resultType, value, ::mlir::IntegerAttr());
+    }]>];
 }
 
 def LVX_MvOp : LVX_Op<"mv", [Pure]> {
@@ -61,10 +66,14 @@ def LVX_MvOp : LVX_Op<"mv", [Pure]> {
     prints it by width -- `copyd`, `copyq` from the source's two lanes,
     `copyo`. Source and result must be the same width.
   }];
-  let arguments = (ins LVX_AnyRegType:$source);
+  let arguments = (ins LVX_AnyRegType:$source, LVX_CycleAttr:$cycle);
   let results = (outs LVX_AnyRegType:$result);
   let assemblyFormat = "$source attr-dict `:` functional-type($source, $result)";
   let hasVerifier = 1;
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$source), [{
+      build($_builder, $_state, resultType, source, ::mlir::IntegerAttr());
+    }]>];
 }
 
 def LVX_LaneOp : LVX_Op<"lane", [Pure]> {
@@ -84,10 +93,16 @@ def LVX_LaneOp : LVX_Op<"lane", [Pure]> {
     type-level identity. `divmod`'s quotient and remainder are read this
     way; so is `vector.extract` from a pair.
   }];
-  let arguments = (ins LVX_AnyRegType:$source, I64Attr:$index);
+  let arguments = (ins LVX_AnyRegType:$source, I64Attr:$index, LVX_CycleAttr:$cycle);
   let results = (outs LVX_AnyRegType:$result);
   let assemblyFormat = "$source `[` $index `]` attr-dict `:` functional-type($source, $result)";
   let hasVerifier = 1;
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$source,
+                   "uint64_t":$index), [{
+      build($_builder, $_state, resultType, source,
+            $_builder.getI64IntegerAttr(index), ::mlir::IntegerAttr());
+    }]>];
 }
 
 def LVX_SpOp : LVX_Op<"sp", [Pure]> {
@@ -100,6 +115,11 @@ def LVX_SpOp : LVX_Op<"sp", [Pure]> {
     (lvx-mlir/docs/RegisterAllocation.md, Step 3) to give spill `lvx.sd`/`lvx.ld`
     instructions a base operand; not user-written.
   }];
+  let arguments = (ins LVX_CycleAttr:$cycle);
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType), [{
+      build($_builder, $_state, resultType, ::mlir::IntegerAttr());
+    }]>];
   let results = (outs LVX_RegType:$result);
   let assemblyFormat = "attr-dict `:` qualified(type($result))";
 }
@@ -121,6 +141,11 @@ def LVX_RegLiveInOp : LVX_Op<"reg_live_in", [Pure]> {
     The matching restore needs no pseudo -- it is an ordinary `lvx.ld`
     whose result is typed with the same pinned register. Not user-written.
   }];
+  let arguments = (ins LVX_CycleAttr:$cycle);
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType), [{
+      build($_builder, $_state, resultType, ::mlir::IntegerAttr());
+    }]>];
   let results = (outs LVX_RegType:$result);
   let assemblyFormat = "attr-dict `:` qualified(type($result))";
   let hasVerifier = 1;
@@ -391,7 +416,11 @@ def LVX_RegLiveOutOp : LVX_Op<"reg_live_out"> {
     live out. It is deliberately not `Pure`, and its operand must be pinned,
     since "some register is live out" means nothing.
   }];
-  let arguments = (ins LVX_RegType:$value);
+  let arguments = (ins LVX_RegType:$value, LVX_CycleAttr:$cycle);
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value), [{
+      build($_builder, $_state, value, ::mlir::IntegerAttr());
+    }]>];
   let assemblyFormat = "$value attr-dict `:` qualified(type($value))";
   let hasVerifier = 1;
 }

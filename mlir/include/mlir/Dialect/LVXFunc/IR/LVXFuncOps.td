@@ -65,7 +65,8 @@ def LVXFunc_CallOp : LVXFunc_Op<"call",
                        Variadic<LVX_RegType>:$operands,
                        OptionalAttr<DictArrayAttr>:$arg_attrs,
                        OptionalAttr<DictArrayAttr>:$res_attrs,
-                       OptionalAttr<LVX_FormatAttr>:$format);
+                       OptionalAttr<LVX_FormatAttr>:$format,
+                       LVX_CycleAttr:$cycle);
   let results = (outs Variadic<LVX_RegType>);
   let builders = [
     OpBuilder<(ins "FuncOp":$callee,
@@ -102,10 +103,12 @@ def LVXFunc_CallOp : LVXFunc_Op<"call",
 def LVXFunc_ReturnOp : LVXFunc_Op<"return",
     [Pure, HasParent<"FuncOp">, ReturnLike, Terminator]> {
   let summary = "function return";
-  let arguments = (ins Variadic<LVX_RegType>:$operands);
-  let builders = [OpBuilder<(ins), [{
-    build($_builder, $_state, {});
-  }]>];
+  let arguments = (ins Variadic<LVX_RegType>:$operands, LVX_CycleAttr:$cycle);
+  let builders = [
+    OpBuilder<(ins), [{ build($_builder, $_state, {}, ::mlir::IntegerAttr()); }]>,
+    OpBuilder<(ins "::mlir::ValueRange":$operands), [{
+      build($_builder, $_state, operands, ::mlir::IntegerAttr());
+    }]>];
   let assemblyFormat = "attr-dict ($operands^ `:` qualified(type($operands)))?";
   let hasVerifier = 1;
 }

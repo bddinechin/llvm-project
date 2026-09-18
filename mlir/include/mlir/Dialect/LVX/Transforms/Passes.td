@@ -105,9 +105,11 @@ def LVXSchedulePass : Pass<"lvx-schedule", "::mlir::lvx_func::FuncOp"> {
     with an immediate and no `format` gets one chosen from the immediate's
     value (LVXImmediates.inc), since the ISSUE count depends on it.
 
-    The result is an `lvx.bundle` index attribute on every op and the block
-    reordered by it; `-lvx-emit-asm` prints one `;;` per bundle. Without the
-    attribute the emitter prints one bundle per op, as before this pass.
+    The result is a `cycle` attribute on every op -- its issue cycle relative
+    to the block's start -- and the block reordered by it; `-lvx-emit-asm`
+    closes a bundle where the cycle changes, printing `;;  # (end cycle N)`.
+    Without the attribute the emitter prints one bundle per op, as before
+    this pass.
   }];
 }
 

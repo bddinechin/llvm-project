@@ -149,6 +149,20 @@ def LVX_AnyRegType : AnyTypeOf<[LVX_RegType, LVX_PairType, LVX_QuadType]>;
 def LVX_PairOrQuadType : AnyTypeOf<[LVX_PairType, LVX_QuadType]>;
 
 //===----------------------------------------------------------------------===//
+// The cycle an op issues in, relative to the start of its block:
+// `-lvx-schedule`'s result, read by `-lvx-emit-asm`, which closes a bundle
+// where the cycle changes and prints `;;  # (end cycle N)` -- the same fact
+// lvx-gcc's scheduler records and its printer shows (lvx-mlir/docs/
+// Bundling.md). A bundle is the ops of one cycle; a cycle with no op is a
+// stall the hardware takes on its own. Declared on every op of the four
+// dialects rather than left a discardable annotation, so that it is typed,
+// verified and part of the op's own state; absent means "not scheduled",
+// and the emitter then prints the op as a bundle of its own.
+//===----------------------------------------------------------------------===//
+
+def LVX_CycleAttr : OptionalAttr<I64Attr>;
+
+//===----------------------------------------------------------------------===//
 // Modifier enums are generated: see LVXModifiers.td, included above. The two
 // facts that used to live here as comments now live in the generator -- that
 // floatmode has no `cs` member (design document O4) and that `.R5` is a

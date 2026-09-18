@@ -13,10 +13,10 @@
 // latency 1), and the return, whose operand is the result register, one
 // more.
 // CHECK-LABEL: lvx_func.func @independent
-// CHECK-NEXT: lvx.addd {{.*}} {lvx.bundle = 0 : i64}
-// CHECK-NEXT: lvx.addd {{.*}} {lvx.bundle = 0 : i64}
-// CHECK-NEXT: lvx.addd {{.*}} {lvx.bundle = 1 : i64}
-// CHECK-NEXT: lvx_func.return {lvx.bundle = 2 : i64}
+// CHECK-NEXT: lvx.addd {{.*}} {cycle = 0 : i64}
+// CHECK-NEXT: lvx.addd {{.*}} {cycle = 0 : i64}
+// CHECK-NEXT: lvx.addd {{.*}} {cycle = 1 : i64}
+// CHECK-NEXT: lvx_func.return {cycle = 2 : i64}
 // ASM-LABEL: independent:
 // ASM-NEXT: addd $r2 = $r0, $r1
 // ASM-NEXT: addd $r3 = $r1, $r0
@@ -37,9 +37,9 @@ lvx_func.func @independent(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // indices jump, and the emitter prints no empty bundle (the hardware
 // interlocks; the schedule is what the timing says, not padding).
 // CHECK-LABEL: lvx_func.func @load_latency
-// CHECK-NEXT: lvx.ld {{.*}} {lvx.bundle = 0 : i64}
-// CHECK-NEXT: lvx.addd {{.*}} {lvx.bundle = 3 : i64}
-// CHECK-NEXT: lvx_func.return {lvx.bundle = 4 : i64}
+// CHECK-NEXT: lvx.ld {{.*}} {cycle = 0 : i64}
+// CHECK-NEXT: lvx.addd {{.*}} {cycle = 3 : i64}
+// CHECK-NEXT: lvx_func.return {cycle = 4 : i64}
 lvx_func.func @load_latency(%p: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %v = lvx.ld %p, 0 : i64 : (!lvx.reg<r0>) -> !lvx.reg<r1>
   %w = lvx.addd %v, %v : (!lvx.reg<r1>, !lvx.reg<r1>) -> !lvx.reg<r0>
@@ -52,11 +52,11 @@ lvx_func.func @load_latency(%p: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // cycle late, so a writer of r1 does NOT share a bundle with a store of the
 // old r1: the read in cycle 2 and the write in cycle 2 are a bundle apart.
 // CHECK-LABEL: lvx_func.func @war_waw
-// CHECK-NEXT: lvx.addd {{.*}} {lvx.bundle = 0 : i64} : {{.*}} -> !lvx.reg<r3>
-// CHECK-NEXT: lvx.addd {{.*}} {lvx.bundle = 0 : i64} : {{.*}} -> !lvx.reg<r1>
-// CHECK-NEXT: lvx.addd {{.*}} {lvx.bundle = 0 : i64} : {{.*}} -> !lvx.reg<r2>
-// CHECK-NEXT: lvx.addd {{.*}} {lvx.bundle = 1 : i64} : {{.*}} -> !lvx.reg<r2>
-// CHECK-NEXT: lvx.sd {{.*}} {lvx.bundle = 1 : i64}
+// CHECK-NEXT: lvx.addd {{.*}} {cycle = 0 : i64} : {{.*}} -> !lvx.reg<r3>
+// CHECK-NEXT: lvx.addd {{.*}} {cycle = 0 : i64} : {{.*}} -> !lvx.reg<r1>
+// CHECK-NEXT: lvx.addd {{.*}} {cycle = 0 : i64} : {{.*}} -> !lvx.reg<r2>
+// CHECK-NEXT: lvx.addd {{.*}} {cycle = 1 : i64} : {{.*}} -> !lvx.reg<r2>
+// CHECK-NEXT: lvx.sd {{.*}} {cycle = 1 : i64}
 lvx_func.func @war_waw(%p: !lvx.reg<r0>, %v: !lvx.reg<r1>) {
   %u = lvx.addd %v, %v : (!lvx.reg<r1>, !lvx.reg<r1>) -> !lvx.reg<r3>
   %a = lvx.addd %p, %p : (!lvx.reg<r0>, !lvx.reg<r0>) -> !lvx.reg<r1>
@@ -69,8 +69,8 @@ lvx_func.func @war_waw(%p: !lvx.reg<r0>, %v: !lvx.reg<r1>) {
 }
 
 // CHECK-LABEL: lvx_func.func @store_war
-// CHECK-NEXT: lvx.sd {{.*}} {lvx.bundle = 0 : i64}
-// CHECK-NEXT: lvx.addd {{.*}} {lvx.bundle = 1 : i64} : {{.*}} -> !lvx.reg<r1>
+// CHECK-NEXT: lvx.sd {{.*}} {cycle = 0 : i64}
+// CHECK-NEXT: lvx.addd {{.*}} {cycle = 1 : i64} : {{.*}} -> !lvx.reg<r1>
 lvx_func.func @store_war(%p: !lvx.reg<r0>, %v: !lvx.reg<r1>) {
   lvx.sd %v, %p, 0 : i64 : (!lvx.reg<r1>, !lvx.reg<r0>)
   %a = lvx.addd %p, %p : (!lvx.reg<r0>, !lvx.reg<r0>) -> !lvx.reg<r1>
@@ -82,8 +82,8 @@ lvx_func.func @store_war(%p: !lvx.reg<r0>, %v: !lvx.reg<r1>) {
 // (muld writes in cycle 3) is one bundle after it, not two -- GCC's
 // "bypass", here just arithmetic.
 // CHECK-LABEL: lvx_func.func @late_read
-// CHECK-NEXT: lvx.muld {{.*}} {lvx.bundle = 0 : i64}
-// CHECK-NEXT: lvx.sd {{.*}} {lvx.bundle = 1 : i64}
+// CHECK-NEXT: lvx.muld {{.*}} {cycle = 0 : i64}
+// CHECK-NEXT: lvx.sd {{.*}} {cycle = 1 : i64}
 lvx_func.func @late_read(%p: !lvx.reg<r0>, %v: !lvx.reg<r1>) {
   %m = lvx.muld %v, %v : (!lvx.reg<r1>, !lvx.reg<r1>) -> !lvx.reg<r2>
   lvx.sd %m, %p, 0 : i64 : (!lvx.reg<r2>, !lvx.reg<r0>)
@@ -95,9 +95,9 @@ lvx_func.func @late_read(%p: !lvx.reg<r0>, %v: !lvx.reg<r1>) {
 // well, the FULL taking a LITE and a TINY of its own. Memory: two stores
 // to unknown addresses stay ordered (memw is one per bundle anyway).
 // CHECK-LABEL: lvx_func.func @resources
-// CHECK: lvx.fmuld {{.*}} {lvx.bundle = 0 : i64}
-// CHECK-NEXT: lvx.fmuld {{.*}} {lvx.bundle = 0 : i64}
-// CHECK-NEXT: lvx.fmuld {{.*}} {lvx.bundle = 1 : i64}
+// CHECK: lvx.fmuld {{.*}} {cycle = 0 : i64}
+// CHECK-NEXT: lvx.fmuld {{.*}} {cycle = 0 : i64}
+// CHECK-NEXT: lvx.fmuld {{.*}} {cycle = 1 : i64}
 lvx_func.func @resources(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) {
   %x = lvx.fmuld %a, %b : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.reg<r2>
   %y = lvx.fmuld %a, %b : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.reg<r3>
@@ -113,8 +113,8 @@ lvx_func.func @resources(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) {
 // and the scheduler records the choice so the ISSUE count it reserved is
 // what the assembler will encode.
 // CHECK-LABEL: lvx_func.func @formats
-// CHECK: lvx.ld %arg0, 100000 : i64 {format = 4 : i64, lvx.bundle = 0 : i64}
-// CHECK: lvx.ld %arg0, 8 : i64 {lvx.bundle = 0 : i64}
+// CHECK: lvx.ld %arg0, 100000 : i64 {cycle = 0 : i64, format = 4 : i64}
+// CHECK: lvx.ld %arg0, 8 : i64 {cycle = 0 : i64}
 lvx_func.func @formats(%p: !lvx.reg<r0>) {
   %x = lvx.ld %p, 100000 : i64 : (!lvx.reg<r0>) -> !lvx.reg<r1>
   %y = lvx.ld %p, 8 : i64 : (!lvx.reg<r0>) -> !lvx.reg<r2>
