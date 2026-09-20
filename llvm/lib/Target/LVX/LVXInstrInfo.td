@@ -331,7 +331,7 @@ def : Pat<(not   GPR:$rZ), (NOTD_DBWR GPR:$rZ)>;
 // as well, and ISD::SELECT is type-agnostic, so TableGen cannot infer which
 // was meant. An FP select reaches the same instruction after a bitcast.
 def : Pat<(select i64:$rZ, i64:$rY, i64:$rW),
-          (CMOVED_DLSWRR i64:$rW, i64:$rZ, i64:$rY, 5 /* .dnez */)>;
+          (CMOVED_DCMWRR i64:$rW, i64:$rZ, i64:$rY, 5 /* .dnez */)>;
 
 // ---- Control flow ---------------------------------------------------------
 //

@@ -413,7 +413,7 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
       N->getValueType(0) == MVT::i128) {
     SDValue Lo = N->getOperand(0); // low 64 bits  (rZ)
     SDValue Hi = N->getOperand(1); // high 64 bits (rY)
-    SDNode *Res = CurDAG->getMachineNode(LVX::CATDQ_CATDQ, DL, MVT::i128, Lo, Hi);
+    SDNode *Res = CurDAG->getMachineNode(LVX::CATDQ_QZWRR, DL, MVT::i128, Lo, Hi);
     ReplaceNode(N, Res);
     return;
   }
@@ -430,8 +430,8 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     SDValue E2 = N->getOperand(2); // sub_pair_lo low64  (rZ of second CATDQ)
     SDValue E3 = N->getOperand(3); // sub_pair_lo high64 (rY of second CATDQ)
 
-    SDNode *LoPair = CurDAG->getMachineNode(LVX::CATDQ_CATDQ, DL, MVT::i128, E0, E1);
-    SDNode *HiPair = CurDAG->getMachineNode(LVX::CATDQ_CATDQ, DL, MVT::i128, E2, E3);
+    SDNode *LoPair = CurDAG->getMachineNode(LVX::CATDQ_QZWRR, DL, MVT::i128, E0, E1);
+    SDNode *HiPair = CurDAG->getMachineNode(LVX::CATDQ_QZWRR, DL, MVT::i128, E2, E3);
 
     // Assemble the two GPR128 halves into a GPR256 via REG_SEQUENCE.
     // REG_SEQUENCE takes: RegClass, val0, subreg0, val1, subreg1, ...

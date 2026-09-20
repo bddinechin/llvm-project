@@ -77,7 +77,7 @@ static void emitCatDQ(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
                       const DebugLoc &DL, const TargetInstrInfo &TII,
                       MCRegister DestPair, MCRegister SrcLo, MCRegister SrcHi,
                       bool KillSrc) {
-  BuildMI(MBB, MI, DL, TII.get(LVX::CATDQ_CATDQ), DestPair)
+  BuildMI(MBB, MI, DL, TII.get(LVX::CATDQ_QZWRR), DestPair)
       .addReg(SrcLo, getKillRegState(KillSrc))
       .addReg(SrcHi, getKillRegState(KillSrc));
 }
