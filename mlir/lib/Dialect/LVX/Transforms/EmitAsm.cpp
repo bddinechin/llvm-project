@@ -109,7 +109,7 @@ private:
   }
 
   /// A lane of `v`'s register: the single at unit `index` of a pinned
-  /// tuple. What `copyq $rM = $rZ, $rY` wants for a pair copy.
+  /// tuple. What `catdq $rM = $rZ, $rY` wants for a pair copy.
   FailureOr<std::string> lane(Value v, unsigned index) {
     std::optional<PhysLoc> loc = pinnedLoc(v.getType());
     if (!loc)
@@ -119,7 +119,7 @@ private:
     return ("$" + spellingOf({loc->base + index, 1})).str();
   }
 
-  /// `lvx.mv` at every width: `copyd $rd = $rs`; `copyq $rd = $rs.lo,
+  /// `lvx.mv` at every width: `copyd $rd = $rs`; `catdq $rd = $rs.lo,
   /// $rs.hi`, the ISA's pair copy taking two singles, spelled as the singles
   /// they are; `copyo $rd = $rs`.
   LogicalResult emitMv(MvOp mv) {
@@ -132,7 +132,7 @@ private:
       FailureOr<std::string> hi = lane(mv.getSource(), 1);
       if (failed(rd) || failed(lo) || failed(hi))
         return failure();
-      os << "\tcopyq " << *rd << " = " << *lo << ", " << *hi << endOfOp();
+      os << "\tcatdq " << *rd << " = " << *lo << ", " << *hi << endOfOp();
       return success();
     }
     case 4:

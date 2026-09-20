@@ -83,7 +83,7 @@ static std::optional<StringRef> printedMnemonic(Operation *op) {
     case 1:
       return StringRef("copyd");
     case 2:
-      return StringRef("copyq");
+      return StringRef("catdq");
     default:
       return StringRef("copyo");
     }

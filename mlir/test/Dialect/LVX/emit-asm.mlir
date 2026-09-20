@@ -209,7 +209,7 @@ lvx_func.func @divmod(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 
 // Pair ops print their tuple operands by primary name: `splatwq $r2r3 =
 // $r1`, `lq`/`sq` with a pair, `ffmawq` with its tied accumulator dropped
-// from the printed shape, and `lvx.mv` of a pair as `copyq` from the
+// from the printed shape, and `lvx.mv` of a pair as `catdq` from the
 // source's two lanes.
 // CHECK-LABEL: pairs:
 // CHECK-NEXT: splatwq $r2r3 = $r1
@@ -220,7 +220,7 @@ lvx_func.func @divmod(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // CHECK-NEXT: ;;
 // CHECK-NEXT: ffmawq $r4r5 = $r2r3, $r6r7
 // CHECK-NEXT: ;;
-// CHECK-NEXT: copyq $r2r3 = $r4, $r5
+// CHECK-NEXT: catdq $r2r3 = $r4, $r5
 // CHECK-NEXT: ;;
 // CHECK-NEXT: sq 0[$r0] = $r2r3
 // CHECK-NEXT: ;;
