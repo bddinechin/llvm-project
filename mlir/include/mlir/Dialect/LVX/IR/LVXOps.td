@@ -105,6 +105,39 @@ def LVX_LaneOp : LVX_Op<"lane", [Pure]> {
     }]>];
 }
 
+def LVX_ConcatOp : LVX_Op<"concat", [Pure]> {
+  let summary = "a tuple from its lanes, as a value (pseudo)";
+  let description = [{
+    The reverse of `lvx.lane`: `lvx.concat %lo, %hi : (!lvx.pair, !lvx.pair)
+    -> !lvx.quad` is the quad whose lanes 0-1 are `%lo` and 2-3 are `%hi`.
+    Each part sits at the unit offset the parts before it add up to, which
+    must be a multiple of its width (a pair is an even-aligned register
+    pair); the widths sum to the result's.
+
+    Like `lvx.lane` this emits nothing: the register allocator places each
+    part in the result's block at its offset (lvx-mlir/docs/
+    RegisterAllocation.md, "Lane views"), so after allocation the op is a
+    type-level identity, and a part's producer writes straight into the
+    tuple. `vector.interleave` of two pairs is its first user: the quad is
+    `zipwdq` on the low singles and `zipwdq` on the high ones. A part that
+    is also placed elsewhere -- the same value twice, or a lane view of it
+    at another offset -- cannot be satisfied and is a hard error there, as
+    for `lvx.lane`; the lowering only ever concatenates fresh results.
+  }];
+  let arguments = (ins Variadic<LVX_AnyRegType>:$parts, LVX_CycleAttr:$cycle);
+  let results = (outs LVX_AnyRegType:$result);
+  let assemblyFormat = "$parts attr-dict `:` functional-type($parts, $result)";
+  let hasVerifier = 1;
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::ValueRange":$parts), [{
+      build($_builder, $_state, resultType, parts, ::mlir::IntegerAttr());
+    }]>];
+  let extraClassDeclaration = [{
+    /// The unit offset of part `i` within the result.
+    unsigned offsetOf(unsigned i);
+  }];
+}
+
 def LVX_SpOp : LVX_Op<"sp", [Pure]> {
   let summary = "materialize the current stack-pointer value (pseudo)";
   let description = [{

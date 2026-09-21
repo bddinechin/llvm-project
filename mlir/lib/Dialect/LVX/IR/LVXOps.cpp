@@ -66,6 +66,42 @@ LogicalResult LaneOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// ConcatOp
+//===----------------------------------------------------------------------===//
+
+unsigned ConcatOp::offsetOf(unsigned i) {
+  unsigned offset = 0;
+  for (Value part : getParts().take_front(i))
+    offset += widthOf(part.getType());
+  return offset;
+}
+
+LogicalResult ConcatOp::verify() {
+  unsigned resultWidth = widthOf(getResult().getType());
+  unsigned offset = 0;
+  for (auto [i, part] : llvm::enumerate(getParts())) {
+    unsigned width = widthOf(part.getType());
+    if (offset % width != 0)
+      return emitOpError("part ") << i << " would sit at unit " << offset
+                                  << ", not a multiple of its width " << width;
+    // Once both are pinned, the part is a register and the types must agree.
+    std::optional<PhysLoc> src = pinnedLoc(part.getType());
+    std::optional<PhysLoc> res = pinnedLoc(getResult().getType());
+    if (src && res && src->base != res->base + offset)
+      return emitOpError("part ") << i << " is pinned to " << spellingOf(*src)
+             << " but lane " << offset << " of " << spellingOf(*res) << " is "
+             << spellingOf({res->base + offset, width});
+    offset += width;
+  }
+  if (offset != resultWidth)
+    return emitOpError("the parts' widths add up to ")
+           << offset << " units, the result has " << resultWidth;
+  if (getParts().size() < 2)
+    return emitOpError("needs at least two parts");
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // RegLiveInOp
 //===----------------------------------------------------------------------===//
 

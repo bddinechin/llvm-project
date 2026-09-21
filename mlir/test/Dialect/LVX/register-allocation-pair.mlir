@@ -132,3 +132,32 @@ lvx_func.func @quad(%base: !lvx.reg<r0>) {
   lvx.sq %p, %base, 32 : i64 : (!lvx.pair, !lvx.reg<r0>)
   lvx_func.return
 }
+
+// `lvx.concat`: the two pairs are placed as the halves of the quad they
+// make -- with r0 and the two loaded pairs live, the first free quad is
+// r8r9r10r11, and the zips write straight into r8r9 and r10r11; the concat
+// is a type-level identity, like a lane view read the other way.
+// CHECK-LABEL: lvx_func.func @concat
+// CHECK-NEXT: %[[A:.*]] = lvx.lq %arg0, 0 : i64 : (!lvx.reg<r0>) -> !lvx.pair<r2r3>
+// CHECK-NEXT: %[[B:.*]] = lvx.lq %arg0, 16 : i64 : (!lvx.reg<r0>) -> !lvx.pair<r4r5>
+// CHECK-NEXT: %[[A0:.*]] = lvx.lane %[[A]][0] : (!lvx.pair<r2r3>) -> !lvx.reg<r2>
+// CHECK-NEXT: %[[B0:.*]] = lvx.lane %[[B]][0] : (!lvx.pair<r4r5>) -> !lvx.reg<r4>
+// CHECK-NEXT: %[[LO:.*]] = lvx.zipwdq %[[A0]], %[[B0]] : (!lvx.reg<r2>, !lvx.reg<r4>) -> !lvx.pair<r8r9>
+// CHECK-NEXT: %[[A1:.*]] = lvx.lane %[[A]][1] : (!lvx.pair<r2r3>) -> !lvx.reg<r3>
+// CHECK-NEXT: %[[B1:.*]] = lvx.lane %[[B]][1] : (!lvx.pair<r4r5>) -> !lvx.reg<r5>
+// CHECK-NEXT: %[[HI:.*]] = lvx.zipwdq %[[A1]], %[[B1]] : (!lvx.reg<r3>, !lvx.reg<r5>) -> !lvx.pair<r10r11>
+// CHECK-NEXT: %[[Q:.*]] = lvx.concat %[[LO]], %[[HI]] : (!lvx.pair<r8r9>, !lvx.pair<r10r11>) -> !lvx.quad<r8r9r10r11>
+// CHECK-NEXT: lvx.so %[[Q]], %arg0, 32 : i64 : (!lvx.quad<r8r9r10r11>, !lvx.reg<r0>)
+lvx_func.func @concat(%base: !lvx.reg<r0>) {
+  %a = lvx.lq %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.pair
+  %b = lvx.lq %base, 16 : i64 : (!lvx.reg<r0>) -> !lvx.pair
+  %a0 = lvx.lane %a[0] : (!lvx.pair) -> !lvx.reg
+  %b0 = lvx.lane %b[0] : (!lvx.pair) -> !lvx.reg
+  %lo = lvx.zipwdq %a0, %b0 : (!lvx.reg, !lvx.reg) -> !lvx.pair
+  %a1 = lvx.lane %a[1] : (!lvx.pair) -> !lvx.reg
+  %b1 = lvx.lane %b[1] : (!lvx.pair) -> !lvx.reg
+  %hi = lvx.zipwdq %a1, %b1 : (!lvx.reg, !lvx.reg) -> !lvx.pair
+  %q = lvx.concat %lo, %hi : (!lvx.pair, !lvx.pair) -> !lvx.quad
+  lvx.so %q, %base, 32 : i64 : (!lvx.quad, !lvx.reg<r0>)
+  lvx_func.return
+}

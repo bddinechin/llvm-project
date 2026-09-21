@@ -58,6 +58,34 @@ func.func @lane_pinned(%p: !lvx.pair<r2r3>) {
 
 // -----
 
+// `lvx.concat`, the reverse: the parts' widths add up to the result's ...
+func.func @concat_width(%p: !lvx.pair, %r: !lvx.reg) {
+  // expected-error @below {{the parts' widths add up to 3 units, the result has 4}}
+  %0 = lvx.concat %p, %r : (!lvx.pair, !lvx.reg) -> !lvx.quad
+  return
+}
+
+// -----
+
+// ... each part sits at a multiple of its width (a pair at unit 1 is no
+// register pair) ...
+func.func @concat_misaligned(%p: !lvx.pair, %r: !lvx.reg) {
+  // expected-error @below {{part 1 would sit at unit 1, not a multiple of its width 2}}
+  %0 = lvx.concat %r, %p, %r : (!lvx.reg, !lvx.pair, !lvx.reg) -> !lvx.quad
+  return
+}
+
+// -----
+
+// ... and once pinned, a part is the result's lane at its offset.
+func.func @concat_pinned(%lo: !lvx.pair<r4r5>, %hi: !lvx.pair<r8r9>) {
+  // expected-error @below {{part 1 is pinned to r8r9 but lane 2 of r4r5r6r7 is r6r7}}
+  %0 = lvx.concat %lo, %hi : (!lvx.pair<r4r5>, !lvx.pair<r8r9>) -> !lvx.quad<r4r5r6r7>
+  return
+}
+
+// -----
+
 // A copy does not change register file.
 func.func @mv_width(%p: !lvx.pair) {
   // expected-error @below {{source and result must be the same width}}

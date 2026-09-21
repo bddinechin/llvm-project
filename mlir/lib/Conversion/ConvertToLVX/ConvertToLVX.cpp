@@ -832,9 +832,32 @@ struct VectorStoreToLVX : public OpConversionPattern<vector::StoreOp> {
   }
 };
 
+// The `memref.load` a `vector.broadcast` to a quad splats, when the ISA
+// loads and splats in one instruction: `l{b,h,w,d}so` (lvx-2) fill a quad
+// from one lane in memory, so the splat leaves the dependence chain
+// (address -> load -> splat -> fma becomes address -> load -> fma). The load
+// must have no other use -- otherwise the scalar is wanted too, and a load
+// plus a splat beats two loads. There is no pair form (`lwsq`): a pair
+// broadcast stays `lwz` + `splatwq`.
+static memref::LoadOp splatLoadOf(vector::BroadcastOp bcast,
+                                  const TypeConverter &typeConverter) {
+  auto load = bcast.getSource().getDefiningOp<memref::LoadOp>();
+  if (!load || !load->hasOneUse())
+    return {};
+  Type tupleTy = typeConverter.convertType(bcast.getType());
+  if (!tupleTy || tupleWidth(tupleTy) != 4)
+    return {};
+  unsigned bits = getScalarBitWidth(load.getType());
+  if (bits != 8 && bits != 16 && bits != 32 && bits != 64)
+    return {};
+  return load;
+}
+
 // `vector.broadcast %s : T to vector<NxT>` of a scalar: `splat{b,h,w,d}q`
-// by element width, which fills a pair. (A quad broadcast, or a vector
-// source, has no single instruction and is not lowered.)
+// by element width, which fills a pair; of a `memref.load` to a quad,
+// `l{b,h,w,d}so` from the load's address (splatLoadOf). (Any other quad
+// broadcast, or a vector source, has no single instruction and is not
+// lowered.)
 struct VectorBroadcastToLVX : public OpConversionPattern<vector::BroadcastOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
@@ -846,6 +869,9 @@ struct VectorBroadcastToLVX : public OpConversionPattern<vector::BroadcastOp> {
     Type tupleTy = getTypeConverter()->convertType(op.getType());
     if (!tupleTy || !tupleWidth(tupleTy))
       return rewriter.notifyMatchFailure(op, "vector shape has no register tuple");
+    if (memref::LoadOp load = splatLoadOf(op, *getTypeConverter()))
+      if (succeeded(lowerSplatLoad(op, load, tupleTy, rewriter)))
+        return success();
     // The ISA splats into a pair only. A quad broadcast becomes the pair
     // splat regardless: its consumers are the composite ops, whose parts
     // read a pair-typed source whole (pairSplatOf below folds it there), and
@@ -872,6 +898,44 @@ struct VectorBroadcastToLVX : public OpConversionPattern<vector::BroadcastOp> {
     rewriter.replaceOp(op, result);
     return success();
   }
+
+  // The load is converted on its own (to `lwz`) before this op is reached,
+  // and that conversion is left to die unused, as pairSplatOf below leaves
+  // a pair splat: the address is recomputed here from the load's remapped
+  // operands, which the greedy `-lvx-combine` driver and `-cse` then
+  // merge with the dead one's before removing it.
+  LogicalResult lowerSplatLoad(vector::BroadcastOp op, memref::LoadOp load,
+                               Type quadTy,
+                               ConversionPatternRewriter &rewriter) const {
+    SmallVector<Value> operands;
+    if (failed(rewriter.getRemappedValues(load->getOperands(), operands)))
+      return failure();
+    auto memrefType = cast<MemRefType>(load.getMemref().getType());
+    Type regTy = getTypeConverter()->convertType(memrefType);
+    FailureOr<Value> address = computeAddress(
+        rewriter, op.getLoc(), memrefType, operands.front(),
+        ValueRange(operands).drop_front(), regTy);
+    if (failed(address))
+      return failure();
+    auto zeroOffset = rewriter.getI64IntegerAttr(0);
+    Value result;
+    switch (getScalarBitWidth(load.getType())) {
+    case 8:
+      result = rewriter.create<lvx::LbsoOp>(op.getLoc(), quadTy, *address, zeroOffset);
+      break;
+    case 16:
+      result = rewriter.create<lvx::LhsoOp>(op.getLoc(), quadTy, *address, zeroOffset);
+      break;
+    case 32:
+      result = rewriter.create<lvx::LwsoOp>(op.getLoc(), quadTy, *address, zeroOffset);
+      break;
+    default:
+      result = rewriter.create<lvx::LdsoOp>(op.getLoc(), quadTy, *address, zeroOffset);
+      break;
+    }
+    rewriter.replaceOp(op, result);
+    return success();
+  }
 };
 
 // `vector.fma` (or a vector-typed `math.fma`) on vector<4xf32> is `ffmawq`, on
@@ -887,10 +951,16 @@ struct VectorBroadcastToLVX : public OpConversionPattern<vector::BroadcastOp> {
 // here into the pair splat rather than lowered to a quad it cannot become.
 // That is a fold of the *original* operand; a wide broadcast with another
 // use still has no lowering and fails the conversion, loudly.
+//
+// A broadcast that became an `l{b,h,w,d}so` is already the quad the
+// composite's parts read half by half, and is left alone.
 static Value pairSplatOf(ConversionPatternRewriter &rewriter, Location loc,
-                         Value converted, Value original) {
+                         const TypeConverter &typeConverter, Value converted,
+                         Value original) {
   auto bcast = original.getDefiningOp<vector::BroadcastOp>();
   if (!bcast || isa<VectorType>(bcast.getSource().getType()))
+    return converted;
+  if (splatLoadOf(bcast, typeConverter))
     return converted;
   Type pairTy = lvx::PairType::get(rewriter.getContext());
   Value scalar = rewriter.getRemappedValue(bcast.getSource());
@@ -924,8 +994,8 @@ static FailureOr<Value> lowerVectorFma(ConversionPatternRewriter &rewriter,
     return rewriter.create<lvx::FfmadpOp>(loc, tupleTy, lhs, rhs, acc)
         .getResult();
   }
-  lhs = pairSplatOf(rewriter, loc, lhs, originalLhs);
-  rhs = pairSplatOf(rewriter, loc, rhs, originalRhs);
+  lhs = pairSplatOf(rewriter, loc, typeConverter, lhs, originalLhs);
+  rhs = pairSplatOf(rewriter, loc, typeConverter, rhs, originalRhs);
   if (f32)
     return rewriter.create<lvx::FfmawoOp>(loc, tupleTy, lhs, rhs, acc)
         .getResult();
@@ -944,6 +1014,103 @@ struct VectorFMAToLVX : public OpConversionPattern<vector::FMAOp> {
     if (failed(result))
       return failure();
     rewriter.replaceOp(op, *result);
+    return success();
+  }
+};
+
+// The lane shuffles, EVEN*Q/ODD*Q/ZIP*DQ (after ARM's UZP1/UZP2/ZIP1/ZIP2),
+// are `vector.deinterleave` and `vector.interleave` at the quad:
+//
+//   deinterleave %q : vector<8xf32>  -> evenwq %q[0], %q[2] ; oddwq %q[0], %q[2]
+//   interleave %a, %b : vector<4xf32> -> concat(zipwdq %a[0], %b[0] ; zipwdq %a[1], %b[1])
+//
+// `evenwq $p = $a, $b` packs the even lanes of pair `a` into the low single
+// and of pair `b` into the high one, so the even lanes of a quad are one
+// instruction on its two pairs (lane views). `zipwdq $p = $x, $y` is the
+// perfect shuffle of two singles into a pair, so interleaving two pairs is
+// one on the low singles and one on the high ones, and the quad is the
+// two results side by side -- `lvx.concat`, which the allocator places
+// (no instruction). Double-word lanes have no ZIPDDQ: zipping two doubles
+// is `catdq`. There is no pair form of either -- the halves would be
+// 64-bit vectors, which have no register type -- and no octuple form.
+template <typename VecOp>
+static unsigned laneBitsOf(VecOp op, Type vectorTy) {
+  return cast<VectorType>(vectorTy).getElementTypeBitWidth();
+}
+
+struct VectorDeinterleaveToLVX
+    : public OpConversionPattern<vector::DeinterleaveOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::DeinterleaveOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Type quadTy = getTypeConverter()->convertType(op.getSourceVectorType());
+    Type pairTy = getTypeConverter()->convertType(op.getResultVectorType());
+    if (!quadTy || tupleWidth(quadTy) != 4 || !pairTy || tupleWidth(pairTy) != 2)
+      return rewriter.notifyMatchFailure(op, "the ISA deinterleaves a quad into two pairs");
+    Location loc = op.getLoc();
+    Value lo = rewriter.create<lvx::LaneOp>(loc, pairTy, adaptor.getSource(), 0);
+    Value hi = rewriter.create<lvx::LaneOp>(loc, pairTy, adaptor.getSource(), 2);
+    Value even, odd;
+    switch (laneBitsOf(op, op.getSourceVectorType())) {
+    case 8:
+      even = rewriter.create<lvx::EvenbqOp>(loc, pairTy, lo, hi);
+      odd = rewriter.create<lvx::OddbqOp>(loc, pairTy, lo, hi);
+      break;
+    case 16:
+      even = rewriter.create<lvx::EvenhqOp>(loc, pairTy, lo, hi);
+      odd = rewriter.create<lvx::OddhqOp>(loc, pairTy, lo, hi);
+      break;
+    case 32:
+      even = rewriter.create<lvx::EvenwqOp>(loc, pairTy, lo, hi);
+      odd = rewriter.create<lvx::OddwqOp>(loc, pairTy, lo, hi);
+      break;
+    case 64:
+      even = rewriter.create<lvx::EvendqOp>(loc, pairTy, lo, hi);
+      odd = rewriter.create<lvx::OdddqOp>(loc, pairTy, lo, hi);
+      break;
+    default:
+      return rewriter.notifyMatchFailure(op, "no shuffle for this lane width");
+    }
+    rewriter.replaceOp(op, {even, odd});
+    return success();
+  }
+};
+
+struct VectorInterleaveToLVX : public OpConversionPattern<vector::InterleaveOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::InterleaveOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Type pairTy = getTypeConverter()->convertType(op.getSourceVectorType());
+    Type quadTy = getTypeConverter()->convertType(op.getResultVectorType());
+    if (!pairTy || tupleWidth(pairTy) != 2 || !quadTy || tupleWidth(quadTy) != 4)
+      return rewriter.notifyMatchFailure(op, "the ISA interleaves two pairs into a quad");
+    Location loc = op.getLoc();
+    Type regTy = RegisterType::get(rewriter.getContext(), std::nullopt);
+    Value half[2];
+    for (unsigned k = 0; k != 2; ++k) {
+      Value a = rewriter.create<lvx::LaneOp>(loc, regTy, adaptor.getLhs(), k);
+      Value b = rewriter.create<lvx::LaneOp>(loc, regTy, adaptor.getRhs(), k);
+      switch (laneBitsOf(op, op.getSourceVectorType())) {
+      case 8:
+        half[k] = rewriter.create<lvx::ZipbdqOp>(loc, pairTy, a, b);
+        break;
+      case 16:
+        half[k] = rewriter.create<lvx::ZiphdqOp>(loc, pairTy, a, b);
+        break;
+      case 32:
+        half[k] = rewriter.create<lvx::ZipwdqOp>(loc, pairTy, a, b);
+        break;
+      case 64:
+        half[k] = rewriter.create<lvx::CatdqOp>(loc, pairTy, a, b);
+        break;
+      default:
+        return rewriter.notifyMatchFailure(op, "no shuffle for this lane width");
+      }
+    }
+    rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, quadTy,
+                                               ValueRange{half[0], half[1]});
     return success();
   }
 };
@@ -1218,6 +1385,7 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     MemRefLoadToLVX, MemRefStoreToLVX, FmaToLVX,
     // Vectors
     VectorLoadToLVX, VectorStoreToLVX, VectorBroadcastToLVX, VectorFMAToLVX,
+    VectorDeinterleaveToLVX, VectorInterleaveToLVX,
     MinimumFToLVX, MaximumFToLVX, MinNumFToLVX, MaxNumFToLVX,
     AbsFToLVX, CtlzToLVX, CttzToLVX, CtpopToLVX, AbsIToLVX,
     SqrtToLVX, RoundEvenToLVX, MathTruncToLVX, FloorToLVX,

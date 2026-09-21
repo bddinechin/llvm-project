@@ -8,7 +8,9 @@
 // -lvx-lower-vector-transfers hoists the accumulator's transfer pair out of
 // the k loop into an iter_arg and lowers the transfers. What comes out is
 // the hand-written examples/mymma_vec8.mlir, up to a math.fma for its
-// vector.fma, and -convert-to-lvx takes it the same way.
+// vector.fma, and -convert-to-lvx takes it the same way: the broadcast of
+// A's element is one `lwso` (the `lwz` it also converted the load to is
+// left unused, for -lvx-combine's driver to drop).
 
 // VEC-LABEL: func.func @mymma
 // VEC:         scf.for %[[I:.*]] = %c0 to %c8 step %c1 {
@@ -28,10 +30,9 @@
 // CHECK-LABEL: lvx_func.func @mymma
 // CHECK:         %[[INIT:.*]] = lvx.lo %{{.*}}, 0 : i64 : (!lvx.reg) -> !lvx.quad
 // CHECK:         lvx_scf.for %{{.*}} : !lvx.reg to %{{.*}} : !lvx.reg step %{{.*}} : !lvx.reg iter_args(%[[INIT]]) : (!lvx.quad) -> (!lvx.quad)
-// CHECK:           %[[S:.*]] = lvx.lw
+// CHECK:           %[[SV:.*]] = lvx.lwso %{{.*}}, 0 : i64 : (!lvx.reg) -> !lvx.quad
 // CHECK:           %[[BV:.*]] = lvx.lo %{{.*}}, 0 : i64 : (!lvx.reg) -> !lvx.quad
-// CHECK:           %[[SV:.*]] = lvx.splatwq %[[S]] : (!lvx.reg) -> !lvx.pair
-// CHECK:           %[[F:.*]] = lvx.ffmawo %[[SV]], %[[BV]], %{{.*}} : (!lvx.pair, !lvx.quad, !lvx.quad) -> !lvx.quad
+// CHECK:           %[[F:.*]] = lvx.ffmawo %[[SV]], %[[BV]], %{{.*}} : (!lvx.quad, !lvx.quad, !lvx.quad) -> !lvx.quad
 // CHECK:           lvx_scf.yield %[[F]] : !lvx.quad
 // CHECK:         }
 // CHECK:         lvx.so %{{.*}}, %{{.*}}, 0 : i64 : (!lvx.quad, !lvx.reg)

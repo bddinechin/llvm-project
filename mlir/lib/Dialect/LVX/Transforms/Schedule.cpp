@@ -88,7 +88,7 @@ static std::optional<StringRef> printedMnemonic(Operation *op) {
       return StringRef("copyo");
     }
   }
-  if (isa<LaneOp, SpOp, RegLiveInOp, RegLiveOutOp>(op))
+  if (isa<LaneOp, ConcatOp, SpOp, RegLiveInOp, RegLiveOutOp>(op))
     return std::nullopt;
   if (isa<lvx_cf::LoopendOp>(op))
     return std::nullopt; // a comment; the loop-back is the hardware's
@@ -288,10 +288,11 @@ private:
           readersSince[u].push_back({(unsigned)i, r});
         }
       }
-      // Writes: the units of each pinned result. A lane op writes nothing
-      // (its result IS its source's register) and a reg_live_in names an
-      // incoming value: both are placed by their uses alone.
-      if (!isa<LaneOp>(op)) {
+      // Writes: the units of each pinned result. A lane or concat op
+      // writes nothing (its result IS its source's register, or its parts'
+      // registers) and a reg_live_in names an incoming value: all are
+      // placed by their uses alone.
+      if (!isa<LaneOp, ConcatOp>(op)) {
         for (auto [k, result] : llvm::enumerate(op->getResults())) {
           std::optional<PhysLoc> loc = unitsOf(result);
           if (!loc)
@@ -317,6 +318,11 @@ private:
         if (Operation *def = lane.getSource().getDefiningOp())
           if (auto it = index.find(def); it != index.end())
             addEdge(it->second, i, 0);
+      if (auto concat = dyn_cast<ConcatOp>(op))
+        for (Value part : concat.getParts())
+          if (Operation *def = part.getDefiningOp())
+            if (auto it = index.find(def); it != index.end())
+              addEdge(it->second, i, 0);
       // And every pseudo result's user follows it: the register edges above
       // cover real ops; a pseudo with a pinned result (sp, reg_live_in) is
       // covered too, since it writes its units. An unpinned result cannot

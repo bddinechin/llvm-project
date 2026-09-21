@@ -24,6 +24,10 @@ lvx_func.func @scalar_ops(%a: !lvx.reg, %b: !lvx.reg) -> !lvx.reg {
   %q = lvx.lane %qr[0] : (!lvx.pair) -> !lvx.reg
   // CHECK: lvx.lane %{{.*}}[1] : (!lvx.pair) -> !lvx.reg
   %r = lvx.lane %qr[1] : (!lvx.pair) -> !lvx.reg
+  // CHECK: lvx.concat %{{.*}}, %{{.*}} : (!lvx.pair, !lvx.pair) -> !lvx.quad
+  %qq = lvx.concat %qr, %qr : (!lvx.pair, !lvx.pair) -> !lvx.quad
+  // CHECK: lvx.concat %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : (!lvx.reg, !lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.quad
+  %q4 = lvx.concat %a, %b, %q, %r : (!lvx.reg, !lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.quad
   // CHECK: lvx.compd lt %{{.*}}, %{{.*}} : (!lvx.reg, !lvx.reg) -> !lvx.reg
   %5 = lvx.compd lt %a, %b : (!lvx.reg, !lvx.reg) -> !lvx.reg
   // CHECK: lvx.cmoved wnez %{{.*}}, %{{.*}}, %{{.*}} : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg

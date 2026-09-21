@@ -264,6 +264,52 @@ lvx_func.func @composite(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
   lvx_func.return
 }
 
+// The lane shuffles and the splat load: `lwso` fills a quad from one word
+// in memory; `zipwdq` on the low singles and on the high singles of two
+// pairs, placed by `lvx.concat` as the halves of one quad (no instruction);
+// `evenwq`/`oddwq` on that quad's pairs (lane views, no instruction).
+// CHECK-LABEL: shuffles:
+// CHECK-NEXT: lwso $r4r5r6r7 = 0[$r0]
+// CHECK-NEXT: ;;
+// CHECK-NEXT: lq $r2r3 = 32[$r0]
+// CHECK-NEXT: ;;
+// CHECK-NEXT: zipwdq $r8r9 = $r4, $r2
+// CHECK-NEXT: ;;
+// CHECK-NEXT: zipwdq $r10r11 = $r5, $r3
+// CHECK-NEXT: ;;
+// CHECK-NEXT: so 64[$r0] = $r8r9r10r11
+// CHECK-NEXT: ;;
+// CHECK-NEXT: evenwq $r2r3 = $r8r9, $r10r11
+// CHECK-NEXT: ;;
+// CHECK-NEXT: oddwq $r4r5 = $r8r9, $r10r11
+// CHECK-NEXT: ;;
+// CHECK-NEXT: sq 96[$r0] = $r2r3
+// CHECK-NEXT: ;;
+// CHECK-NEXT: sq 112[$r0] = $r4r5
+// CHECK-NEXT: ;;
+// CHECK-NEXT: ret
+// CHECK-NEXT: ;;
+lvx_func.func @shuffles(%base: !lvx.reg<r0>) {
+  %s = lvx.lwso %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.quad
+  %v = lvx.lq %base, 32 : i64 : (!lvx.reg<r0>) -> !lvx.pair
+  %s0 = lvx.lane %s[0] : (!lvx.quad) -> !lvx.pair
+  %a0 = lvx.lane %s0[0] : (!lvx.pair) -> !lvx.reg
+  %b0 = lvx.lane %v[0] : (!lvx.pair) -> !lvx.reg
+  %lo = lvx.zipwdq %a0, %b0 : (!lvx.reg, !lvx.reg) -> !lvx.pair
+  %a1 = lvx.lane %s0[1] : (!lvx.pair) -> !lvx.reg
+  %b1 = lvx.lane %v[1] : (!lvx.pair) -> !lvx.reg
+  %hi = lvx.zipwdq %a1, %b1 : (!lvx.reg, !lvx.reg) -> !lvx.pair
+  %q = lvx.concat %lo, %hi : (!lvx.pair, !lvx.pair) -> !lvx.quad
+  lvx.so %q, %base, 64 : i64 : (!lvx.quad, !lvx.reg<r0>)
+  %q0 = lvx.lane %q[0] : (!lvx.quad) -> !lvx.pair
+  %q2 = lvx.lane %q[2] : (!lvx.quad) -> !lvx.pair
+  %ev = lvx.evenwq %q0, %q2 : (!lvx.pair, !lvx.pair) -> !lvx.pair
+  %od = lvx.oddwq %q0, %q2 : (!lvx.pair, !lvx.pair) -> !lvx.pair
+  lvx.sq %ev, %base, 96 : i64 : (!lvx.pair, !lvx.reg<r0>)
+  lvx.sq %od, %base, 112 : i64 : (!lvx.pair, !lvx.reg<r0>)
+  lvx_func.return
+}
+
 // `ffmad`/`ffmsd`: real hardware has no separate destination register --
 // the `c` operand and the result share one physical register in place
 // (lvx-mlir/docs/RegisterAllocation.md, "`ffma`/`ffms` accumulator

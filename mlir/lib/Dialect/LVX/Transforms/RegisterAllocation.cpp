@@ -653,6 +653,20 @@ static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
       conflictingLaneGroup = true;
     orderedValues.append({lane.getSource(), lane.getResult()});
   });
+  // The reverse: `lvx.concat %a, %b` places each part in the result's
+  // block at its offset. The group is marked as control-joined, i.e.
+  // unspillable: a spilled part would be reloaded into scratch, no longer
+  // where the result's lanes are. (A quad result is unspillable anyway.)
+  func.walk([&](ConcatOp concat) {
+    for (auto [i, part] : llvm::enumerate(concat.getParts())) {
+      if (!uniteAt(part, concat.getResult(), concat.offsetOf(i)))
+        conflictingLaneGroup = true;
+      controlJoined.insert(part);
+      orderedValues.push_back(part);
+    }
+    controlJoined.insert(concat.getResult());
+    orderedValues.push_back(concat.getResult());
+  });
 
   // Build one AllocItem per union-find root, in first-encountered order
   // (deterministic -- driven by `orderedValues`, not by DenseMap iteration
@@ -1020,8 +1034,8 @@ struct LVXAllocateRegistersPass
         func, live, conflictingFixedGroup, conflictingLaneGroup);
     if (conflictingLaneGroup) {
       func.emitError("a value is placed at two different lanes of one "
-                     "register tuple (lvx.lane views joined by a "
-                     "loop-carried channel, branch edge or tie)");
+                     "register tuple (lvx.lane views or lvx.concat parts "
+                     "joined by a loop-carried channel, branch edge or tie)");
       return signalPassFailure();
     }
     if (conflictingFixedGroup) {

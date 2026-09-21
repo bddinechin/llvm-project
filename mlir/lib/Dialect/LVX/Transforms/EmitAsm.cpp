@@ -77,7 +77,7 @@ private:
   /// register print nothing, and a branch to the block that follows is a
   /// fall-through.
   static bool prints(Operation *op, Block *nextBlock) {
-    if (isa<LaneOp, SpOp, RegLiveInOp, RegLiveOutOp, lvx_cf::LoopendOp>(op))
+    if (isa<LaneOp, ConcatOp, SpOp, RegLiveInOp, RegLiveOutOp, lvx_cf::LoopendOp>(op))
       return false;
     if (auto br = dyn_cast<lvx_cf::BranchOp>(op))
       return br.getDest() != nextBlock;
@@ -457,6 +457,7 @@ private:
         // allocator typed the result as that register (lvx-mlir/docs/
         // RegisterAllocation.md, "Lane views"), and there is nothing to emit.
         .Case([&](LaneOp) { return success(); })
+        .Case([&](ConcatOp) { return success(); })
         // $ra save/restore (lvx-mlir/docs/RegisterAllocation.md, "Return-
         // address save/restore"): real `get`/`set` on the RA system
         // register, confirmed via the real lvx-mbr-as/lvx-mbr-objdump.
@@ -475,6 +476,10 @@ private:
         .Case([&](LdOp op) { return emitLoad(op, "ld", op.getBase(), op.getOffset(), op.getVariant()); })
         .Case([&](LqOp op) { return emitLoad(op, "lq", op.getBase(), op.getOffset(), op.getVariant()); })
         .Case([&](LoOp op) { return emitLoad(op, "lo", op.getBase(), op.getOffset(), op.getVariant()); })
+        .Case([&](LbsoOp op) { return emitLoad(op, "lbso", op.getBase(), op.getOffset(), op.getVariant()); })
+        .Case([&](LhsoOp op) { return emitLoad(op, "lhso", op.getBase(), op.getOffset(), op.getVariant()); })
+        .Case([&](LwsoOp op) { return emitLoad(op, "lwso", op.getBase(), op.getOffset(), op.getVariant()); })
+        .Case([&](LdsoOp op) { return emitLoad(op, "ldso", op.getBase(), op.getOffset(), op.getVariant()); })
         .Case([&](SbOp op) { return emitStore(op, "sb", op.getValue(), op.getBase(), op.getOffset()); })
         .Case([&](ShOp op) { return emitStore(op, "sh", op.getValue(), op.getBase(), op.getOffset()); })
         .Case([&](SwOp op) { return emitStore(op, "sw", op.getValue(), op.getBase(), op.getOffset()); })
