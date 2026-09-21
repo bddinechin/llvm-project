@@ -63,6 +63,10 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // kernel whose body actually reads iv (unlike this hand-written test)
 // would otherwise let some other value's live range overlap and clobber
 // iv's (or step's) register before that synthesized increment ever runs.
+// `%2` (the `upperBound`) is extended the same way: the branch lowering
+// compares iv against it after every iteration. Left at the `for` op, it
+// ended one slot before iv began, and the automatic 8-lane matmul's
+// outer loop got iv in the bound's register (`compd.lt $r61 = $r4, $r4`).
 // `%arg2` (the loop-carried accumulator) and the yielded value each get
 // their own honest, separate interval, since they are distinct SSA
 // values.
@@ -70,7 +74,7 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // CHECK-NEXT: %arg0 : [0, 1] fixed=r0
 // CHECK-NEXT: %0 : [1, 9]
 // CHECK-NEXT: %1 : [2, 6]
-// CHECK-NEXT: %2 : [3, 6]
+// CHECK-NEXT: %2 : [3, 9]
 // CHECK-NEXT: %3 : [4, 9]
 // CHECK-NEXT: %4 : [5, 6]
 // CHECK-NEXT: %5 : [6, 10]

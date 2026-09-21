@@ -81,9 +81,10 @@ void LVXLiveIntervals::buildIntervals(lvx_func::FuncOp func) {
     }
   });
 
-  // `lvx_scf.for`'s induction variable (the body's block argument 0) *and*
-  // its `step` operand both have an implicit extra use invisible to plain
-  // SSA/dataflow liveness: both `-lvx-scf-to-cf` lowering paths
+  // `lvx_scf.for`'s induction variable (the body's block argument 0), its
+  // `step` operand and its `upperBound` (see below) have an implicit extra
+  // use invisible to plain SSA/dataflow liveness: both `-lvx-scf-to-cf`
+  // lowering paths
   // (lvx-mlir/docs/AssemblyEmission.md, lvx-mlir/docs/HardwareLoops.md) synthesize an
   // in-place "iv = iv + step" increment right before the body's
   // terminator, *after* this pass has already run -- reading both iv and
@@ -108,6 +109,17 @@ void LVXLiveIntervals::buildIntervals(lvx_func::FuncOp func) {
     LiveInterval &step_interval =
         getOrCreate(forOp.getStep(), valueToIntervalIndex, intervals);
     step_interval.end = std::max(step_interval.end, bodyEnd);
+    // The upper bound likewise: a loop `-lvx-scf-to-cf` lowers to branches
+    // compares iv against it after every iteration, so it is read at the
+    // body's end as surely as the step is. (A hardware loop folds it into
+    // the trip count up front, but which lowering a loop gets is decided
+    // after allocation, and the extension costs one register either way.)
+    // Without it the bound's interval ends at the for-op itself, one slot
+    // before iv's begins, and iv could take its register: the automatic
+    // 8-lane matmul got `compd.lt $r61 = $r4, $r4` for its outer loop.
+    LiveInterval &ub_interval =
+        getOrCreate(forOp.getUpperBound(), valueToIntervalIndex, intervals);
+    ub_interval.end = std::max(ub_interval.end, bodyEnd);
 
     // Any value captured from outside this loop -- referenced as one of
     // the op's own bound operands, or by any op transitively nested

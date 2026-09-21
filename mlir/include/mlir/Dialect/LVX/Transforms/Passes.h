@@ -9,8 +9,12 @@
 #ifndef MLIR_DIALECT_LVX_TRANSFORMS_PASSES_H
 #define MLIR_DIALECT_LVX_TRANSFORMS_PASSES_H
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LVXCF/IR/LVXCF.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {

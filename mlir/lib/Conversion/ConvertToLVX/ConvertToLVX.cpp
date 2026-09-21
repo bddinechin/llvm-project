@@ -238,11 +238,29 @@ using DivFToLVX = FloatBinaryToLVX<arith::DivFOp, lvx::FdivdOp, lvx::FdivwOp>;
 // where the pair rounds twice, so silently contracting them would change
 // results behind the author's back. Requiring the source to say `math.fma`
 // keeps that an explicit choice.
+static FailureOr<Value> lowerVectorFma(ConversionPatternRewriter &rewriter,
+                                       const TypeConverter &typeConverter,
+                                       Operation *op, Value lhs, Value rhs,
+                                       Value acc, Value originalLhs,
+                                       Value originalRhs);
+
+// `math.fma` on a vector type -- what the affine super-vectorizer emits for
+// a vectorized `math.fma`, where `vector.fma` is what a hand-written vector
+// kernel says -- is the same instruction as `vector.fma` (below).
 struct FmaToLVX : public OpConversionPattern<math::FmaOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
   matchAndRewrite(math::FmaOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (isa<VectorType>(op.getType())) {
+      FailureOr<Value> result = lowerVectorFma(
+          rewriter, *getTypeConverter(), op, adaptor.getA(), adaptor.getB(),
+          adaptor.getC(), op.getA(), op.getB());
+      if (failed(result))
+        return failure();
+      rewriter.replaceOp(op, *result);
+      return success();
+    }
     Type regTy = getTypeConverter()->convertType(op.getType());
     unsigned width = getScalarBitWidth(op.getType());
     Value result;
@@ -856,7 +874,8 @@ struct VectorBroadcastToLVX : public OpConversionPattern<vector::BroadcastOp> {
   }
 };
 
-// `vector.fma` on vector<4xf32> is `ffmawq`, on vector<2xf64> `ffmadp`; like
+// `vector.fma` (or a vector-typed `math.fma`) on vector<4xf32> is `ffmawq`, on
+// vector<2xf64> `ffmadp`; like
 // the scalar `ffmaw`/`ffmad`, the accumulator is tied to the result and the
 // allocator coalesces them. On vector<8xf32>/vector<4xf64> it is the
 // composite `ffmawo`/`ffmadq` (Builtin@split): the same instruction on each
@@ -886,37 +905,45 @@ static Value pairSplatOf(ConversionPatternRewriter &rewriter, Location loc,
   return converted;
 }
 
+static FailureOr<Value> lowerVectorFma(ConversionPatternRewriter &rewriter,
+                                       const TypeConverter &typeConverter,
+                                       Operation *op, Value lhs, Value rhs,
+                                       Value acc, Value originalLhs,
+                                       Value originalRhs) {
+  auto vecTy = cast<VectorType>(op->getResult(0).getType());
+  Type tupleTy = typeConverter.convertType(vecTy);
+  unsigned width = tupleTy ? tupleWidth(tupleTy) : 0;
+  if (!width || !isa<FloatType>(vecTy.getElementType()))
+    return rewriter.notifyMatchFailure(op, "the ISA has a pair fma for f32 x4 and f64 x2, and their composites, only");
+  bool f32 = vecTy.getElementTypeBitWidth() == 32;
+  Location loc = op->getLoc();
+  if (width == 2) {
+    if (f32)
+      return rewriter.create<lvx::FfmawqOp>(loc, tupleTy, lhs, rhs, acc)
+          .getResult();
+    return rewriter.create<lvx::FfmadpOp>(loc, tupleTy, lhs, rhs, acc)
+        .getResult();
+  }
+  lhs = pairSplatOf(rewriter, loc, lhs, originalLhs);
+  rhs = pairSplatOf(rewriter, loc, rhs, originalRhs);
+  if (f32)
+    return rewriter.create<lvx::FfmawoOp>(loc, tupleTy, lhs, rhs, acc)
+        .getResult();
+  return rewriter.create<lvx::FfmadqOp>(loc, tupleTy, lhs, rhs, acc)
+      .getResult();
+}
+
 struct VectorFMAToLVX : public OpConversionPattern<vector::FMAOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
   matchAndRewrite(vector::FMAOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto vecTy = cast<VectorType>(op.getType());
-    Type tupleTy = getTypeConverter()->convertType(vecTy);
-    unsigned width = tupleTy ? tupleWidth(tupleTy) : 0;
-    if (!width || !isa<FloatType>(vecTy.getElementType()))
-      return rewriter.notifyMatchFailure(op, "the ISA has a pair fma for f32 x4 and f64 x2, and their composites, only");
-    bool f32 = vecTy.getElementTypeBitWidth() == 32;
-    Location loc = op.getLoc();
-    Value result;
-    if (width == 2) {
-      if (f32)
-        result = rewriter.create<lvx::FfmawqOp>(loc, tupleTy, adaptor.getLhs(),
-                                                adaptor.getRhs(), adaptor.getAcc());
-      else
-        result = rewriter.create<lvx::FfmadpOp>(loc, tupleTy, adaptor.getLhs(),
-                                                adaptor.getRhs(), adaptor.getAcc());
-    } else {
-      Value lhs = pairSplatOf(rewriter, loc, adaptor.getLhs(), op.getLhs());
-      Value rhs = pairSplatOf(rewriter, loc, adaptor.getRhs(), op.getRhs());
-      if (f32)
-        result = rewriter.create<lvx::FfmawoOp>(loc, tupleTy, lhs, rhs,
-                                                adaptor.getAcc());
-      else
-        result = rewriter.create<lvx::FfmadqOp>(loc, tupleTy, lhs, rhs,
-                                                adaptor.getAcc());
-    }
-    rewriter.replaceOp(op, result);
+    FailureOr<Value> result = lowerVectorFma(
+        rewriter, *getTypeConverter(), op, adaptor.getLhs(), adaptor.getRhs(),
+        adaptor.getAcc(), op.getLhs(), op.getRhs());
+    if (failed(result))
+      return failure();
+    rewriter.replaceOp(op, *result);
     return success();
   }
 };

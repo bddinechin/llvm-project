@@ -1,5 +1,6 @@
 add_mlir_dialect_library(MLIRLVXTransforms
   Combine.cpp
+  LowerVectorTransfers.cpp
   RegisterAllocation.cpp
   SCFToCF.cpp
   Schedule.cpp
@@ -20,4 +21,10 @@ add_mlir_dialect_library(MLIRLVXTransforms
   MLIRLVXCFDialect
   MLIRLVXFuncDialect
   MLIRLVXSCFDialect
+  MLIRFuncDialect
+  MLIRLinalgTransforms
+  MLIRMemRefDialect
+  MLIRSCFDialect
+  MLIRVectorDialect
+  MLIRVectorTransforms
   )

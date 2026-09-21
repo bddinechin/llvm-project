@@ -71,6 +71,37 @@ def LVXSCFToCFPass
   }];
 }
 
+def LVXLowerVectorTransfersPass
+    : Pass<"lvx-lower-vector-transfers", "::mlir::func::FuncOp"> {
+  let summary = "Hoist loop-carried vector transfers into iter_args, then lower the rest to load/store/broadcast";
+  let description = [{
+    The bridge between an upstream vectorizer and `-convert-to-lvx`. The
+    affine super-vectorizer (`-affine-super-vectorize`) leaves a matmul's
+    accumulator as a `vector.transfer_read`/`transfer_write` pair on the
+    output memref inside the reduction loop, and reads the broadcast
+    operand through a permutation map; `-convert-to-lvx` takes only
+    `vector.load`/`store`/`broadcast`/`fma`. This pass runs, in order:
+
+    1. `linalg::hoistRedundantVectorTransfers`: a transfer_read/write pair
+       on a loop-invariant address, with no other access to that memref in
+       the loop, becomes a loop-carried `scf.for` iter_arg -- the
+       register-promoted accumulator the hand-written `mymma_vec*.mlir`
+       spell directly. As upstream says of it, this assumes the memrefs
+       accessed in the loop do not alias one another, which is what
+       `linalg` ins/outs already promise.
+    2. The upstream transfer lowering patterns: permutation maps with
+       broadcast dimensions become a rank-reduced read plus
+       `vector.broadcast`, a 0-d read becomes a `memref.load`, and an
+       in-bounds identity transfer becomes `vector.load`/`vector.store`.
+
+    Run `-canonicalize` after it: the padding constants (`ub.poison`) are
+    dead, and a loop the vector width made single-trip folds away.
+  }];
+  let dependentDialects = ["::mlir::memref::MemRefDialect",
+                           "::mlir::scf::SCFDialect",
+                           "::mlir::vector::VectorDialect"];
+}
+
 def LVXCombinePass : Pass<"lvx-combine"> {
   let summary = "Peephole-combine lvx operations into stronger ones";
   let description = [{
