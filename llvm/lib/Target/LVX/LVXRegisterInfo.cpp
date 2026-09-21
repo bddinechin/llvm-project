@@ -71,8 +71,16 @@ BitVector LVXRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
     markSuperRegs(Reserved, LVX::R14);
 
   // Control registers ($ra, $pc, $ps, $cs, $ls, $le, $lc) are not members
-  // of the GPR class at all, so they don't need reserving here — they're
-  // already excluded from GPR's allocation order in LVXRegisterInfo.td.
+  // of the GPR class, and every CR class is non-allocatable, so reserving
+  // them changes nothing for the allocator. It does matter to liveness:
+  // RET_RTS reads $ra, and the verifier accepts a physical-register read
+  // that no instruction defined only when the register is live-in, pristine
+  // (callee-saved -- which is how other targets' return-address registers
+  // pass) or reserved. $ra is none of those here, since the frame code saves
+  // it through get/set itself rather than through the callee-saved list, so
+  // -verify-machineinstrs rejected every function with a call.
+  for (MCPhysReg CR : LVX::CRRegClass)
+    markSuperRegs(Reserved, CR);
 
   assert(checkAllSuperRegsMarked(Reserved) &&
          "super-registers of a reserved register must also be reserved");
