@@ -144,9 +144,15 @@ void LVXFrameLowering::emitPrologue(MachineFunction &MF,
     // rT operand is GPR-typed, so it can't be stored directly (confirmed
     // by the real assembler rejecting "sd off[$rZ] = $ra" outright).
     // GETRA (Phase 5.2) moves it into scratch GPR R16 first, matching
-    // the real ISA's GET/SET register-transfer convention.
+    // the real ISA's GET/SET register-transfer convention.  Like SET below,
+    // GET's write is conditional (on get_check_access), so the machine
+    // description makes $rZ a tied read-modify-write destination and R16
+    // must appear as the tied use too -- undefined, since nothing is live
+    // in it yet.
     {
-      BuildMI(MBB, MBBI, DL, TII->get(LVX::GET_GSR), LVX::R16).addReg(LVX::RA);
+      BuildMI(MBB, MBBI, DL, TII->get(LVX::GET_GSR), LVX::R16)
+          .addReg(LVX::R16, RegState::Undef)
+          .addReg(LVX::RA);
       BuildMI(MBB, MBBI, DL,
               TII->get(frameAccessOpcode(LVX::SD_SSBO, RAOffset)))
           .addImm(RAOffset)

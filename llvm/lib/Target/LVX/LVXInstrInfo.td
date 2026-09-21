@@ -300,13 +300,15 @@ def : Pat<(rotr GPR:$rZ, uimm6imm:$imm), (RORD_DSWRI GPR:$rZ, uimm6imm:$imm)>;
 
 // ---- Sign extension from a narrower width ---------------------------------
 //
-// "extfs $rW = $rZ, stop, start" extracts bits [stop:start] of $rZ, sign
-// extending from the stop bit -- so sign-extending a value that is really n
-// bits wide is the field [n-1:0]. This is what a signext parameter or return
-// value needs, and what the type legalizer asks for as sext_inreg.
-def : Pat<(sext_inreg GPR:$rZ, i8),  (EXTFS_BFWR GPR:$rZ,  7, 0)>;
-def : Pat<(sext_inreg GPR:$rZ, i16), (EXTFS_BFWR GPR:$rZ, 15, 0)>;
-def : Pat<(sext_inreg GPR:$rZ, i32), (EXTFS_BFWR GPR:$rZ, 31, 0)>;
+// "extfsd $rW = $rZ, width, start" extracts the width-bit field of $rZ
+// starting at bit start, sign extending from its top bit -- so sign-extending
+// a value that is really n bits wide is the n-bit field at 0. This is what a
+// signext parameter or return value needs, and what the type legalizer asks
+// for as sext_inreg. (The immediate was a stop bit, n-1, until the ISA's
+// stopbit -> bitwidth rename of 2026-09.)
+def : Pat<(sext_inreg GPR:$rZ, i8),  (EXTFSD_BFWR GPR:$rZ,  8, 0)>;
+def : Pat<(sext_inreg GPR:$rZ, i16), (EXTFSD_BFWR GPR:$rZ, 16, 0)>;
+def : Pat<(sext_inreg GPR:$rZ, i32), (EXTFSD_BFWR GPR:$rZ, 32, 0)>;
 
 // ---- Unary integer --------------------------------------------------------
 

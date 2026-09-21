@@ -87,7 +87,7 @@ define i64 @xor_zext(i64 %a, i64 %b) {
 ; for any amount of 32 or more.
 ; CHECK-LABEL: shl_sext:
 ; CHECK: slld
-; CHECK: extfs
+; CHECK: extfsd $r{{[0-9]+}} = $r{{[0-9]+}}, 32, 0
 ; CHECK-NOT: sllw
 define i64 @shl_sext(i64 %a, i64 %b) {
   %s = shl i64 %a, %b
