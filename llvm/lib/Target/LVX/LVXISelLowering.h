@@ -31,9 +31,8 @@ public:
   LVXTargetLowering(const TargetMachine &TM, const LVXSubtarget &STI);
 
   // LowerOperation - Provide custom lowering hooks for some operations.
-  // Currently empty (falls through to llvm_unreachable in the base
-  // implementation) until a specific opcode is found that needs custom
-  // lowering beyond what setOperationAction + TableGen patterns handle.
+  // Routed here so far: the i128 shifts and constants (lowerShift128,
+  // lowerConstant128).
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
   // LVX has real fused multiply-add hardware (FFMAD/FFMAW), so llvm.fmuladd
@@ -62,6 +61,9 @@ public:
                                  const char *Constraint) const override;
 
 private:
+  SDValue lowerShift128(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerConstant128(SDValue Op, SelectionDAG &DAG) const;
+
   SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const override;
 

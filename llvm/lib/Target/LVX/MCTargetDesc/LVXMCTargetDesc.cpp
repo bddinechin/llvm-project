@@ -39,6 +39,11 @@ public:
     CommentString = "#";
     PrivateLabelPrefix = ".L";
     SupportsDebugInformation = true;
+    // There is no MC assembler for LVX (no MCCodeEmitter, no asm parser):
+    // the output is text that GNU as encodes. Saying so is what lets the
+    // AsmPrinter pass inline asm through verbatim; with the default it
+    // asks for the target's asm parser and aborts when there is none.
+    UseIntegratedAssembler = false;
   }
 };
 } // end anonymous namespace

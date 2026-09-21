@@ -293,6 +293,13 @@ static bool isNullConstant(SDValue V) {
 void LVXDAGToDAGISel::Select(SDNode *N) {
   SDLoc DL(N);
 
+  // Already a machine node: lowerShift128 builds EXTRACT_SUBREGs straight
+  // into the DAG, and there is nothing to select on one.
+  if (N->isMachineOpcode()) {
+    N->setNodeId(-1);
+    return;
+  }
+
   // ISD::BR_CC → cb (against zero) or ccb (register against register).
   // Operands are (Chain, CondCode, LHS, RHS, Dest).
   // ISD::ConstantFP -> a MAKE of the value's raw bit pattern. There is no FP
@@ -403,18 +410,30 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     }
   }
 
-  // ISD::BUILD_PAIR (i128 from two i64 halves) → CATDQ.
+  // ISD::BUILD_PAIR (i128 from two i64 halves) → REG_SEQUENCE.
   // LowerFormalArguments produces BUILD_PAIR when reassembling an i128
-  // argument from its two i64 CC slots. CATDQ is the single LVX instruction
-  // that assembles an aligned GPR128 pair from two arbitrary GPR sources:
-  // "catdq $rM = $rZ, $rY", where the first source ($rZ) is the low 64 bits
-  // and the second ($rY) the high -- see emitCatDQ in LVXInstrInfo.cpp.
+  // argument from its two i64 CC slots, lowerShift128 when it builds a
+  // shifted pair from one half and a zero. A REG_SEQUENCE asks the allocator
+  // to put the halves in an aligned pair, which for an argument or a return
+  // value they already are, so it usually costs nothing; where they are not,
+  // it costs a copyd per half. This used to be a CATDQ -- one real
+  // instruction, always, even to re-pair $r0 with $r1 -- so every i128
+  // argument paid for its own reassembly.
+  //
+  // The indices are named for the register number, not the value: sub_hi
+  // is SubRegIndex<64, 0>, the lower-numbered GPR of the pair, and holds
+  // the LOW 64 bits.
   if (N->getOpcode() == ISD::BUILD_PAIR &&
       N->getValueType(0) == MVT::i128) {
-    SDValue Lo = N->getOperand(0); // low 64 bits  (rZ)
-    SDValue Hi = N->getOperand(1); // high 64 bits (rY)
-    SDNode *Res = CurDAG->getMachineNode(LVX::CATDQ_QZWRR, DL, MVT::i128, Lo, Hi);
-    ReplaceNode(N, Res);
+    SDValue RegClass =
+        CurDAG->getTargetConstant(LVX::GPR128RegClassID, DL, MVT::i32);
+    SDValue Ops[] = {RegClass,
+                     N->getOperand(0), // low 64 bits
+                     CurDAG->getTargetConstant(sub_hi, DL, MVT::i32),
+                     N->getOperand(1), // high 64 bits
+                     CurDAG->getTargetConstant(sub_lo, DL, MVT::i32)};
+    ReplaceNode(N, CurDAG->getMachineNode(TargetOpcode::REG_SEQUENCE, DL,
+                                          MVT::i128, Ops));
     return;
   }
 

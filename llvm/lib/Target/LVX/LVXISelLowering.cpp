@@ -145,6 +145,22 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::SDIVREM, MVT::i64, Legal);
   setOperationAction(ISD::UDIVREM, MVT::i64, Legal);
 
+  // 128-bit shifts. SLLQ/SRLQ/SRAQ take the amount in a register or in a
+  // 6-bit immediate, so a constant amount of 64 or more has no encoding --
+  // and does not want one: such a shift only moves one half of the pair
+  // into the other, which lowerShift128 spells as subregister reads and a
+  // 64-bit shift, so that "(trunc (srl x, 64))", the high half of an
+  // __int128, folds down to a register. Everything else returns from the
+  // hook untouched and meets the patterns in LVXInstrInfo.td.
+  for (unsigned Op : {ISD::SHL, ISD::SRL, ISD::SRA})
+    setOperationAction(Op, MVT::i128, Custom);
+
+  // An i128 constant is its two 64-bit halves, each a maked of its own,
+  // paired -- lowerConstant128 spells it as a BUILD_PAIR of two i64
+  // constants so the existing MAKED patterns and the REG_SEQUENCE selection
+  // of BUILD_PAIR do the rest.
+  setOperationAction(ISD::Constant, MVT::i128, Custom);
+
   // COMPD writes the comparison result zero-extended to a full double word
   // ("The boolean result extended to double word is stored into the %1"), so
   // a boolean really is 0 or 1 here. Saying so lets the generic combines use
@@ -270,12 +286,73 @@ bool LVXTargetLowering::isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
 
 SDValue LVXTargetLowering::LowerOperation(SDValue Op,
                                           SelectionDAG &DAG) const {
-  // Nothing routed here yet -- every IR construct currently reaching
-  // LowerOperation should already be legal or handled by a TableGen
-  // pattern. If this is hit, a new case needs to be added once a real
-  // test program identifies what's missing.
-  llvm_unreachable(
-      "Unimplemented operation in LVXTargetLowering::LowerOperation");
+  switch (Op.getOpcode()) {
+  case ISD::SHL:
+  case ISD::SRL:
+  case ISD::SRA:
+    return lowerShift128(Op, DAG);
+  case ISD::Constant:
+    return lowerConstant128(Op, DAG);
+  default:
+    llvm_unreachable(
+        "Unimplemented operation in LVXTargetLowering::LowerOperation");
+  }
+}
+
+SDValue LVXTargetLowering::lowerConstant128(SDValue Op,
+                                            SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  const APInt &V = cast<ConstantSDNode>(Op)->getAPIntValue();
+  SDValue Lo = DAG.getConstant(V.trunc(64), DL, MVT::i64);
+  SDValue Hi = DAG.getConstant(V.lshr(64).trunc(64), DL, MVT::i64);
+  return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i128, Lo, Hi);
+}
+
+// An i128 shift by a constant of 64 or more. The result's halves are the
+// source's other half shifted by amount-64, and a zero -- or, for sra, the
+// sign spread over a word. Built from the halves rather than sent to the
+// shifter, so the combiner can fold the truncate that nearly always follows
+// into a subregister read: "(trunc (srl x, 64))" is how the high half of an
+// __int128 is spelled, and it should cost nothing.
+//
+// The subregister indices are named for the register NUMBER, not the value:
+// sub_hi is SubRegIndex<64, 0>, the lower-numbered GPR of the pair, which
+// holds the LOW 64 bits (catdq $rM = $rZ, $rY puts $rZ there). See the
+// DIVMODD comment in LVXISelDAGToDAG.cpp, which trips on the same thing.
+SDValue LVXTargetLowering::lowerShift128(SDValue Op, SelectionDAG &DAG) const {
+  auto *C = dyn_cast<ConstantSDNode>(Op.getOperand(1));
+  if (!C || C->getZExtValue() < 64)
+    return Op; // the patterns take it: sllq/srlq/sraq, immediate or register
+  uint64_t Amt = C->getZExtValue();
+  if (Amt >= 128)
+    return DAG.getUNDEF(MVT::i128); // poison in the IR
+
+  SDLoc DL(Op);
+  SDValue X = Op.getOperand(0);
+  SDValue Lo = DAG.getTargetExtractSubreg(sub_hi, DL, MVT::i64, X);
+  SDValue Hi = DAG.getTargetExtractSubreg(sub_lo, DL, MVT::i64, X);
+  SDValue Zero = DAG.getConstant(0, DL, MVT::i64);
+  SDValue Sh = DAG.getConstant(Amt - 64, DL, MVT::i64);
+  SDValue NewLo, NewHi;
+  switch (Op.getOpcode()) {
+  case ISD::SHL:
+    NewLo = Zero;
+    NewHi = DAG.getNode(ISD::SHL, DL, MVT::i64, Lo, Sh);
+    break;
+  case ISD::SRL:
+    NewLo = DAG.getNode(ISD::SRL, DL, MVT::i64, Hi, Sh);
+    NewHi = Zero;
+    break;
+  case ISD::SRA:
+    NewLo = DAG.getNode(ISD::SRA, DL, MVT::i64, Hi, Sh);
+    NewHi = DAG.getNode(ISD::SRA, DL, MVT::i64, Hi,
+                        DAG.getConstant(63, DL, MVT::i64));
+    break;
+  default:
+    llvm_unreachable("not a shift");
+  }
+  // (low, high), the order LVXISelDAGToDAG turns into catdq.
+  return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i128, NewLo, NewHi);
 }
 
 bool LVXTargetLowering::CanLowerReturn(
@@ -301,8 +378,21 @@ std::pair<unsigned, const TargetRegisterClass *>
 LVXTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI_,
                                                 StringRef Constraint,
                                                 MVT VT) const {
-  // TODO(Phase 5): real inline-asm register-class constraint parsing
-  // (e.g. "r" -> GPR). Fall back to the generic implementation for now.
+  // "r" is a general register of whatever width the operand has: one GPR
+  // for a word (integer or floating point -- they share the file), an
+  // aligned pair for an __int128, a quad for a 256-bit vector. Which one
+  // the assembler then wants is spelled by the register name itself
+  // ($r0, $r0r1, $r0r1r2r3), so the same "%0" works for all three.
+  if (Constraint.size() == 1 && Constraint[0] == 'r') {
+    switch (VT.SimpleTy) {
+    case MVT::i128:
+      return std::make_pair(0U, &LVX::GPR128RegClass);
+    case MVT::v4i64:
+      return std::make_pair(0U, &LVX::GPR256RegClass);
+    default:
+      return std::make_pair(0U, &LVX::GPRRegClass);
+    }
+  }
   return TargetLowering::getRegForInlineAsmConstraint(TRI_, Constraint, VT);
 }
 

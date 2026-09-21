@@ -298,6 +298,42 @@ def : Pat<(srl  GPR:$rZ, uimm6imm:$imm), (SRLD_DSWRI GPR:$rZ, uimm6imm:$imm)>;
 def : Pat<(rotl GPR:$rZ, uimm6imm:$imm), (ROLD_DSWRI GPR:$rZ, uimm6imm:$imm)>;
 def : Pat<(rotr GPR:$rZ, uimm6imm:$imm), (RORD_DSWRI GPR:$rZ, uimm6imm:$imm)>;
 
+// ---- 128-bit values ---------------------------------------------------------
+//
+// An i128 lives in an aligned GPR pair, and the generated patterns already
+// give it add/sub/and/or/xor (ADDQ, SBFQ, ANDQ, IORQ, EORQ). What the
+// description has nothing to read for is the traffic between the widths.
+//
+// The subregister indices are named for the register NUMBER: sub_hi is the
+// lower-numbered GPR of the pair, SubRegIndex<64, 0>, and so holds the LOW
+// 64 bits of the value -- catdq $rM = $rZ, $rY puts $rZ there. sub_lo is the
+// high 64 bits. (LVXISelDAGToDAG's DIVMODD comment trips on the same thing.)
+
+// The low half is a register, not an instruction.
+def : Pat<(i64 (trunc GPR128:$rP)), (EXTRACT_SUBREG GPR128:$rP, sub_hi)>;
+
+// Widening: the pair's low half is the word, its high half is zero, the
+// sign spread over a word, or don't-care. REG_SEQUENCE rather than catdq
+// so the allocator can build the pair in place -- a word already in $r0 that
+// is returned as an __int128 then costs only the maked of its high half.
+def : Pat<(i128 (zext GPR:$rZ)),
+          (REG_SEQUENCE GPR128, GPR:$rZ, sub_hi, (MAKED_DWI 0), sub_lo)>;
+def : Pat<(i128 (sext GPR:$rZ)),
+          (REG_SEQUENCE GPR128, GPR:$rZ, sub_hi,
+                                (SRAD_DSWRI GPR:$rZ, 63), sub_lo)>;
+def : Pat<(i128 (anyext GPR:$rZ)),
+          (INSERT_SUBREG (i128 (IMPLICIT_DEF)), GPR:$rZ, sub_hi)>;
+
+// Shifts: by a register, or by an immediate below 64 (the field is 6 bits).
+// A constant amount of 64 or more never reaches here -- lowerShift128 in
+// LVXISelLowering.cpp turns it into subregister reads and a 64-bit shift.
+def : Pat<(shl GPR128:$rP, GPR:$rY), (SLLQ_QSWRR GPR128:$rP, GPR:$rY)>;
+def : Pat<(sra GPR128:$rP, GPR:$rY), (SRAQ_QSWRR GPR128:$rP, GPR:$rY)>;
+def : Pat<(srl GPR128:$rP, GPR:$rY), (SRLQ_QSWRR GPR128:$rP, GPR:$rY)>;
+def : Pat<(shl GPR128:$rP, uimm6imm:$imm), (SLLQ_QSWRI GPR128:$rP, uimm6imm:$imm)>;
+def : Pat<(sra GPR128:$rP, uimm6imm:$imm), (SRAQ_QSWRI GPR128:$rP, uimm6imm:$imm)>;
+def : Pat<(srl GPR128:$rP, uimm6imm:$imm), (SRLQ_QSWRI GPR128:$rP, uimm6imm:$imm)>;
+
 // ---- Sign extension from a narrower width ---------------------------------
 //
 // "extfsd $rW = $rZ, width, start" extracts the width-bit field of $rZ
