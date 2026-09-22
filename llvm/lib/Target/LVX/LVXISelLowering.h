@@ -31,8 +31,7 @@ public:
   LVXTargetLowering(const TargetMachine &TM, const LVXSubtarget &STI);
 
   // LowerOperation - Provide custom lowering hooks for some operations.
-  // Routed here so far: the i128 shifts and constants (lowerShift128,
-  // lowerConstant128).
+  // Routed here so far: the i128 shifts (lowerShift128).
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
   // LVX has real fused multiply-add hardware (FFMAD/FFMAW), so llvm.fmuladd
@@ -41,6 +40,9 @@ public:
   // as fmuld+faddd even with FMA declared Legal and patterns in place: the
   // fmuladd intrinsic is only turned into an FMA node when the target says
   // fusing is profitable.
+  EVT getSetCCResultType(const DataLayout &DL, LLVMContext &Ctx,
+                         EVT VT) const override;
+
   bool isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
                                   EVT VT) const override;
 
@@ -62,7 +64,6 @@ public:
 
 private:
   SDValue lowerShift128(SDValue Op, SelectionDAG &DAG) const;
-  SDValue lowerConstant128(SDValue Op, SelectionDAG &DAG) const;
 
   SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const override;

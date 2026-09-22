@@ -47,16 +47,28 @@ char LVXDAGToDAGISel::ID = 0;
 namespace {
 enum LoadExtension { EXT_SEXT, EXT_ZEXT, EXT_NONE };
 
+// The register class a row loads into or stores from. The width alone does
+// not identify a row: lvx-2 has 8/16/32/64-bit loads that SPLAT into a
+// GPR256 (lbso, lhso, lwso, ldso) beside the ordinary ones, so ldso and ld
+// are both "64, NONE" and differ only here. Keying on the width alone, as
+// this did, left the right answer to the order the generator happened to
+// emit the rows in.
+enum LoadClass { CLASS_GPR, CLASS_GPR128, CLASS_GPR256 };
+#define CLASS_GPR_GPR    CLASS_GPR
+#define CLASS_GPR_GPR128 CLASS_GPR128
+#define CLASS_GPR_GPR256 CLASS_GPR256
+
 struct LoadRow {
   unsigned Bits;
   LoadExtension Ext;
+  LoadClass Class;
   unsigned Narrow;      // base+offset, the narrowest displacement
   unsigned Indexed;     // base+index register
 };
 
 const LoadRow LoadRows[] = {
 #define LVX_LOAD(BITS, EXT, CLASS, BO, BOX, BOY, BI)                           \
-  {BITS, EXT_##EXT, LVX::BO, LVX::BI},
+  {BITS, EXT_##EXT, CLASS_GPR_##CLASS, LVX::BO, LVX::BI},
 #include "LVXMemoryTable.inc"
 };
 
@@ -65,13 +77,14 @@ const LoadRow LoadRows[] = {
 // LVXInstrInfo::getFormForImmediate, which walks the same generated widening
 // chain the frame code uses, so there is one route to them rather than two.
 
-// The narrow base+offset load for an access of Bits bits, or 0 if the ISA has
-// none. Extension is only meaningful below the register width; at 64 bits and
-// above the value fills the register and the table says NONE.
-unsigned narrowLoadOpcode(unsigned Bits, bool IsSigned) {
+// The narrow base+offset load for an access of Bits bits into register class
+// Class, or 0 if the ISA has none. Extension is only meaningful below the
+// register width; at 64 bits and above the value fills the register and the
+// table says NONE.
+unsigned narrowLoadOpcode(unsigned Bits, bool IsSigned, LoadClass Class) {
   LoadExtension Want = Bits >= 64 ? EXT_NONE : IsSigned ? EXT_SEXT : EXT_ZEXT;
   for (const LoadRow &Row : LoadRows)
-    if (Row.Bits == Bits && Row.Ext == Want)
+    if (Row.Bits == Bits && Row.Ext == Want && Row.Class == Class)
       return Row.Narrow;
   return 0;
 }
@@ -79,20 +92,46 @@ unsigned narrowLoadOpcode(unsigned Bits, bool IsSigned) {
 // Stores have no extension column: a store truncates to the width it writes.
 struct StoreRow {
   unsigned Bits;
+  LoadClass Class;
   unsigned Narrow;
   unsigned Indexed;
 };
 
 const StoreRow StoreRows[] = {
-#define LVX_STORE(BITS, CLASS, BO, BOX, BOY, BI) {BITS, LVX::BO, LVX::BI},
+#define LVX_STORE(BITS, CLASS, BO, BOX, BOY, BI)                               \
+  {BITS, CLASS_GPR_##CLASS, LVX::BO, LVX::BI},
 #include "LVXMemoryTable.inc"
 };
 
-unsigned narrowStoreOpcode(unsigned Bits) {
+unsigned narrowStoreOpcode(unsigned Bits, LoadClass Class) {
   for (const StoreRow &Row : StoreRows)
-    if (Row.Bits == Bits)
+    if (Row.Bits == Bits && Row.Class == Class)
       return Row.Narrow;
   return 0;
+}
+
+// Whether a load or store of MemVT bits can hold a value of type VT in one
+// register, which is what lets the width alone pick the instruction. Two
+// shapes qualify: the value is exactly what memory holds (an f32 load, a
+// 128-bit pair), or it is a whole GPR holding a narrower access extended or
+// truncated (the ordinary lbz/lhs/lwz/sb/sh/sw case). Anything else -- a
+// 64-bit load whose result is an i128, say -- names a register class the
+// instruction does not write, and must go back to the legalizer instead of
+// being matched to an instruction of the wrong width.
+bool widthAgrees(EVT VT, EVT MemVT) {
+  if (VT == MemVT)
+    return true;
+  return MemVT.getSizeInBits() < 64 && VT == MVT::i64;
+}
+
+// The register class a value of this type lives in, for the two lookups
+// above. Everything 64 bits and under is a GPR: an i32 is loaded into a
+// whole register, zero- or sign-extended.
+LoadClass classForType(EVT VT) {
+  unsigned Bits = VT.getSizeInBits();
+  if (Bits <= 64)
+    return CLASS_GPR;
+  return Bits == 128 ? CLASS_GPR128 : CLASS_GPR256;
 }
 
 // The `variant` values, with the properties the description gives them.
@@ -322,6 +361,36 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     return;
   }
 
+  // An i128 constant: a MAKE of each half, paired. Like the ConstantFP
+  // above this is done here rather than by custom-lowering it to a
+  // BUILD_PAIR of two i64 constants, and for a sharper reason than the
+  // pattern being unwritable: DAGCombiner folds a BUILD_PAIR of two
+  // constants straight back into one i128 Constant, which lowers to a
+  // BUILD_PAIR again. That is not a loop the combiner detects -- each turn
+  // builds new nodes -- so the DAG grows without bound and compilation
+  // simply never ends. At isel there is no combiner left to undo it.
+  if (N->getOpcode() == ISD::Constant && N->getValueType(0) == MVT::i128) {
+    const APInt &V = cast<ConstantSDNode>(N)->getAPIntValue();
+    auto Make = [&](int64_t Val) {
+      unsigned Opc = isInt<16>(Val) ? LVX::MAKED_DWI
+                   : isInt<43>(Val) ? LVX::MAKED_DWI_X
+                                    : LVX::MAKED_DWI_Y;
+      return SDValue(CurDAG->getMachineNode(
+                         Opc, DL, MVT::i64,
+                         CurDAG->getTargetConstant(Val, DL, MVT::i64)),
+                     0);
+    };
+    SDValue Ops[] = {CurDAG->getTargetConstant(LVX::GPR128RegClassID, DL,
+                                               MVT::i32),
+                     Make(V.trunc(64).getSExtValue()), // low half
+                     CurDAG->getTargetConstant(sub_hi, DL, MVT::i32),
+                     Make(V.lshr(64).trunc(64).getSExtValue()), // high half
+                     CurDAG->getTargetConstant(sub_lo, DL, MVT::i32)};
+    ReplaceNode(N, CurDAG->getMachineNode(TargetOpcode::REG_SEQUENCE, DL,
+                                          MVT::i128, Ops));
+    return;
+  }
+
   if (N->getOpcode() == ISD::BR_CC) {
     ISD::CondCode CC = cast<CondCodeSDNode>(N->getOperand(1))->get();
     SDValue LHS = N->getOperand(2);
@@ -467,6 +536,30 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     return;
   }
 
+  // ISD::EXTRACT_VECTOR_ELT of a v4i64 at a constant index -- a register,
+  // not an instruction. A GPR256 is two GPR128s (sub_pair_hi/lo), each two
+  // GPRs (sub_hi/lo), and every index names one of the four; the composition
+  // of the two reads is what InstrEmitter turns into a single subregister
+  // reference. A variable index would have to go through memory and is left
+  // to the legalizer.
+  //
+  // The naming trap once more: sub_pair_hi and sub_hi are the indices at
+  // bit offset 0 -- the LOW halves -- so element 0 is (sub_pair_hi,
+  // sub_hi). This matches the BUILD_VECTOR below, which must agree with it.
+  if (N->getOpcode() == ISD::EXTRACT_VECTOR_ELT &&
+      N->getOperand(0).getValueType() == MVT::v4i64) {
+    if (auto *Idx = dyn_cast<ConstantSDNode>(N->getOperand(1))) {
+      uint64_t I = Idx->getZExtValue();
+      assert(I < 4 && "index out of range for v4i64");
+      SDValue Pair = CurDAG->getTargetExtractSubreg(
+          I < 2 ? sub_pair_hi : sub_pair_lo, DL, MVT::i128, N->getOperand(0));
+      SDValue Elt = CurDAG->getTargetExtractSubreg(
+          (I & 1) ? sub_lo : sub_hi, DL, MVT::i64, Pair);
+      ReplaceNode(N, Elt.getNode());
+      return;
+    }
+  }
+
   // ISD::FrameIndex used as a plain VALUE -- taking a local's address, or
   // passing an array to a function -- rather than as a load/store base (that
   // case is folded into the addressing mode by selectAddr and never reaches
@@ -579,14 +672,28 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
       // FWIDENWD after the load and is declared Expand in LVXTargetLowering,
       // so matching it here as a bare LWZ would silently drop the conversion.
       //
-      // Only the scalar widths are selected here, which is what the widths
-      // listed below amount to: the table also has the 128- and 256-bit loads
-      // (LQ/LO), but nothing lowers an ISD::LOAD to them yet, and quietly
-      // enabling them here would change codegen rather than describe it.
-      if (MemVT == MVT::i64 || MemVT == MVT::f64 || MemVT == MVT::i32 ||
-          MemVT == MVT::i16 || MemVT == MVT::i8 ||
-          (MemVT == MVT::f32 && Ext == ISD::NON_EXTLOAD))
-        Opc = narrowLoadOpcode(MemVT.getSizeInBits(), Ext == ISD::SEXTLOAD);
+      // The wide widths are here too: lq for an i128 and lo for a v4i64,
+      // both non-extending by nature -- there is nothing above them to
+      // extend to. classForType is what keeps them apart from the lvx-2
+      // splatting loads of the same width, which target a GPR256.
+      //
+      // The node's own type has to be checked, not just the memory width: a
+      // load of 64 bits whose RESULT is an i128 is an extending load into a
+      // register pair, and picking "ld" for it drops the extension and hands
+      // a GPR result to a GPR128 node -- wrong code, no diagnostic. Such
+      // loads are Expand (see LVXTargetLowering) and must not be matched
+      // here; below 64 bits an extending load into a GPR is the ordinary
+      // case and its result is i64 by construction.
+      EVT VT = N->getValueType(0);
+      bool WidthAgrees = widthAgrees(VT, MemVT);
+      if (WidthAgrees &&
+          (MemVT == MVT::i64 || MemVT == MVT::f64 || MemVT == MVT::i32 ||
+           MemVT == MVT::i16 || MemVT == MVT::i8 ||
+           (MemVT == MVT::f32 && Ext == ISD::NON_EXTLOAD) ||
+           ((MemVT == MVT::i128 || MemVT == MVT::v4i64) &&
+            Ext == ISD::NON_EXTLOAD)))
+        Opc = narrowLoadOpcode(MemVT.getSizeInBits(), Ext == ISD::SEXTLOAD,
+                               classForType(MemVT));
 
       Opc = Opc ? selectLoadStoreOpcode(Opc, Offset, IsFrameIndex) : 0;
 
@@ -642,12 +749,21 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
       EVT MemVT = ST->getMemoryVT();
       unsigned Opc = 0;
       // Same table, same reasoning as the load above, minus the extension: a
-      // store truncates to the width it writes, so the width alone picks it.
-      // As with loads, only the scalar widths are selected here -- SQ is in
-      // the table but nothing lowers an ISD::STORE to it yet.
-      if (MemVT == MVT::i64 || MemVT == MVT::f64 || MemVT == MVT::f32 ||
-          MemVT == MVT::i32 || MemVT == MVT::i16 || MemVT == MVT::i8)
-        Opc = narrowStoreOpcode(MemVT.getSizeInBits());
+      // store truncates to the width it writes, so the width and the class
+      // pick it. A truncating store of a wide value is not one of these --
+      // those are Expand (see LVXTargetLowering), which splits them into
+      // stores of what the ISA does have.
+      // The same check on the other side: a truncating store OUT of a pair
+      // writes 64 bits of a 128-bit value, and "sd" cannot take a GPR128
+      // operand. Those are Expand too.
+      EVT VT = ST->getValue().getValueType();
+      bool WidthAgrees = widthAgrees(VT, MemVT);
+      if (WidthAgrees &&
+          (MemVT == MVT::i64 || MemVT == MVT::f64 || MemVT == MVT::f32 ||
+           MemVT == MVT::i32 || MemVT == MVT::i16 || MemVT == MVT::i8 ||
+           ((MemVT == MVT::i128 || MemVT == MVT::v4i64) &&
+            !ST->isTruncatingStore())))
+        Opc = narrowStoreOpcode(MemVT.getSizeInBits(), classForType(MemVT));
 
       Opc = Opc ? selectLoadStoreOpcode(Opc, Offset, IsFrameIndex) : 0;
 

@@ -148,7 +148,54 @@ void LVXInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     return;
   }
 
-  llvm_unreachable("Unsupported register class pair in LVX copyPhysReg");
+  // A copy out of a wider register: "$r1 = COPY $r8r9". The register
+  // coalescer forms these when it folds a sub-register copy whose source it
+  // has since given a physical super-register, and the subregister index is
+  // gone by then -- which is safe, because a bare COPY can only ever have
+  // meant the LOW part: anything else needs an index to say which part, so
+  // LLVM never drops one. Taking the low subregister is therefore a reading
+  // of the COPY, not a guess about it.
+  //
+  // Low is sub_hi and sub_pair_hi, the indices at bit offset 0, for the
+  // reason spelled out above: the index names follow list position in
+  // Subregs, not bit significance.
+  auto CopyLowPart = [&](unsigned Idx) {
+    MCRegister Part = RegisterInfo.getSubReg(SrcReg, Idx);
+    copyPhysReg(MBB, MI, DL, DestReg, Part, KillSrc);
+  };
+  if (LVX::GPRRegClass.contains(DestReg)) {
+    if (LVX::GPR128RegClass.contains(SrcReg))
+      return CopyLowPart(sub_hi);
+    if (LVX::GPR256RegClass.contains(SrcReg))
+      return CopyLowPart(sub_pair_hi);
+  }
+  if (LVX::GPR128RegClass.contains(DestReg) &&
+      LVX::GPR256RegClass.contains(SrcReg))
+    return CopyLowPart(sub_pair_hi);
+
+  // And into a wider one: "$r0r1 = COPY $r0", the same fold on the other
+  // side -- a narrow value written into the low part of a wide register
+  // whose remaining bits the COPY leaves alone (the MIR marks the
+  // destination undef for exactly that reason).
+  auto CopyIntoLowPart = [&](unsigned Idx) {
+    MCRegister Part = RegisterInfo.getSubReg(DestReg, Idx);
+    copyPhysReg(MBB, MI, DL, Part, SrcReg, KillSrc);
+  };
+  if (LVX::GPRRegClass.contains(SrcReg)) {
+    if (LVX::GPR128RegClass.contains(DestReg))
+      return CopyIntoLowPart(sub_hi);
+    if (LVX::GPR256RegClass.contains(DestReg))
+      return CopyIntoLowPart(sub_pair_hi);
+  }
+  if (LVX::GPR128RegClass.contains(SrcReg) &&
+      LVX::GPR256RegClass.contains(DestReg))
+    return CopyIntoLowPart(sub_pair_hi);
+
+  // Naming the registers: which pair it was is the whole content of this
+  // failure, and an unreachable prints none of it.
+  report_fatal_error("LVX copyPhysReg: no copy for " +
+                     Twine(RegisterInfo.getName(DestReg)) + " = " +
+                     Twine(RegisterInfo.getName(SrcReg)));
 }
 
 // Store/load operand shapes (LVXInstrInfo.td):

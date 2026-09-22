@@ -105,6 +105,17 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // 128-bit register-pair values.
   addRegisterClass(MVT::i128, &LVX::GPR128RegClass);
 
+  // There is no load that extends INTO a register pair, and no store that
+  // truncates out of one: lq and sq move 128 bits as they are. Expand
+  // splits each into an access of the width the ISA has plus an explicit
+  // extension, which the zext/sext patterns in LVXInstrInfo.td then build
+  // the pair for.
+  for (MVT VT : {MVT::i8, MVT::i16, MVT::i32, MVT::i64}) {
+    setTruncStoreAction(MVT::i128, VT, Expand);
+    for (unsigned Ext : {ISD::EXTLOAD, ISD::SEXTLOAD, ISD::ZEXTLOAD})
+      setLoadExtAction(Ext, MVT::i128, VT, Expand);
+  }
+
   // 256-bit register-quad values. Without this, the type legalizer would
   // treat v4i64 as illegal and split/scalarize it before
   // LowerFormalArguments/LowerCall/LowerReturn ever see it, which would
@@ -112,6 +123,47 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // the calling-convention level -- v4i64 must reach those functions
   // intact as a single legal type.
   addRegisterClass(MVT::v4i64, &LVX::GPR256RegClass);
+
+  // v4i64 being the only legal vector type, the type legalizer promotes a
+  // v4i8/v4i16/v4i32 to it -- and then asks for an extending vector load or
+  // a truncating vector store, which the ISA has not got: lo and so move
+  // 256 bits as they are, and the narrower ld/lw/lh/lb move one element.
+  // Left Legal (the default for a legal type), those select nothing at all.
+  // Expand turns each into per-element accesses, which is slow but is what
+  // the hardware can do until there is real vector lowering.
+  for (MVT VT : {MVT::v4i8, MVT::v4i16, MVT::v4i32}) {
+    setTruncStoreAction(MVT::v4i64, VT, Expand);
+    for (unsigned Ext : {ISD::EXTLOAD, ISD::SEXTLOAD, ISD::ZEXTLOAD})
+      setLoadExtAction(Ext, MVT::v4i64, VT, Expand);
+  }
+
+  // v4i64 is a legal TYPE with no legal OPERATIONS: it exists so that a
+  // 256-bit argument reaches LowerFormalArguments in one piece, and nothing
+  // in the back end computes with one. Left at the default action for a
+  // legal type -- Legal -- each of these selects nothing and isel dies on
+  // the first vector program. Expand unrolls them into the scalar
+  // operations the ISA does have, through the EXTRACT_VECTOR_ELT and
+  // BUILD_VECTOR selected by hand in LVXISelDAGToDAG (which is why those
+  // two stay Legal here).
+  //
+  // This is correct, not fast: a v4i64 add becomes four addd. Real vector
+  // lowering is the lvx-2 SIMD work, and it replaces these one at a time --
+  // every operation that becomes Legal simply stops being unrolled.
+  // Only the operations that actually arise are listed. The set is not
+  // closed under "looks like it belongs": the conversions between vector
+  // widths (TRUNCATE, *_EXTEND) and the subvector operations expand into
+  // forms that legalize back into themselves on a type that is both legal
+  // and computationally empty, and isel then spins -- ten minutes on one
+  // function, not a crash, which is the sort of thing a timeout finds and a
+  // test suite does not. They are left Legal; nothing has asked for them.
+  for (unsigned Op :
+       {ISD::ADD, ISD::SUB, ISD::MUL, ISD::SDIV, ISD::UDIV, ISD::SREM,
+        ISD::UREM, ISD::AND, ISD::OR, ISD::XOR, ISD::SHL, ISD::SRA,
+        ISD::SRL, ISD::MULHS, ISD::MULHU, ISD::ABS, ISD::SMIN, ISD::SMAX,
+        ISD::UMIN, ISD::UMAX, ISD::SETCC, ISD::VSELECT,
+        ISD::INSERT_VECTOR_ELT, ISD::VECTOR_SHUFFLE, ISD::SCALAR_TO_VECTOR,
+        ISD::CONCAT_VECTORS, ISD::EXTRACT_SUBVECTOR, ISD::INSERT_SUBVECTOR})
+    setOperationAction(Op, MVT::v4i64, Expand);
 
   // Floating point lives in the SAME general-purpose registers as integers --
   // LVX has no separate FP register file, and every FPU instruction in the
@@ -155,17 +207,21 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   for (unsigned Op : {ISD::SHL, ISD::SRL, ISD::SRA})
     setOperationAction(Op, MVT::i128, Custom);
 
-  // An i128 constant is its two 64-bit halves, each a maked of its own,
-  // paired -- lowerConstant128 spells it as a BUILD_PAIR of two i64
-  // constants so the existing MAKED patterns and the REG_SEQUENCE selection
-  // of BUILD_PAIR do the rest.
-  setOperationAction(ISD::Constant, MVT::i128, Custom);
-
   // COMPD writes the comparison result zero-extended to a full double word
   // ("The boolean result extended to double word is stored into the %1"), so
   // a boolean really is 0 or 1 here. Saying so lets the generic combines use
   // a comparison result as an arithmetic value without re-masking it.
   setBooleanContents(ZeroOrOneBooleanContent);
+
+  // Per LANE, a vector comparison yields all-ones rather than 1. Nothing in
+  // the ISA settles this -- there are no vector compares here yet -- so it
+  // is a choice, and it is the one every expansion of a vector select or
+  // mask assumes: those rewrite "select(c, a, b)" into "(c & a) | (~c & b)",
+  // which needs a full-width mask and is silently wrong with 0/1 lanes.
+  // Left at the default, UndefinedBooleanContent, the expansions cannot
+  // proceed and the vector legalizer spins on the resulting and/or instead
+  // of failing.
+  setBooleanVectorContents(ZeroOrNegativeOneBooleanContent);
 
   // SELECT_CC stays expanded into SETCC + SELECT: CMOVED is a conditional
   // move on a bcucond test of one register, so the two-step form is what it
@@ -269,6 +325,17 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   setPrefFunctionAlignment(Align(4));
 }
 
+// The type a SETCC produces. The base class has no answer for a vector --
+// it asserts -- and v4i64 reaches here whenever a vector comparison is
+// unrolled, so say the obvious thing: one lane of result per lane of input,
+// as wide as the lane compared.
+EVT LVXTargetLowering::getSetCCResultType(const DataLayout &DL,
+                                          LLVMContext &Ctx, EVT VT) const {
+  if (VT.isVector())
+    return VT.changeVectorElementTypeToInteger();
+  return TargetLowering::getSetCCResultType(DL, Ctx, VT);
+}
+
 bool LVXTargetLowering::isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
                                                    EVT VT) const {
   if (!VT.isSimple())
@@ -291,21 +358,10 @@ SDValue LVXTargetLowering::LowerOperation(SDValue Op,
   case ISD::SRL:
   case ISD::SRA:
     return lowerShift128(Op, DAG);
-  case ISD::Constant:
-    return lowerConstant128(Op, DAG);
   default:
     llvm_unreachable(
         "Unimplemented operation in LVXTargetLowering::LowerOperation");
   }
-}
-
-SDValue LVXTargetLowering::lowerConstant128(SDValue Op,
-                                            SelectionDAG &DAG) const {
-  SDLoc DL(Op);
-  const APInt &V = cast<ConstantSDNode>(Op)->getAPIntValue();
-  SDValue Lo = DAG.getConstant(V.trunc(64), DL, MVT::i64);
-  SDValue Hi = DAG.getConstant(V.lshr(64).trunc(64), DL, MVT::i64);
-  return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i128, Lo, Hi);
 }
 
 // An i128 shift by a constant of 64 or more. The result's halves are the
