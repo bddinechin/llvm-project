@@ -57,6 +57,20 @@ static lvx::Register abiArgReg(unsigned n) {
   assert(n < lvx::kNumAbiArgRegs && "argument index beyond the ABI's capacity");
   return lvx::kAbiArgRegs[n];
 }
+/// A scalar pattern must not fire on a vector-typed op: it would pick a
+/// mnemonic by "element width" and, on the way, ask a VectorType for its bit
+/// width -- an assertion, not a diagnostic. A vector op either has its own
+/// pattern below or has no lowering at all, and then the conversion must
+/// *fail*, which is what docs/VectorCoverage.md measures as class D.
+static LogicalResult rejectVectors(Operation *op,
+                                   ConversionPatternRewriter &rewriter) {
+  auto isVector = [](Type t) { return isa<VectorType>(t); };
+  if (llvm::any_of(op->getOperandTypes(), isVector) ||
+      llvm::any_of(op->getResultTypes(), isVector))
+    return rewriter.notifyMatchFailure(op, "no lowering for this op on vectors");
+  return success();
+}
+
 static lvx::Register abiResultReg(unsigned n) {
   assert(n < lvx::kNumAbiResultRegs && "result index beyond the ABI's capacity");
   return lvx::kAbiResultRegs[n];
@@ -144,6 +158,8 @@ struct IntBinaryToLVX : public OpConversionPattern<SourceOp> {
   LogicalResult
   matchAndRewrite(SourceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     Type regTy = this->getTypeConverter()->convertType(op.getType());
     unsigned width = getScalarBitWidth(op.getType());
     Value result = createIntBinary<DOp, WOp>(rewriter, op.getLoc(), width,
@@ -180,6 +196,8 @@ struct DivModToLVX : public OpConversionPattern<SourceOp> {
   LogicalResult
   matchAndRewrite(SourceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     Type regTy = this->getTypeConverter()->convertType(op.getType());
     Type pairTy = lvx::PairType::get(rewriter.getContext());
     unsigned width = getScalarBitWidth(op.getType());
@@ -211,6 +229,8 @@ struct FloatBinaryToLVX : public OpConversionPattern<SourceOp> {
   LogicalResult
   matchAndRewrite(SourceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     Type regTy = this->getTypeConverter()->convertType(op.getType());
     unsigned width = getScalarBitWidth(op.getType());
     Value result = createFloatBinary<DOp, WOp>(rewriter, op.getLoc(), width,
@@ -304,6 +324,8 @@ struct FloatUnaryToLVX : public OpConversionPattern<SourceOp> {
   LogicalResult
   matchAndRewrite(SourceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     Type regTy = this->getTypeConverter()->convertType(op.getType());
     unsigned width = getScalarBitWidth(op.getType());
     Value result;
@@ -341,6 +363,8 @@ struct FloatUnaryModeToLVX : public OpConversionPattern<SourceOp> {
   LogicalResult
   matchAndRewrite(SourceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     Type regTy = this->getTypeConverter()->convertType(op.getType());
     unsigned width = getScalarBitWidth(op.getType());
     Value result;
@@ -401,6 +425,8 @@ struct CmpIToLVX : public OpConversionPattern<arith::CmpIOp> {
   LogicalResult
   matchAndRewrite(arith::CmpIOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     Type regTy = getTypeConverter()->convertType(op.getType());
     unsigned width = getScalarBitWidth(op.getLhs().getType());
     IntComp pred = mapCmpIPredicate(op.getPredicate());
@@ -456,6 +482,8 @@ struct CmpFToLVX : public OpConversionPattern<arith::CmpFOp> {
   LogicalResult
   matchAndRewrite(arith::CmpFOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     std::optional<FloatCompMapping> mapping = mapCmpFPredicate(op.getPredicate());
     if (!mapping)
       return rewriter.notifyMatchFailure(
@@ -486,6 +514,8 @@ struct ConstantToLVX : public OpConversionPattern<arith::ConstantOp> {
   LogicalResult
   matchAndRewrite(arith::ConstantOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     Type regTy = getTypeConverter()->convertType(op.getType());
     rewriter.replaceOpWithNewOp<lvx::LiOp>(op, regTy,
                                               cast<TypedAttr>(op.getValue()));
@@ -512,6 +542,8 @@ struct SelectToLVX : public OpConversionPattern<arith::SelectOp> {
   LogicalResult
   matchAndRewrite(arith::SelectOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     Type regTy = getTypeConverter()->convertType(op.getType());
     rewriter.replaceOpWithNewOp<lvx::CmovedOp>(
         op, regTy, BcuCond::wnez, adaptor.getCondition(),
@@ -534,6 +566,8 @@ struct NoopCastToLVX : public OpConversionPattern<SourceOp> {
   LogicalResult
   matchAndRewrite(SourceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     Type regTy = this->getTypeConverter()->convertType(op.getType());
     rewriter.replaceOpWithNewOp<lvx::MvOp>(op, regTy, adaptor.getIn());
     return success();
@@ -547,6 +581,8 @@ struct BitcastToLVX : public OpConversionPattern<arith::BitcastOp> {
   LogicalResult
   matchAndRewrite(arith::BitcastOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     Type regTy = getTypeConverter()->convertType(op.getType());
     rewriter.replaceOpWithNewOp<lvx::BitcastOp>(op, regTy, adaptor.getIn());
     return success();
@@ -563,6 +599,8 @@ struct ExtIToLVX : public OpConversionPattern<SourceOp> {
   LogicalResult
   matchAndRewrite(SourceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     Type regTy = this->getTypeConverter()->convertType(op.getType());
     unsigned inWidth = getScalarBitWidth(op.getIn().getType());
     Location loc = op.getLoc();
@@ -607,6 +645,8 @@ struct UnaryCastToLVX : public OpConversionPattern<SourceOp> {
   LogicalResult
   matchAndRewrite(SourceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     Type regTy = this->getTypeConverter()->convertType(op.getType());
     rewriter.replaceOpWithNewOp<TargetOp>(op, regTy, adaptor.getIn());
     return success();
@@ -623,6 +663,8 @@ struct TruncFToLVX : public OpConversionPattern<arith::TruncFOp> {
   LogicalResult
   matchAndRewrite(arith::TruncFOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     Type regTy = getTypeConverter()->convertType(op.getType());
     rewriter.replaceOpWithNewOp<lvx::FdtofwOp>(op, regTy, adaptor.getIn());
     return success();
@@ -634,6 +676,8 @@ struct ExtFToLVX : public OpConversionPattern<arith::ExtFOp> {
   LogicalResult
   matchAndRewrite(arith::ExtFOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     Type regTy = getTypeConverter()->convertType(op.getType());
     rewriter.replaceOpWithNewOp<lvx::FwtofdOp>(op, regTy, adaptor.getIn());
     return success();
@@ -649,6 +693,8 @@ struct IndexCastToLVX : public OpConversionPattern<SourceOp> {
   LogicalResult
   matchAndRewrite(SourceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (failed(rejectVectors(op, rewriter)))
+      return failure();
     Type regTy = this->getTypeConverter()->convertType(op.getType());
     unsigned inWidth = getScalarBitWidth(op.getIn().getType());
     unsigned outWidth = getScalarBitWidth(op.getOut().getType());
