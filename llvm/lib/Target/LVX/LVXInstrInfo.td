@@ -154,6 +154,17 @@ def GenericModel : SchedMachineModel {
 
 def : ProcessorModel<"generic", GenericModel, []>;
 
+// The two ISA variants, named as lvx-gcc's -march names them and as the
+// clang driver passes them through -mcpu. They carry no features yet: the
+// description installed into this directory is one core's at a time (see
+// lvx-mds's BE/LLVM), so which instructions exist is decided before the
+// build, not by a SubtargetFeature. They exist so that -mcpu=lvx-1 names a
+// processor this target knows rather than drawing "not a recognized
+// processor"; when the two descriptions are merged into one build, this is
+// where the feature that tells them apart goes.
+def : ProcessorModel<"lvx-1", GenericModel, []>;
+def : ProcessorModel<"lvx-2", GenericModel, []>;
+
 //===----------------------------------------------------------------------===//
 // The generated instruction description
 //===----------------------------------------------------------------------===//

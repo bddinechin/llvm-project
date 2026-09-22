@@ -1606,6 +1606,10 @@ void Clang::RenderTargetOptions(const llvm::Triple &EffectiveTriple,
     AddLanaiTargetArgs(Args, CmdArgs);
     break;
 
+  case llvm::Triple::lvx:
+    AddLVXTargetArgs(Args, CmdArgs);
+    break;
+
   case llvm::Triple::hexagon:
     AddHexagonTargetArgs(Args, CmdArgs);
     break;
@@ -2253,6 +2257,18 @@ void Clang::AddHexagonTargetArgs(const ArgList &Args,
   }
   CmdArgs.push_back("-mllvm");
   CmdArgs.push_back("-machine-sink-split=0");
+}
+
+// -mcpu names the LVX variant -- lvx-1 or lvx-2 -- the way lvx-gcc's -march
+// does. The two differ only in that lvx-2 adds 256-bit SIMD, so it is a CPU
+// name and not a feature list, and the front end turns it into the
+// __lvx_1__/__lvx_2__ macro that source switches on.
+void Clang::AddLVXTargetArgs(const ArgList &Args,
+                             ArgStringList &CmdArgs) const {
+  if (Arg *A = Args.getLastArg(options::OPT_mcpu_EQ)) {
+    CmdArgs.push_back("-target-cpu");
+    CmdArgs.push_back(Args.MakeArgString(A->getValue()));
+  }
 }
 
 void Clang::AddLanaiTargetArgs(const ArgList &Args,

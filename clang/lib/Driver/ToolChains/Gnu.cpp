@@ -3109,6 +3109,11 @@ bool Generic_GCC::IsIntegratedAssemblerDefault() const {
   case llvm::Triple::nvptx:
   case llvm::Triple::nvptx64:
   case llvm::Triple::xcore:
+  // LVX has no MCCodeEmitter and no asm parser: the back end emits text and
+  // GNU as encodes it. Saying so here is what keeps the driver from adding
+  // directives only the integrated assembler understands -- .addrsig was
+  // the first, and lvx-mbr-as rejects the whole file over it.
+  case llvm::Triple::lvx:
     return false;
   default:
     return true;

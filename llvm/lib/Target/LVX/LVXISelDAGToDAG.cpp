@@ -414,10 +414,15 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
       // "x < 1", "x < 0" as "x > -1". Undoing that is what keeps those, the
       // two most common loop and sign tests, on the one-register cb rather
       // than costing a maked to build the constant for a ccb.
-      if (CC == ISD::SETLT && C->getSExtValue() == 1) {
+      //
+      // getAPIntValue, not getSExtValue: the constant can be wider than 64
+      // bits (an i128 comparison reaches here), and getSExtValue asserts on
+      // one rather than returning something wrong -- which is a mercy, but
+      // it is still a crash on valid input.
+      if (CC == ISD::SETLT && C->getAPIntValue().isOne()) {
         Tested = LHS;
         ZeroCC = ISD::SETLE;                     // x < 1  is  x <= 0
-      } else if (CC == ISD::SETGT && C->getSExtValue() == -1) {
+      } else if (CC == ISD::SETGT && C->getAPIntValue().isAllOnes()) {
         Tested = LHS;
         ZeroCC = ISD::SETGE;                     // x > -1  is  x >= 0
       }
@@ -463,7 +468,7 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
       // immediate) rather than being materialized with a maked first. Same
       // total size, one instruction instead of two.
       if (auto *C = dyn_cast<ConstantSDNode>(N->getOperand(1));
-          C && isInt<32>(C->getSExtValue())) {
+          C && C->getAPIntValue().getSignificantBits() <= 32) {
         SDValue Imm =
             CurDAG->getTargetConstant(C->getSExtValue(), DL, MVT::i64);
         SDValue Ops[] = {N->getOperand(0), Imm, Cmp32};

@@ -42,6 +42,15 @@ public:
 
   TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
 
+  // Every LVX address space is the same flat 64-bit address: the space does
+  // not change what a pointer IS, only which `variant` of the load reads it
+  // (see LVXAddressSpaces.h). So a cast between any two of them moves no
+  // bits, and saying so lets the middle end fold them away instead of
+  // leaving an addrspacecast for isel to fail on.
+  bool isNoopAddrSpaceCast(unsigned SrcAS, unsigned DestAS) const override {
+    return true;
+  }
+
   MachineFunctionInfo *
   createMachineFunctionInfo(BumpPtrAllocator &Allocator, const Function &F,
                             const TargetSubtargetInfo *STI) const override;
