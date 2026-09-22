@@ -1123,6 +1123,42 @@ struct VectorDeinterleaveToLVX
   }
 };
 
+/// Two pairs into a quad: the perfect shuffle of their low singles and of
+/// their high singles, side by side. `vector.interleave` and the equivalent
+/// `vector.shuffle` mask both land here.
+static LogicalResult lowerInterleave(ConversionPatternRewriter &rewriter,
+                                     Operation *op, Type quadTy, unsigned bits,
+                                     Value lhs, Value rhs) {
+  MLIRContext *ctx = rewriter.getContext();
+  Type pairTy = lvx::PairType::get(ctx, std::nullopt);
+  Type regTy = RegisterType::get(ctx, std::nullopt);
+  Location loc = op->getLoc();
+  Value half[2];
+  for (unsigned k = 0; k != 2; ++k) {
+    Value a = rewriter.create<lvx::LaneOp>(loc, regTy, lhs, k);
+    Value b = rewriter.create<lvx::LaneOp>(loc, regTy, rhs, k);
+    switch (bits) {
+    case 8:
+      half[k] = rewriter.create<lvx::ZipbdqOp>(loc, pairTy, a, b);
+      break;
+    case 16:
+      half[k] = rewriter.create<lvx::ZiphdqOp>(loc, pairTy, a, b);
+      break;
+    case 32:
+      half[k] = rewriter.create<lvx::ZipwdqOp>(loc, pairTy, a, b);
+      break;
+    case 64:
+      half[k] = rewriter.create<lvx::CatdqOp>(loc, pairTy, a, b);
+      break;
+    default:
+      return rewriter.notifyMatchFailure(op, "no shuffle for this lane width");
+    }
+  }
+  rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, quadTy,
+                                             ValueRange{half[0], half[1]});
+  return success();
+}
+
 struct VectorInterleaveToLVX : public OpConversionPattern<vector::InterleaveOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
@@ -1132,34 +1168,305 @@ struct VectorInterleaveToLVX : public OpConversionPattern<vector::InterleaveOp> 
     Type quadTy = getTypeConverter()->convertType(op.getResultVectorType());
     if (!pairTy || tupleWidth(pairTy) != 2 || !quadTy || tupleWidth(quadTy) != 4)
       return rewriter.notifyMatchFailure(op, "the ISA interleaves two pairs into a quad");
-    Location loc = op.getLoc();
-    Type regTy = RegisterType::get(rewriter.getContext(), std::nullopt);
-    Value half[2];
-    for (unsigned k = 0; k != 2; ++k) {
-      Value a = rewriter.create<lvx::LaneOp>(loc, regTy, adaptor.getLhs(), k);
-      Value b = rewriter.create<lvx::LaneOp>(loc, regTy, adaptor.getRhs(), k);
-      switch (laneBitsOf(op, op.getSourceVectorType())) {
-      case 8:
-        half[k] = rewriter.create<lvx::ZipbdqOp>(loc, pairTy, a, b);
-        break;
-      case 16:
-        half[k] = rewriter.create<lvx::ZiphdqOp>(loc, pairTy, a, b);
-        break;
-      case 32:
-        half[k] = rewriter.create<lvx::ZipwdqOp>(loc, pairTy, a, b);
-        break;
-      case 64:
-        half[k] = rewriter.create<lvx::CatdqOp>(loc, pairTy, a, b);
-        break;
-      default:
-        return rewriter.notifyMatchFailure(op, "no shuffle for this lane width");
-      }
+    return lowerInterleave(rewriter, op, quadTy,
+                           laneBitsOf(op, op.getSourceVectorType()),
+                           adaptor.getLhs(), adaptor.getRhs());
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// Lanes: extract, insert, shuffle, and the casts that are free.
+//
+// A register tuple is a row of 64-bit units, so an element's home is a unit
+// and a bit offset inside it (docs/VectorCoverage.md, Phase 3):
+//
+//   64-bit elements  one per unit    -- a lane view, no instruction at all
+//   narrower ones    several per unit -- a bit field of it, `extfzd`/`insfd`
+//
+// Building a *new* tuple is `lvx.concat`, which the allocator places (no
+// instruction) -- but only values it places may be parts of it, so a part
+// taken from another live tuple is copied first. Without the copy the concat
+// would put the new value in the old tuple's register while the old tuple is
+// still live, which the allocator cannot detect: `lvx.concat`'s members are
+// unified, not tested for interference. A tied `lvx.insert_lane` pseudo plus
+// the preserving-copy pass would elide the copies when the source dies at
+// the insert; see docs/VectorCoverage.md §7.
+//===----------------------------------------------------------------------===//
+
+/// The unit of `tuple` holding element `pos`, and the element's bit offset in
+/// it.
+static std::pair<unsigned, unsigned> homeOf(unsigned pos, unsigned elemBits) {
+  unsigned bit = pos * elemBits;
+  return {bit / 64, bit % 64};
+}
+
+static Value laneOf(ConversionPatternRewriter &rewriter, Location loc,
+                    Value tuple, unsigned unit, unsigned width) {
+  MLIRContext *ctx = rewriter.getContext();
+  Type ty = width == 1   ? Type(RegisterType::get(ctx, std::nullopt))
+            : width == 2 ? Type(lvx::PairType::get(ctx, std::nullopt))
+                         : Type(lvx::QuadType::get(ctx, std::nullopt));
+  return rewriter.create<lvx::LaneOp>(loc, ty, tuple, unit);
+}
+
+/// A private copy of units `[unit, unit + width)` of `tuple`, safe to place
+/// in a tuple being built.
+static Value copyOfUnits(ConversionPatternRewriter &rewriter, Location loc,
+                         Value tuple, unsigned unit, unsigned width,
+                         unsigned tupleWidth) {
+  Value part = width == tupleWidth
+                   ? tuple
+                   : laneOf(rewriter, loc, tuple, unit, width);
+  return rewriter.create<lvx::MvOp>(loc, part.getType(), part);
+}
+
+/// `vector.extract` at a static position: the element's unit, and a bit-field
+/// extract out of it when the element is narrower than the unit.
+struct VectorExtractToLVX : public OpConversionPattern<vector::ExtractOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::ExtractOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    VectorType srcTy = op.getSourceVectorType();
+    Type tupleTy = getTypeConverter()->convertType(srcTy);
+    if (srcTy.getRank() != 1 || !tupleTy || !tupleWidth(tupleTy))
+      return rewriter.notifyMatchFailure(op, "not a 1-D vector in a tuple");
+    if (isa<VectorType>(op.getType()))
+      return rewriter.notifyMatchFailure(op, "only a scalar element");
+    ArrayRef<int64_t> pos = op.getStaticPosition();
+    if (pos.size() != 1 || ShapedType::isDynamic(pos[0]))
+      return rewriter.notifyMatchFailure(op, "only a static position");
+
+    unsigned bits = srcTy.getElementTypeBitWidth();
+    auto [unit, offset] = homeOf(pos[0], bits);
+    Value single = laneOf(rewriter, op.getLoc(), adaptor.getSource(), unit, 1);
+    if (bits == 64) {
+      rewriter.replaceOp(op, single);
+      return success();
     }
-    rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, quadTy,
-                                               ValueRange{half[0], half[1]});
+    Type regTy = getTypeConverter()->convertType(op.getType());
+    rewriter.replaceOpWithNewOp<lvx::ExtfzdImmOp>(
+        op, regTy, single, rewriter.getI64IntegerAttr(bits),
+        rewriter.getI64IntegerAttr(offset));
     return success();
   }
 };
+
+/// `vector.insert` of a scalar at a static position: the result is built from
+/// private copies of the units the insert leaves alone -- taken in the
+/// largest aligned groups, so a quad keeps its untouched pair in one `copyq`
+/// -- and the target unit, which is the scalar itself when the element fills
+/// a unit and an `insfd` into a copy of it when it does not.
+struct VectorInsertToLVX : public OpConversionPattern<vector::InsertOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::InsertOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    VectorType dstTy = op.getType();
+    Type tupleTy = getTypeConverter()->convertType(dstTy);
+    unsigned units = tupleTy ? tupleWidth(tupleTy) : 0;
+    if (dstTy.getRank() != 1 || !units)
+      return rewriter.notifyMatchFailure(op, "not a 1-D vector in a tuple");
+    if (isa<VectorType>(op.getValueToStore().getType()))
+      return rewriter.notifyMatchFailure(op, "only a scalar element");
+    ArrayRef<int64_t> pos = op.getStaticPosition();
+    if (pos.size() != 1 || ShapedType::isDynamic(pos[0]))
+      return rewriter.notifyMatchFailure(op, "only a static position");
+
+    unsigned bits = dstTy.getElementTypeBitWidth();
+    auto [target, offset] = homeOf(pos[0], bits);
+    Location loc = op.getLoc();
+    Value src = adaptor.getDest();
+
+    SmallVector<Value> parts;
+    for (unsigned unit = 0; unit != units;) {
+      if (unit == target) {
+        Value single = adaptor.getValueToStore();
+        if (bits != 64) {
+          // `insfd` writes through its second operand, so that operand must
+          // be a register nothing else needs: a copy of the target unit.
+          Value into = copyOfUnits(rewriter, loc, src, unit, 1, units);
+          single = rewriter.create<lvx::InsfdImmOp>(
+              loc, into.getType(), single, into,
+              rewriter.getI64IntegerAttr(bits),
+              rewriter.getI64IntegerAttr(offset));
+        }
+        parts.push_back(single);
+        ++unit;
+        continue;
+      }
+      // The largest aligned run of untouched units starting here.
+      unsigned width = 1;
+      while (width < units && unit % (2 * width) == 0 &&
+             unit + 2 * width <= units && target >= unit + 2 * width)
+        width *= 2;
+      parts.push_back(copyOfUnits(rewriter, loc, src, unit, width, units));
+      unit += width;
+    }
+    if (parts.size() == 1)
+      rewriter.replaceOp(op, parts.front());
+    else
+      rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy, parts);
+    return success();
+  }
+};
+
+/// `vector.shuffle` with a constant mask, in the four shapes the ISA has an
+/// answer for. `even`/`odd` first, because they are one instruction where
+/// the register-level reading of the same mask would be two copies.
+struct VectorShuffleToLVX : public OpConversionPattern<vector::ShuffleOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::ShuffleOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    VectorType srcTy = op.getV1VectorType();
+    VectorType resTy = op.getResultVectorType();
+    Type srcTuple = getTypeConverter()->convertType(srcTy);
+    Type resTuple = getTypeConverter()->convertType(resTy);
+    unsigned srcUnits = srcTuple ? tupleWidth(srcTuple) : 0;
+    unsigned resUnits = resTuple ? tupleWidth(resTuple) : 0;
+    if (srcTy.getRank() != 1 || !srcUnits || !resUnits)
+      return rewriter.notifyMatchFailure(op, "not 1-D vectors in tuples");
+
+    ArrayRef<int64_t> mask = op.getMask();
+    unsigned bits = srcTy.getElementTypeBitWidth();
+    unsigned lanes = srcTy.getNumElements();
+    unsigned perUnit = 64 / bits;
+    Location loc = op.getLoc();
+    Value v1 = adaptor.getV1(), v2 = adaptor.getV2();
+
+    // The even and the odd lanes of the two sources, taken together: one
+    // `even*q` / `odd*q`.
+    if (mask.size() == lanes && srcUnits == resUnits) {
+      auto strided = [&](int64_t first) {
+        return llvm::all_of(llvm::enumerate(mask), [&](auto it) {
+          return it.value() == int64_t(2 * it.index()) + first;
+        });
+      };
+      if (strided(0) || strided(1)) {
+        bool even = strided(0);
+        Value r;
+        switch (bits) {
+        case 8:
+          r = even ? rewriter.create<lvx::EvenbqOp>(loc, resTuple, v1, v2).getResult()
+                   : rewriter.create<lvx::OddbqOp>(loc, resTuple, v1, v2).getResult();
+          break;
+        case 16:
+          r = even ? rewriter.create<lvx::EvenhqOp>(loc, resTuple, v1, v2).getResult()
+                   : rewriter.create<lvx::OddhqOp>(loc, resTuple, v1, v2).getResult();
+          break;
+        case 32:
+          r = even ? rewriter.create<lvx::EvenwqOp>(loc, resTuple, v1, v2).getResult()
+                   : rewriter.create<lvx::OddwqOp>(loc, resTuple, v1, v2).getResult();
+          break;
+        case 64:
+          r = even ? rewriter.create<lvx::EvendqOp>(loc, resTuple, v1, v2).getResult()
+                   : rewriter.create<lvx::OdddqOp>(loc, resTuple, v1, v2).getResult();
+          break;
+        default:
+          return rewriter.notifyMatchFailure(op, "no shuffle for this lane width");
+        }
+        rewriter.replaceOp(op, r);
+        return success();
+      }
+    }
+
+    // The perfect shuffle: `vector.interleave` spelled as a mask.
+    if (mask.size() == 2 * lanes) {
+      bool zip = true;
+      for (auto [i, m] : llvm::enumerate(mask))
+        zip &= m == int64_t(i % 2 ? lanes + i / 2 : i / 2);
+      if (zip)
+        return lowerInterleave(rewriter, op, resTuple, bits, v1, v2);
+    }
+
+    // Otherwise the mask has to be read at register granularity: each unit
+    // of the result must be a whole unit of one source. Then the result is
+    // those units side by side -- `lvx.concat`, which emits nothing, over
+    // *copies* of them, which do: a part placed in the result's block would
+    // otherwise share registers with the source tuple it still belongs to.
+    // A result that is exactly one unit (or one whole source) needs no
+    // concat, and is then free.
+    if (mask.size() % perUnit)
+      return rewriter.notifyMatchFailure(op, "mask is not register-aligned");
+    struct Part { Value source; unsigned unit, width; };
+    SmallVector<Part> parts;
+    for (unsigned u = 0; u != resUnits; ++u) {
+      int64_t base = mask[u * perUnit];
+      if (base % perUnit)
+        return rewriter.notifyMatchFailure(op, "mask is not register-aligned");
+      for (unsigned i = 1; i != perUnit; ++i)
+        if (mask[u * perUnit + i] != base + i)
+          return rewriter.notifyMatchFailure(op, "mask is not register-aligned");
+      parts.push_back({base < int64_t(lanes) ? v1 : v2,
+                       unsigned((base % lanes) / perUnit), 1});
+    }
+    // Neighbouring units of one source become one wider copy where both the
+    // source and the destination stay aligned: a quad's untouched half is
+    // one `copyq`, not two `copyd`.
+    auto mergePass = [&](unsigned w) {
+      SmallVector<Part> merged;
+      unsigned dst = 0;
+      for (unsigned i = 0; i != parts.size();) {
+        if (i + 1 != parts.size() && parts[i].width == w &&
+            parts[i + 1].width == w && parts[i].source == parts[i + 1].source &&
+            parts[i + 1].unit == parts[i].unit + w &&
+            parts[i].unit % (2 * w) == 0 && dst % (2 * w) == 0) {
+          merged.push_back({parts[i].source, parts[i].unit, 2 * w});
+          dst += 2 * w;
+          i += 2;
+        } else {
+          merged.push_back(parts[i]);
+          dst += parts[i].width;
+          ++i;
+        }
+      }
+      parts = merged;
+    };
+    mergePass(1);
+    mergePass(2);
+    if (parts.size() == 1) {
+      const Part &p = parts.front();
+      Value whole = p.width == tupleWidth(p.source.getType()) && p.unit == 0
+                        ? p.source
+                        : laneOf(rewriter, loc, p.source, p.unit, p.width);
+      rewriter.replaceOp(op, whole);
+      return success();
+    }
+    SmallVector<Value> values;
+    for (const Part &p : parts)
+      values.push_back(copyOfUnits(rewriter, loc, p.source, p.unit, p.width,
+                                   tupleWidth(p.source.getType())));
+    rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, resTuple, values);
+    return success();
+  }
+};
+
+/// `vector.shape_cast` and `vector.bitcast` between 1-D vectors of the same
+/// total width: the tuple does not change, and what the lanes are was never
+/// in the type (lvx-mds/docs/MLIR-backend-design.md §8.7). Free.
+template <typename SourceOp>
+struct VectorReinterpretToLVX : public OpConversionPattern<SourceOp> {
+  using OpConversionPattern<SourceOp>::OpConversionPattern;
+  using OpAdaptor = typename OpConversionPattern<SourceOp>::OpAdaptor;
+  LogicalResult
+  matchAndRewrite(SourceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto srcTy = dyn_cast<VectorType>(op.getSource().getType());
+    auto resTy = dyn_cast<VectorType>(op.getType());
+    if (!srcTy || !resTy || srcTy.getRank() != 1 || resTy.getRank() != 1)
+      return rewriter.notifyMatchFailure(op, "not between 1-D vectors");
+    const TypeConverter *tc = this->getTypeConverter();
+    Type from = tc->convertType(srcTy), to = tc->convertType(resTy);
+    if (!from || from != to)
+      return rewriter.notifyMatchFailure(op, "not the same register tuple");
+    rewriter.replaceOp(op, adaptor.getSource());
+    return success();
+  }
+};
+
+using VectorShapeCastToLVX = VectorReinterpretToLVX<vector::ShapeCastOp>;
+using VectorBitCastToLVX = VectorReinterpretToLVX<vector::BitCastOp>;
 
 //===----------------------------------------------------------------------===//
 // Control flow: cf.br/cf.cond_br -> lvx_cf; scf.for/scf.yield -> lvx_scf.
@@ -1432,6 +1739,8 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     // Vectors
     VectorLoadToLVX, VectorStoreToLVX, VectorBroadcastToLVX, VectorFMAToLVX,
     VectorDeinterleaveToLVX, VectorInterleaveToLVX,
+    VectorExtractToLVX, VectorInsertToLVX, VectorShuffleToLVX,
+    VectorShapeCastToLVX, VectorBitCastToLVX,
     MinimumFToLVX, MaximumFToLVX, MinNumFToLVX, MaxNumFToLVX,
     AbsFToLVX, CtlzToLVX, CttzToLVX, CtpopToLVX, AbsIToLVX,
     SqrtToLVX, RoundEvenToLVX, MathTruncToLVX, FloorToLVX,

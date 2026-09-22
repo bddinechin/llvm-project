@@ -387,6 +387,24 @@ private:
     return success();
   }
 
+  /// The bit-field family: `extfzd $rd = $rs, bitwidth, startbit`, and
+  /// `insfd` the same with the destination read through (its tied operand,
+  /// which has no field of its own). The generic arity rule cannot print
+  /// these -- it knows register operands only, and would drop both
+  /// immediates silently.
+  LogicalResult emitBitfield(Operation *op, StringRef mnemonic, Value source,
+                             TypedAttr bitwidth, TypedAttr startbit) {
+    FailureOr<std::string> rd = reg(op->getResult(0));
+    FailureOr<std::string> rs = reg(source);
+    FailureOr<int64_t> w = displacement(op, bitwidth);
+    FailureOr<int64_t> b = displacement(op, startbit);
+    if (failed(rd) || failed(rs) || failed(w) || failed(b))
+      return failure();
+    os << "\t" << mnemonic << " " << *rd << " = " << *rs << ", " << *w << ", "
+       << *b << endOfOp();
+    return success();
+  }
+
   LogicalResult emitStore(Operation *op, StringRef mnemonic, Value value,
                          Value base, TypedAttr offset) {
     FailureOr<std::string> rv = reg(value);
@@ -476,6 +494,21 @@ private:
         .Case([&](LdOp op) { return emitLoad(op, "ld", op.getBase(), op.getOffset(), op.getVariant()); })
         .Case([&](LqOp op) { return emitLoad(op, "lq", op.getBase(), op.getOffset(), op.getVariant()); })
         .Case([&](LoOp op) { return emitLoad(op, "lo", op.getBase(), op.getOffset(), op.getVariant()); })
+        .Case([&](ExtfzdImmOp op) {
+          return emitBitfield(op, "extfzd", op.getOperand(),
+                              op.getBitwidth2Bitwidth4Attr(),
+                              op.getStartbitAttr());
+        })
+        .Case([&](ExtfsdImmOp op) {
+          return emitBitfield(op, "extfsd", op.getOperand(),
+                              op.getBitwidth2Bitwidth4Attr(),
+                              op.getStartbitAttr());
+        })
+        .Case([&](InsfdImmOp op) {
+          return emitBitfield(op, "insfd", op.getLhs(),
+                              op.getBitwidth2Bitwidth4Attr(),
+                              op.getStartbitAttr());
+        })
         .Case([&](LbsoOp op) { return emitLoad(op, "lbso", op.getBase(), op.getOffset(), op.getVariant()); })
         .Case([&](LhsoOp op) { return emitLoad(op, "lhso", op.getBase(), op.getOffset(), op.getVariant()); })
         .Case([&](LwsoOp op) { return emitLoad(op, "lwso", op.getBase(), op.getOffset(), op.getVariant()); })

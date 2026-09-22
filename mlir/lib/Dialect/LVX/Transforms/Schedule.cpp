@@ -323,6 +323,19 @@ private:
           if (Operation *def = part.getDefiningOp())
             if (auto it = index.find(def); it != index.end())
               addEdge(it->second, i, 0);
+      // And symmetrically, an op reading a pseudo's result must follow it.
+      // The register edges above do not cover this: a lane's reader is made
+      // to follow the *tuple's* producer (`throughLanes`), which is the real
+      // dependence, but nothing then orders it after the lane op itself.
+      // That is invisible in the assembly -- the pseudo prints nothing --
+      // and fatal in the IR, which must stay valid SSA: `operand #0 does not
+      // dominate this use`. A quad's low pair stored straight through a
+      // lane view is the shape that found it.
+      for (Value operand : op->getOperands())
+        if (Operation *def = operand.getDefiningOp())
+          if (isa<LaneOp, ConcatOp>(def))
+            if (auto it = index.find(def); it != index.end())
+              addEdge(it->second, i, 0);
       // And every pseudo result's user follows it: the register edges above
       // cover real ops; a pseudo with a pinned result (sp, reg_live_in) is
       // covered too, since it writes its units. An unpinned result cannot
