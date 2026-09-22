@@ -532,6 +532,24 @@ private:
         .Case([&](CompwOp op) { return emitCompare(op, "compw", stringifyIntComp(op.getIntcomp())); })
         .Case([&](FcompdOp op) { return emitCompare(op, "fcompd", stringifyFloatComp(op.getFloatcomp())); })
         .Case([&](FcompwOp op) { return emitCompare(op, "fcompw", stringifyFloatComp(op.getFloatcomp())); })
+        // The lane-parallel ones write a bit per lane into a register, and
+        // carry the same modifier. Their `n` siblings (`compn*`, which write
+        // a full-width lane mask) print the same way and are listed so that
+        // selecting one later needs no emitter change.
+        .Case([&](CompbxOp op) { return emitCompare(op, "compbx", stringifyIntComp(op.getIntcomp())); })
+        .Case([&](ComphoOp op) { return emitCompare(op, "compho", stringifyIntComp(op.getIntcomp())); })
+        .Case([&](CompwqOp op) { return emitCompare(op, "compwq", stringifyIntComp(op.getIntcomp())); })
+        .Case([&](CompdpOp op) { return emitCompare(op, "compdp", stringifyIntComp(op.getIntcomp())); })
+        .Case([&](CompnbxOp op) { return emitCompare(op, "compnbx", stringifyIntComp(op.getIntcomp())); })
+        .Case([&](CompnhoOp op) { return emitCompare(op, "compnho", stringifyIntComp(op.getIntcomp())); })
+        .Case([&](CompnwqOp op) { return emitCompare(op, "compnwq", stringifyIntComp(op.getIntcomp())); })
+        .Case([&](CompndpOp op) { return emitCompare(op, "compndp", stringifyIntComp(op.getIntcomp())); })
+        .Case([&](FcomphoOp op) { return emitCompare(op, "fcompho", stringifyFloatComp(op.getFloatcomp())); })
+        .Case([&](FcompwqOp op) { return emitCompare(op, "fcompwq", stringifyFloatComp(op.getFloatcomp())); })
+        .Case([&](FcompdpOp op) { return emitCompare(op, "fcompdp", stringifyFloatComp(op.getFloatcomp())); })
+        .Case([&](FcompnhoOp op) { return emitCompare(op, "fcompnho", stringifyFloatComp(op.getFloatcomp())); })
+        .Case([&](FcompnwqOp op) { return emitCompare(op, "fcompnwq", stringifyFloatComp(op.getFloatcomp())); })
+        .Case([&](FcompndpOp op) { return emitCompare(op, "fcompndp", stringifyFloatComp(op.getFloatcomp())); })
         // "Subtract FROM" opcodes: real hardware's operand order is the
         // reverse of this dialect's `$lhs, $rhs` -- see
         // emitBinarySubtractFrom's comment.

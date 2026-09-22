@@ -106,6 +106,18 @@ public:
     addConversion([ctx](VectorType type) -> std::optional<Type> {
       if (type.isScalable() || type.getRank() != 1)
         return std::nullopt;
+      // A mask is not data: `vector<Nxi1>` is one bit per lane in an
+      // ordinary register, which is what `comp*q`/`fcomp*q` write and what
+      // `blend*` and the `masks` prefix read (docs/VectorCoverage.md §1,
+      // "Mask granularity"). The lane count is the *masked* vector's, so
+      // every tuple shape's lane count is legal; the type says nothing
+      // about how wide the masked lanes are, and nothing needs it to.
+      if (type.getElementTypeBitWidth() == 1) {
+        unsigned lanes = type.getNumElements();
+        if (lanes >= 2 && lanes <= 32 && llvm::isPowerOf2_32(lanes))
+          return RegisterType::get(ctx, std::nullopt);
+        return std::nullopt;
+      }
       switch (type.getElementTypeBitWidth() * type.getNumElements()) {
       case 128:
         return lvx::PairType::get(ctx, std::nullopt);
@@ -1175,6 +1187,147 @@ struct VectorInterleaveToLVX : public OpConversionPattern<vector::InterleaveOp> 
 };
 
 //===----------------------------------------------------------------------===//
+// Masks: the vector compares write one, `blend` reads one.
+//
+// `vector<Nxi1>` is a register holding N low bits (the type converter above).
+// `comp*q`/`fcomp*q` produce exactly that -- and since 2026-09-22 they clear
+// the register's upper bits first, so nothing has to mask the result.
+//===----------------------------------------------------------------------===//
+
+/// The lane count of a vector operand, if the ISA has a lane-parallel form
+/// for it: a pair (128 bits) or, through `Builtin@split`, a quad.
+static unsigned laneCountOf(Type converted, VectorType vecTy) {
+  unsigned units = converted ? tupleWidth(converted) : 0;
+  return units ? vecTy.getNumElements() : 0;
+}
+
+struct VectorCmpIToLVX : public OpConversionPattern<arith::CmpIOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arith::CmpIOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = dyn_cast<VectorType>(op.getLhs().getType());
+    if (!vecTy)
+      return rewriter.notifyMatchFailure(op, "the scalar pattern handles this");
+    Type tupleTy = getTypeConverter()->convertType(vecTy);
+    Type regTy = getTypeConverter()->convertType(op.getType());
+    if (!laneCountOf(tupleTy, vecTy) || !regTy)
+      return rewriter.notifyMatchFailure(op, "no register tuple, or no mask");
+    if (tupleWidth(tupleTy) != 2)
+      return rewriter.notifyMatchFailure(
+          op, "the ISA compares a pair; a quad compare has no composite");
+    IntComp pred = mapCmpIPredicate(op.getPredicate());
+    Location loc = op.getLoc();
+    Value lhs = adaptor.getLhs(), rhs = adaptor.getRhs();
+    Value result;
+    switch (vecTy.getElementTypeBitWidth()) {
+    case 8:
+      result = rewriter.create<lvx::CompbxOp>(loc, regTy, pred, lhs, rhs);
+      break;
+    case 16:
+      result = rewriter.create<lvx::ComphoOp>(loc, regTy, pred, lhs, rhs);
+      break;
+    case 32:
+      result = rewriter.create<lvx::CompwqOp>(loc, regTy, pred, lhs, rhs);
+      break;
+    case 64:
+      result = rewriter.create<lvx::CompdpOp>(loc, regTy, pred, lhs, rhs);
+      break;
+    default:
+      return rewriter.notifyMatchFailure(op, "no compare for this lane width");
+    }
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+struct VectorCmpFToLVX : public OpConversionPattern<arith::CmpFOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arith::CmpFOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = dyn_cast<VectorType>(op.getLhs().getType());
+    if (!vecTy)
+      return rewriter.notifyMatchFailure(op, "the scalar pattern handles this");
+    Type tupleTy = getTypeConverter()->convertType(vecTy);
+    Type regTy = getTypeConverter()->convertType(op.getType());
+    if (!laneCountOf(tupleTy, vecTy) || !regTy)
+      return rewriter.notifyMatchFailure(op, "no register tuple, or no mask");
+    if (tupleWidth(tupleTy) != 2)
+      return rewriter.notifyMatchFailure(
+          op, "the ISA compares a pair; a quad compare has no composite");
+    std::optional<FloatCompMapping> mapping = mapCmpFPredicate(op.getPredicate());
+    if (!mapping)
+      return rewriter.notifyMatchFailure(op, "unsupported predicate");
+    Location loc = op.getLoc();
+    Value lhs = mapping->swapOperands ? adaptor.getRhs() : adaptor.getLhs();
+    Value rhs = mapping->swapOperands ? adaptor.getLhs() : adaptor.getRhs();
+    Value result;
+    switch (vecTy.getElementTypeBitWidth()) {
+    case 16:
+      result = rewriter.create<lvx::FcomphoOp>(loc, regTy, mapping->pred, lhs, rhs);
+      break;
+    case 32:
+      result = rewriter.create<lvx::FcompwqOp>(loc, regTy, mapping->pred, lhs, rhs);
+      break;
+    case 64:
+      result = rewriter.create<lvx::FcompdpOp>(loc, regTy, mapping->pred, lhs, rhs);
+      break;
+    default:
+      return rewriter.notifyMatchFailure(op, "no compare for this lane width");
+    }
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+/// `arith.select` under a lane mask: `blend*`, which writes *through* its
+/// destination -- the lanes the mask clears keep what was there. So the
+/// false value is the tied operand, and when it is live past the select the
+/// tied-operand preserving-copy pass gives the blend a private copy, exactly
+/// as it does for an `ffma` accumulator.
+struct VectorSelectToLVX : public OpConversionPattern<arith::SelectOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arith::SelectOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = dyn_cast<VectorType>(op.getType());
+    auto condTy = dyn_cast<VectorType>(op.getCondition().getType());
+    if (!vecTy || !condTy)
+      return rewriter.notifyMatchFailure(op, "the scalar pattern handles this");
+    Type tupleTy = getTypeConverter()->convertType(vecTy);
+    if (!laneCountOf(tupleTy, vecTy) ||
+        condTy.getNumElements() != vecTy.getNumElements())
+      return rewriter.notifyMatchFailure(op, "no register tuple for this shape");
+    if (tupleWidth(tupleTy) != 2)
+      return rewriter.notifyMatchFailure(
+          op, "the ISA blends a pair; a quad blend has no composite");
+    Location loc = op.getLoc();
+    Value yes = adaptor.getTrueValue(), mask = adaptor.getCondition(),
+          no = adaptor.getFalseValue();
+    Value result;
+    switch (vecTy.getElementTypeBitWidth()) {
+    case 8:
+      result = rewriter.create<lvx::BlendbxOp>(loc, tupleTy, yes, mask, no);
+      break;
+    case 16:
+      result = rewriter.create<lvx::BlendhoOp>(loc, tupleTy, yes, mask, no);
+      break;
+    case 32:
+      result = rewriter.create<lvx::BlendwqOp>(loc, tupleTy, yes, mask, no);
+      break;
+    case 64:
+      result = rewriter.create<lvx::BlenddpOp>(loc, tupleTy, yes, mask, no);
+      break;
+    default:
+      return rewriter.notifyMatchFailure(op, "no blend for this lane width");
+    }
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // Lanes: extract, insert, shuffle, and the casts that are free.
 //
 // A register tuple is a row of 64-bit units, so an element's home is a unit
@@ -1740,6 +1893,7 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     VectorLoadToLVX, VectorStoreToLVX, VectorBroadcastToLVX, VectorFMAToLVX,
     VectorDeinterleaveToLVX, VectorInterleaveToLVX,
     VectorExtractToLVX, VectorInsertToLVX, VectorShuffleToLVX,
+    VectorCmpIToLVX, VectorCmpFToLVX, VectorSelectToLVX,
     VectorShapeCastToLVX, VectorBitCastToLVX,
     MinimumFToLVX, MaximumFToLVX, MinNumFToLVX, MaxNumFToLVX,
     AbsFToLVX, CtlzToLVX, CttzToLVX, CtpopToLVX, AbsIToLVX,
