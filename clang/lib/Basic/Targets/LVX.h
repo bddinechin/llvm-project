@@ -56,6 +56,16 @@ public:
     // than one promoted through float.
     HasFloat16 = true;
 
+    // And it is computed on DIRECTLY, not evaluated in float: there is an
+    // f16 instruction for every f32 one. Without this clang promotes every
+    // _Float16 expression to float at -O0 (the optimizer folds the
+    // widen/narrow pairs away at -O1 and above, which is what hid it), and
+    // that is not merely slower -- it is WRONG on a NaN. fwidenhw and
+    // fnarrowwh both return a CANONICAL NaN, positive, so a sign-bit test
+    // through the round trip loses the sign it was testing. Caught by
+    // validation's signs.c at -O0 and by nothing else.
+    HasFastHalfType = true;
+
     // Alignments, from lvx.h: BIGGEST_ALIGNMENT is 256 bits, which is also
     // the stack boundary. A local declared with that alignment is placed at a
     // fixed offset from $r12 and its address computed with a bitwise or, so

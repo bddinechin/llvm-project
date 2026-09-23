@@ -42,6 +42,8 @@ public:
 
   TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
 
+  TargetTransformInfo getTargetTransformInfo(const Function &F) const override;
+
   // Every LVX address space is the same flat 64-bit address: the space does
   // not change what a pointer IS, only which `variant` of the load reads it
   // (see LVXAddressSpaces.h). So a cast between any two of them moves no

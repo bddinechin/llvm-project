@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "LVXTargetMachine.h"
+#include "LVXTargetTransformInfo.h"
 #include "LVXMachineFunctionInfo.h"
 #include "llvm/InitializePasses.h"
 #include "LVXISelDAGToDAG.h"
@@ -79,6 +80,11 @@ MachineFunctionInfo *LVXTargetMachine::createMachineFunctionInfo(
     const TargetSubtargetInfo *STI) const {
   return LVXMachineFunctionInfo::create<LVXMachineFunctionInfo>(Allocator, F,
                                                                 STI);
+}
+
+TargetTransformInfo
+LVXTargetMachine::getTargetTransformInfo(const Function &F) const {
+  return TargetTransformInfo(std::make_unique<LVXTTIImpl>(this, F));
 }
 
 TargetPassConfig *LVXTargetMachine::createPassConfig(PassManagerBase &PM) {

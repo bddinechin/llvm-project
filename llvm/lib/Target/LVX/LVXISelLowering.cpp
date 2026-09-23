@@ -390,6 +390,18 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::BITCAST, MVT::f32, Legal);
   setOperationAction(ISD::BITCAST, MVT::i64, Legal);
 
+  // A vector lane read at a VARIABLE index. The constant case is a
+  // subregister read, selected in LVXISelDAGToDAG; there is no instruction
+  // for a computed one, so it goes through memory -- which is what the
+  // generic expansion does, and what returning a null SDValue from a Custom
+  // hook asks for. Left Legal, isel simply failed on it at -O0 and -O1,
+  // where the index has not been folded to a constant yet.
+  setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v4i64, Custom);
+
+  // fcopysign whose operands are different types -- see lowerCopySign.
+  for (MVT VT : {MVT::f16, MVT::f32, MVT::f64})
+    setOperationAction(ISD::FCOPYSIGN, VT, Custom);
+
   setMinFunctionAlignment(Align(4));
   setPrefFunctionAlignment(Align(4));
 }
@@ -427,10 +439,81 @@ SDValue LVXTargetLowering::LowerOperation(SDValue Op,
   case ISD::SRL:
   case ISD::SRA:
     return lowerShift128(Op, DAG);
+  case ISD::FCOPYSIGN:
+    return lowerCopySign(Op, DAG);
+  case ISD::EXTRACT_VECTOR_ELT:
+    // A constant index is a subregister read and isel takes it from here; a
+    // computed one has no instruction, and a null SDValue is how a Custom
+    // hook asks for the generic expansion (through memory).
+    return isa<ConstantSDNode>(Op.getOperand(1)) ? Op : SDValue();
   default:
     llvm_unreachable(
         "Unimplemented operation in LVXTargetLowering::LowerOperation");
   }
+}
+
+// fcopysign whose two operands are different types. ISD::FCOPYSIGN allows
+// that -- only the sign bit of the second is read -- and DAGCombiner makes it
+// happen, folding "fcopysign x, (fpextend y)" into "fcopysign x, y". Every
+// fsign pattern takes one type, so such a node selected nothing at all:
+// copysign(double, (double)float) failed to compile at any -O level, and had
+// since copysign arrived.
+//
+// Two wrong ways to fix it, both tried:
+//
+//  - Convert the sign operand to the magnitude's type and let the ordinary
+//    pattern match. WRONG ON A NaN: fnarrowdw of a negative NaN returns a
+//    CANONICAL one, positive -- RISC-V-conformant, and it drops exactly the
+//    bit being copied. Verified on the ISS; validation's signs.c catches it
+//    and nothing else does.
+//  - Convert and rebuild the FCOPYSIGN node from a Custom hook. The combine
+//    above undoes it on the next round and the two spin forever -- a hang,
+//    not a diagnostic, and the same shape as the i128 constant that had to
+//    be materialized at isel.
+//
+// So move the BIT. The reinterpretations are free (FP and integer share the
+// GPR file) and no conversion instruction is involved, so a NaN keeps its
+// sign because nothing has looked at what the value means.
+SDValue LVXTargetLowering::lowerCopySign(SDValue Op, SelectionDAG &DAG) const {
+  EVT VT = Op.getValueType();
+  SDValue Mag = Op.getOperand(0), Sgn = Op.getOperand(1);
+  EVT SgnVT = Sgn.getValueType();
+  if (SgnVT == VT)
+    return Op; // one type: fsignd/fsignw/fsignh takes it directly
+
+  SDLoc DL(Op);
+  auto ToBits = [&](SDValue V, EVT T) -> SDValue {
+    if (T == MVT::f64)
+      return DAG.getNode(ISD::BITCAST, DL, MVT::i64, V);
+    return DAG.getNode(T == MVT::f32 ? LVXISD::F32_TO_BITS
+                                     : LVXISD::F16_TO_BITS,
+                       DL, MVT::i64, V);
+  };
+  auto FromBits = [&](SDValue V) -> SDValue {
+    if (VT == MVT::f64)
+      return DAG.getNode(ISD::BITCAST, DL, VT, V);
+    return DAG.getNode(VT == MVT::f32 ? LVXISD::BITS_TO_F32
+                                      : LVXISD::BITS_TO_F16,
+                       DL, VT, V);
+  };
+
+  unsigned MagBits = VT.getSizeInBits(), SgnBits = SgnVT.getSizeInBits();
+  SDValue M = ToBits(Mag, VT), S = ToBits(Sgn, SgnVT);
+
+  // The sign bit alone, moved from its place in the source to its place in
+  // the destination.
+  SDValue Bit = DAG.getNode(
+      ISD::AND, DL, MVT::i64,
+      DAG.getNode(ISD::SRL, DL, MVT::i64, S,
+                  DAG.getConstant(SgnBits - 1, DL, MVT::i64)),
+      DAG.getConstant(1, DL, MVT::i64));
+  SDValue Placed = DAG.getNode(ISD::SHL, DL, MVT::i64, Bit,
+                               DAG.getConstant(MagBits - 1, DL, MVT::i64));
+  SDValue Cleared =
+      DAG.getNode(ISD::AND, DL, MVT::i64, M,
+                  DAG.getConstant(~(uint64_t(1) << (MagBits - 1)), DL,
+                                  MVT::i64));
+  return FromBits(DAG.getNode(ISD::OR, DL, MVT::i64, Cleared, Placed));
 }
 
 // An i128 shift by a constant of 64 or more. The result's halves are the

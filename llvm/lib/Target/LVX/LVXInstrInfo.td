@@ -498,6 +498,13 @@ def : Pat<(fcopysign f64:$mag, f64:$sgn), (FSIGND_FDMMWR f64:$mag, f64:$sgn)>;
 def : Pat<(fcopysign f32:$mag, f32:$sgn), (FSIGNW_FWMMWR f32:$mag, f32:$sgn)>;
 def : Pat<(fcopysign f16:$mag, f16:$sgn), (FSIGNH_FHMMWR f16:$mag, f16:$sgn)>;
 
+// A mismatched fcopysign -- the two operands need NOT share a type, and
+// DAGCombiner actively MAKES them differ by folding "fcopysign x, (fpextend
+// y)" into "fcopysign x, y" -- is lowered by lowerCopySign in
+// LVXISelLowering.cpp, which moves the sign BIT rather than converting the
+// value. See the comment there: converting is wrong on a NaN, and rebuilding
+// the node instead hangs the legalizer.
+
 // Comparisons. floatcomp members: 0 .one, 1 .ueq, 2 .oeq, 3 .une, 4 .olt,
 // 5 .uge, 6 .oge, 7 .ult. There is no GT/LE member, so those come from
 // swapping the compared registers -- note the swapped patterns pass ($b, $a).

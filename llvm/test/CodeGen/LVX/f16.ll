@@ -184,3 +184,19 @@ declare half @llvm.minnum.f16(half, half)
 declare half @llvm.fma.f16(half, half, half)
 
 declare half @llvm.copysign.f16(half, half)
+
+; A mismatched fcopysign -- ISD::FCOPYSIGN's operands need not share a type,
+; and DAGCombiner MAKES them differ by folding "fcopysign x, (fpextend y)"
+; into "fcopysign x, y". The sign BIT is moved with integer operations, never
+; by converting the value: fwidenhw and fnarrowwh both return a CANONICAL
+; NaN, positive, so converting drops the very bit being copied.
+define half @copysign_from_f32(half %m, float %s) {
+; CHECK-LABEL: copysign_from_f32:
+; CHECK-NOT: fnarrowwh
+; CHECK-NOT: fsignh
+; CHECK:     andd
+; CHECK:     iord
+  %c = fptrunc float %s to half
+  %r = call half @llvm.copysign.f16(half %m, half %c)
+  ret half %r
+}
