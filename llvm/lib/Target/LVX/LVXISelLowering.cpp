@@ -312,22 +312,28 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   //===--------------------------------------------------------------------===//
   // f16
   //
-  // The type is legal (it has a register class above) and the conversions to
-  // and from f32 are single instructions, but no ARITHMETIC pattern names f16
-  // yet: MDS/BE/LLVM's llvm-patterns.pl skips the f16 helpers, and says why --
-  // "MVT::f16 is not added to any register class in LVXISelLowering, so a
-  // pattern mentioning it would not compile". That reason is gone as of this
-  // change; until the generator is told so, every f16 operation is Promote,
-  // which widens it to f32, computes there and narrows back.
+  // The f16 arithmetic is NATIVE, not promoted: faddh, fmulh, fminh and the
+  // rest are real instructions, and their patterns are generated from the
+  // f16_* helpers each one's Behavior calls (lvx-mds a132720 -- the generator
+  // had skipped them while MVT::f16 was in no register class, which it no
+  // longer is). Left at Promote they would sit unused behind an fwidenhw /
+  // fnarrowwh pair that also rounds twice where the instruction rounds once.
   //
-  // Promote is correct, not free: it spends an fwidenhw and an fnarrowwh
-  // around each operation and rounds twice, where faddh would round once.
-  // Each becomes Legal the day its pattern is generated, one at a time.
+  // Only what has no f16 instruction is promoted. The comparisons are the
+  // real entry here: fcomph exists, but the compare multiclasses in this file
+  // are hand-written and cover f32/f64 only, so an f16 setcc still widens.
   for (unsigned Op :
-       {ISD::FADD, ISD::FSUB, ISD::FMUL, ISD::FDIV, ISD::FMA, ISD::FSQRT,
-        ISD::FMINNUM, ISD::FMAXNUM, ISD::FMINIMUM, ISD::FMAXIMUM, ISD::FRINT,
-        ISD::SETCC, ISD::SELECT, ISD::SELECT_CC, ISD::BR_CC})
+       {ISD::SETCC, ISD::SELECT, ISD::SELECT_CC, ISD::BR_CC})
     setOperationAction(Op, MVT::f16, Promote);
+
+  // The same four min/max and FRINT the f32/f64 loop above declares Legal,
+  // for the same reason: both IEEE families have a half-word instruction
+  // (fminh propagates a NaN, fminnh returns the numeric operand) and their
+  // patterns are generated. Saying so explicitly is not redundant -- that
+  // loop runs over f32 and f64 only, and these do not default to Legal.
+  for (unsigned Op : {ISD::FMINNUM, ISD::FMAXNUM, ISD::FMINIMUM,
+                      ISD::FMAXIMUM, ISD::FRINT})
+    setOperationAction(Op, MVT::f16, Legal);
 
   // NOT promoted, and the exceptions are the interesting part:
   //

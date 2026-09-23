@@ -542,14 +542,15 @@ def : Pat<(f16 (LVXbitstof16 i64:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
 
 // ---- f16 conversions -------------------------------------------------------
 //
-// fwidenhw takes a `mostsig` modifier saying WHICH half word of the source
-// register it widens; 0 is the least significant one, which is where a scalar
-// f16 sits. (1 is for the packed pair, which nothing selects here yet.)
-// fnarrowwh takes a rounding mode, and 7 -- the unsuffixed member -- means
-// "use $cs.RM", the only thing an unconstrained fpround can mean. Both match
-// how the generated f32<->f64 pair spells the same two things.
-def : Pat<(f32 (fpextend f16:$rZ)), (FWIDENHW_FWWIDEN f16:$rZ, 0)>;
-def : Pat<(f16 (fpround f32:$rZ)),  (FNARROWWH_FHWR  f32:$rZ, 7)>;
+// The f16 <-> f32 pair is GENERATED (LVXInstrPatterns.td) as of lvx-mds
+// a132720 -- it was written here first, identically, while the generator
+// still skipped every f16 helper. What stays below is what the description
+// has nothing to read for: the two-step conversions, which are no single
+// instruction, and the sign operations, which call no helper at all.
+//
+// fwidenhw's `mostsig` says WHICH half word of the source it widens; 0 is the
+// least significant one, where a scalar f16 sits. fnarrowwh takes a rounding
+// mode, and 7 -- the unsuffixed member -- means "use $cs.RM".
 
 // f16 to and from integer, also two instructions: the fixed/float family
 // starts at the word. The modifier values match the generated f32 patterns
