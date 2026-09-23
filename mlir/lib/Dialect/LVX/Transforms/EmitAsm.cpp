@@ -569,6 +569,15 @@ private:
         .Case([&](SbfwOp op) { return emitBinarySubtractFrom(op, "sbfw"); })
         .Case([&](FsbfdOp op) { return emitBinarySubtractFrom(op, "fsbfd"); })
         .Case([&](FsbfwOp op) { return emitBinarySubtractFrom(op, "fsbfw"); })
+        // The lane-parallel ones reverse their operands for exactly the same
+        // reason, and getting it wrong is a wrong *number*, not a failure.
+        .Case([&](SbfbxOp op) { return emitBinarySubtractFrom(op, "sbfbx"); })
+        .Case([&](SbfhoOp op) { return emitBinarySubtractFrom(op, "sbfho"); })
+        .Case([&](SbfwqOp op) { return emitBinarySubtractFrom(op, "sbfwq"); })
+        .Case([&](SbfdpOp op) { return emitBinarySubtractFrom(op, "sbfdp"); })
+        .Case([&](FsbfhoOp op) { return emitBinarySubtractFrom(op, "fsbfho"); })
+        .Case([&](FsbfwqOp op) { return emitBinarySubtractFrom(op, "fsbfwq"); })
+        .Case([&](FsbfdpOp op) { return emitBinarySubtractFrom(op, "fsbfdp"); })
         // Predicated in-place move: operand #2 is tied to the result, see
         // emitCmove's comment.
         .Case([&](CmovedOp op) { return emitCmove(op, "cmoved"); })
@@ -600,10 +609,17 @@ private:
           // same arity rule as the instruction itself, with `reg` folding
           // the quads down to the part's pair.
           if (std::optional<Composite> composite = compositeOf(mnemonic)) {
+            // A composite of a "subtract from" instruction prints reversed
+            // like the instruction itself: `sbfwo` is two `sbfwq`, and
+            // emitByArity would print them in IR order.
+            bool subtractFrom = composite->part.starts_with("sbf") ||
+                                composite->part.starts_with("fsbf");
             for (unsigned k = 0; k != composite->parts; ++k) {
               compositePart = k;
               lastPart = k + 1 == composite->parts;
-              LogicalResult r = emitByArity(op, composite->part);
+              LogicalResult r =
+                  subtractFrom ? emitBinarySubtractFrom(op, composite->part)
+                               : emitByArity(op, composite->part);
               compositePart = std::nullopt;
               lastPart = true;
               if (failed(r))

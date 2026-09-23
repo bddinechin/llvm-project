@@ -1187,6 +1187,337 @@ struct VectorInterleaveToLVX : public OpConversionPattern<vector::InterleaveOp> 
 };
 
 //===----------------------------------------------------------------------===//
+// Elementwise arithmetic on vectors (docs/VectorCoverage.md, Phase 1).
+//
+// A scalar pattern keys on one bit -- `w` below 33 bits, `d` above. A lane
+// pattern keys on four element widths and two tuple widths, so the tables
+// below name one LVX op per (family, element width) at pair width, and one
+// at quad width, where `NoLaneOp` means the ISA has no instruction for that
+// shape. A row with `NoLaneOp` at pair width fails the conversion and
+// becomes a class-D row of the coverage table; a row with `NoLaneOp` only at
+// quad width is *split* into the two pair ops over lane views, which is what
+// `Builtin@split` would have produced had the builtin been declared (a
+// missing `split:` is a Builtin.yml record, not a missing instruction --
+// VectorCoverage.md §5).
+//===----------------------------------------------------------------------===//
+
+/// The (family, element width) shapes the ISA does not have.
+struct NoLaneOp {};
+
+template <typename Op> struct LaneBinary {
+  static Value create(ConversionPatternRewriter &rewriter, Location loc,
+                      Type resultTy, Value lhs, Value rhs) {
+    return rewriter.create<Op>(loc, resultTy, lhs, rhs);
+  }
+};
+template <> struct LaneBinary<NoLaneOp> {
+  static Value create(ConversionPatternRewriter &, Location, Type, Value,
+                      Value) {
+    return {};
+  }
+};
+
+template <typename Op> struct LaneUnary {
+  static Value create(ConversionPatternRewriter &rewriter, Location loc,
+                      Type resultTy, Value operand) {
+    return rewriter.create<Op>(loc, resultTy, operand);
+  }
+};
+template <> struct LaneUnary<NoLaneOp> {
+  static Value create(ConversionPatternRewriter &, Location, Type, Value) {
+    return {};
+  }
+};
+
+/// The pair halves of a quad, as lane views (no instruction).
+static Value quadHalf(ConversionPatternRewriter &rewriter, Location loc,
+                      Value quad, unsigned k) {
+  Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
+  if (lvx::widthOf(quad.getType()) == 2)
+    return quad; // a pair operand (a splat) is read whole by both halves
+  return rewriter.create<lvx::LaneOp>(loc, pairTy, quad, 2 * k);
+}
+
+template <typename B, typename H, typename W, typename D>
+static Value byWidthBinary(unsigned bits, ConversionPatternRewriter &rewriter,
+                           Location loc, Type resultTy, Value lhs, Value rhs) {
+  switch (bits) {
+  case 8:  return LaneBinary<B>::create(rewriter, loc, resultTy, lhs, rhs);
+  case 16: return LaneBinary<H>::create(rewriter, loc, resultTy, lhs, rhs);
+  case 32: return LaneBinary<W>::create(rewriter, loc, resultTy, lhs, rhs);
+  case 64: return LaneBinary<D>::create(rewriter, loc, resultTy, lhs, rhs);
+  }
+  return {};
+}
+
+template <typename B, typename H, typename W, typename D>
+static Value byWidthUnary(unsigned bits, ConversionPatternRewriter &rewriter,
+                          Location loc, Type resultTy, Value operand) {
+  switch (bits) {
+  case 8:  return LaneUnary<B>::create(rewriter, loc, resultTy, operand);
+  case 16: return LaneUnary<H>::create(rewriter, loc, resultTy, operand);
+  case 32: return LaneUnary<W>::create(rewriter, loc, resultTy, operand);
+  case 64: return LaneUnary<D>::create(rewriter, loc, resultTy, operand);
+  }
+  return {};
+}
+
+/// `SourceOp` on a vector: `P*` at pair width, `Q*` (a composite) at quad
+/// width, and failing that the pair op on each half.
+template <typename SourceOp, typename PB, typename PH, typename PW,
+          typename PD, typename QB, typename QH, typename QW, typename QD>
+struct VectorBinaryToLVX : public OpConversionPattern<SourceOp> {
+  using OpConversionPattern<SourceOp>::OpConversionPattern;
+  using OpAdaptor = typename OpConversionPattern<SourceOp>::OpAdaptor;
+  LogicalResult
+  matchAndRewrite(SourceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = dyn_cast<VectorType>(op.getType());
+    if (!vecTy)
+      return rewriter.notifyMatchFailure(op, "the scalar pattern handles this");
+    Type tupleTy = this->getTypeConverter()->convertType(vecTy);
+    unsigned units = tupleTy ? tupleWidth(tupleTy) : 0;
+    if (!units)
+      return rewriter.notifyMatchFailure(op, "vector shape has no register tuple");
+    unsigned bits = vecTy.getElementTypeBitWidth();
+    Location loc = op.getLoc();
+    Value lhs = adaptor.getLhs(), rhs = adaptor.getRhs();
+    if (units == 2) {
+      Value result = byWidthBinary<PB, PH, PW, PD>(bits, rewriter, loc, tupleTy,
+                                                   lhs, rhs);
+      if (!result)
+        return rewriter.notifyMatchFailure(op, "no instruction for this lane shape");
+      rewriter.replaceOp(op, result);
+      return success();
+    }
+    if (Value composite = byWidthBinary<QB, QH, QW, QD>(bits, rewriter, loc,
+                                                        tupleTy, lhs, rhs)) {
+      rewriter.replaceOp(op, composite);
+      return success();
+    }
+    Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
+    Value half[2];
+    for (unsigned k = 0; k != 2; ++k) {
+      half[k] = byWidthBinary<PB, PH, PW, PD>(
+          bits, rewriter, loc, pairTy, quadHalf(rewriter, loc, lhs, k),
+          quadHalf(rewriter, loc, rhs, k));
+      if (!half[k])
+        return rewriter.notifyMatchFailure(op, "no instruction for this lane shape");
+    }
+    rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy,
+                                               ValueRange{half[0], half[1]});
+    return success();
+  }
+};
+
+template <typename SourceOp, typename PB, typename PH, typename PW,
+          typename PD, typename QB, typename QH, typename QW, typename QD>
+struct VectorUnaryToLVX : public OpConversionPattern<SourceOp> {
+  using OpConversionPattern<SourceOp>::OpConversionPattern;
+  using OpAdaptor = typename OpConversionPattern<SourceOp>::OpAdaptor;
+  LogicalResult
+  matchAndRewrite(SourceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = dyn_cast<VectorType>(op.getType());
+    if (!vecTy)
+      return rewriter.notifyMatchFailure(op, "the scalar pattern handles this");
+    Type tupleTy = this->getTypeConverter()->convertType(vecTy);
+    unsigned units = tupleTy ? tupleWidth(tupleTy) : 0;
+    if (!units)
+      return rewriter.notifyMatchFailure(op, "vector shape has no register tuple");
+    unsigned bits = vecTy.getElementTypeBitWidth();
+    Location loc = op.getLoc();
+    Value operand = adaptor.getOperands().front();
+    if (units == 2) {
+      Value result = byWidthUnary<PB, PH, PW, PD>(bits, rewriter, loc, tupleTy,
+                                                  operand);
+      if (!result)
+        return rewriter.notifyMatchFailure(op, "no instruction for this lane shape");
+      rewriter.replaceOp(op, result);
+      return success();
+    }
+    if (Value composite = byWidthUnary<QB, QH, QW, QD>(bits, rewriter, loc,
+                                                       tupleTy, operand)) {
+      rewriter.replaceOp(op, composite);
+      return success();
+    }
+    Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
+    Value half[2];
+    for (unsigned k = 0; k != 2; ++k) {
+      half[k] = byWidthUnary<PB, PH, PW, PD>(
+          bits, rewriter, loc, pairTy, quadHalf(rewriter, loc, operand, k));
+      if (!half[k])
+        return rewriter.notifyMatchFailure(op, "no instruction for this lane shape");
+    }
+    rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy,
+                                               ValueRange{half[0], half[1]});
+    return success();
+  }
+};
+
+/// The shifts are not elementwise in their second operand: `sll{bx,ho,wq,dp}`
+/// shift every lane by the *same* amount, held in an ordinary register, where
+/// `arith.shli` gives each lane its own. So a shift by a splat lowers, and a
+/// genuinely per-lane shift does not (the ISA has no equivalent of AVX2's
+/// `vpsllvd`) -- a class-D row of the coverage table.
+template <typename SourceOp, typename PB, typename PH, typename PW, typename PD>
+struct VectorShiftToLVX : public OpConversionPattern<SourceOp> {
+  using OpConversionPattern<SourceOp>::OpConversionPattern;
+  using OpAdaptor = typename OpConversionPattern<SourceOp>::OpAdaptor;
+  LogicalResult
+  matchAndRewrite(SourceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = dyn_cast<VectorType>(op.getType());
+    if (!vecTy)
+      return rewriter.notifyMatchFailure(op, "the scalar pattern handles this");
+    Type tupleTy = this->getTypeConverter()->convertType(vecTy);
+    unsigned units = tupleTy ? tupleWidth(tupleTy) : 0;
+    if (!units)
+      return rewriter.notifyMatchFailure(op, "vector shape has no register tuple");
+    Location loc = op.getLoc();
+    Type regTy = RegisterType::get(rewriter.getContext(), std::nullopt);
+
+    // The uniform shift amount, from a broadcast or a splat constant.
+    Value amount;
+    Value original = op.getRhs();
+    if (auto bcast = original.template getDefiningOp<vector::BroadcastOp>()) {
+      if (!isa<VectorType>(bcast.getSource().getType()))
+        amount = rewriter.getRemappedValue(bcast.getSource());
+    } else if (auto cst = original.template getDefiningOp<arith::ConstantOp>()) {
+      auto dense = dyn_cast<DenseIntElementsAttr>(cst.getValue());
+      if (dense && dense.isSplat())
+        amount = rewriter.create<lvx::LiOp>(
+            loc, regTy,
+            rewriter.getI64IntegerAttr(
+                dense.template getSplatValue<APInt>().getZExtValue()));
+    }
+    if (!amount)
+      return rewriter.notifyMatchFailure(
+          op, "the ISA shifts every lane by one amount; this shift is per-lane");
+
+    unsigned bits = vecTy.getElementTypeBitWidth();
+    Value value = adaptor.getLhs();
+    if (units == 2) {
+      Value result = byWidthBinary<PB, PH, PW, PD>(bits, rewriter, loc, tupleTy,
+                                                   value, amount);
+      if (!result)
+        return rewriter.notifyMatchFailure(op, "no shift for this lane width");
+      rewriter.replaceOp(op, result);
+      return success();
+    }
+    Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
+    Value half[2];
+    for (unsigned k = 0; k != 2; ++k) {
+      half[k] = byWidthBinary<PB, PH, PW, PD>(
+          bits, rewriter, loc, pairTy, quadHalf(rewriter, loc, value, k), amount);
+      if (!half[k])
+        return rewriter.notifyMatchFailure(op, "no shift for this lane width");
+    }
+    rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy,
+                                               ValueRange{half[0], half[1]});
+    return success();
+  }
+};
+
+// The tables. One line per source op: the pair ops by element width, then
+// the quad composites. `NoLaneOp` is a shape the ISA has not got.
+//
+//                                        i8         i16        i32        i64
+using VAddIToLVX = VectorBinaryToLVX<arith::AddIOp,
+    lvx::AddbxOp, lvx::AddhoOp, lvx::AddwqOp, lvx::AdddpOp,
+    lvx::AddbvOp, lvx::AddhxOp, lvx::AddwoOp, lvx::AdddqOp>;
+using VSubIToLVX = VectorBinaryToLVX<arith::SubIOp,
+    lvx::SbfbxOp, lvx::SbfhoOp, lvx::SbfwqOp, lvx::SbfdpOp,
+    lvx::SbfbvOp, lvx::SbfhxOp, lvx::SbfwoOp, lvx::SbfdqOp>;
+// No 8-bit multiply: only the widening `mulxbho`, which is another op.
+using VMulIToLVX = VectorBinaryToLVX<arith::MulIOp,
+    NoLaneOp,     lvx::MulhoOp, lvx::MulwqOp, lvx::MuldpOp,
+    NoLaneOp,     NoLaneOp,     NoLaneOp,     NoLaneOp>;
+using VMinSIToLVX = VectorBinaryToLVX<arith::MinSIOp,
+    lvx::MinbxOp, lvx::MinhoOp, lvx::MinwqOp, lvx::MindpOp,
+    lvx::MinbvOp, lvx::MinhxOp, lvx::MinwoOp, lvx::MindqOp>;
+using VMaxSIToLVX = VectorBinaryToLVX<arith::MaxSIOp,
+    lvx::MaxbxOp, lvx::MaxhoOp, lvx::MaxwqOp, lvx::MaxdpOp,
+    lvx::MaxbvOp, lvx::MaxhxOp, lvx::MaxwoOp, lvx::MaxdqOp>;
+using VMinUIToLVX = VectorBinaryToLVX<arith::MinUIOp,
+    lvx::MinubxOp, lvx::MinuhoOp, lvx::MinuwqOp, lvx::MinudpOp,
+    lvx::MinubvOp, lvx::MinuhxOp, lvx::MinuwoOp, lvx::MinudqOp>;
+using VMaxUIToLVX = VectorBinaryToLVX<arith::MaxUIOp,
+    lvx::MaxubxOp, lvx::MaxuhoOp, lvx::MaxuwqOp, lvx::MaxudpOp,
+    lvx::MaxubvOp, lvx::MaxuhxOp, lvx::MaxuwoOp, lvx::MaxudqOp>;
+// The bitwise ops do not care where the lanes are: `andq`/`iorq`/`eorq` are
+// quadword-wide, so one op serves every element type, and a 256-bit vector
+// is two of them.
+using VAndIToLVX = VectorBinaryToLVX<arith::AndIOp,
+    lvx::AndqOp, lvx::AndqOp, lvx::AndqOp, lvx::AndqOp,
+    NoLaneOp,    NoLaneOp,    NoLaneOp,    NoLaneOp>;
+using VOrIToLVX = VectorBinaryToLVX<arith::OrIOp,
+    lvx::IorqOp, lvx::IorqOp, lvx::IorqOp, lvx::IorqOp,
+    NoLaneOp,    NoLaneOp,    NoLaneOp,    NoLaneOp>;
+using VXOrIToLVX = VectorBinaryToLVX<arith::XOrIOp,
+    lvx::EorqOp, lvx::EorqOp, lvx::EorqOp, lvx::EorqOp,
+    NoLaneOp,    NoLaneOp,    NoLaneOp,    NoLaneOp>;
+using VShLIToLVX = VectorShiftToLVX<arith::ShLIOp,
+    lvx::SllbxOp, lvx::SllhoOp, lvx::SllwqOp, lvx::SlldpOp>;
+using VShRSIToLVX = VectorShiftToLVX<arith::ShRSIOp,
+    lvx::SrabxOp, lvx::SrahoOp, lvx::SrawqOp, lvx::SradpOp>;
+using VShRUIToLVX = VectorShiftToLVX<arith::ShRUIOp,
+    lvx::SrlbxOp, lvx::SrlhoOp, lvx::SrlwqOp, lvx::SrldpOp>;
+using VAbsIToLVX = VectorUnaryToLVX<math::AbsIOp,
+    lvx::AbsbxOp, lvx::AbshoOp, lvx::AbswqOp, lvx::AbsdpOp,
+    lvx::AbsbvOp, lvx::AbshxOp, lvx::AbswoOp, lvx::AbsdqOp>;
+// No 8-bit bit-counting: `clzbx`/`ctzbx`/`cbsbx` do not exist.
+using VCtlzToLVX = VectorUnaryToLVX<math::CountLeadingZerosOp,
+    NoLaneOp, lvx::ClzhoOp, lvx::ClzwqOp, lvx::ClzdpOp,
+    NoLaneOp, NoLaneOp,     NoLaneOp,     NoLaneOp>;
+using VCttzToLVX = VectorUnaryToLVX<math::CountTrailingZerosOp,
+    NoLaneOp, lvx::CtzhoOp, lvx::CtzwqOp, lvx::CtzdpOp,
+    NoLaneOp, NoLaneOp,     NoLaneOp,     NoLaneOp>;
+using VCtpopToLVX = VectorUnaryToLVX<math::CtPopOp,
+    NoLaneOp, lvx::CbshoOp, lvx::CbswqOp, lvx::CbsdpOp,
+    NoLaneOp, NoLaneOp,     NoLaneOp,     NoLaneOp>;
+
+// Float. There is no 8-bit float, and f16 (`ho`/`hx`) is out of scope for
+// now (VectorCoverage.md §1), but the ops are named here anyway: the type
+// converter decides what reaches them.
+using VAddFToLVX = VectorBinaryToLVX<arith::AddFOp,
+    NoLaneOp, lvx::FaddhoOp, lvx::FaddwqOp, lvx::FadddpOp,
+    NoLaneOp, lvx::FaddhxOp, lvx::FaddwoOp, lvx::FadddqOp>;
+using VSubFToLVX = VectorBinaryToLVX<arith::SubFOp,
+    NoLaneOp, lvx::FsbfhoOp, lvx::FsbfwqOp, lvx::FsbfdpOp,
+    NoLaneOp, lvx::FsbfhxOp, lvx::FsbfwoOp, lvx::FsbfdqOp>;
+using VMulFToLVX = VectorBinaryToLVX<arith::MulFOp,
+    NoLaneOp, lvx::FmulhoOp, lvx::FmulwqOp, lvx::FmuldpOp,
+    NoLaneOp, lvx::FmulhxOp, lvx::FmulwoOp, lvx::FmuldqOp>;
+// 754-2019 minimum/maximum (NaN propagating) and 754-2008 minNum/maxNum
+// (NaN returning the other operand) are different instructions, and pairing
+// them wrongly is invisible on non-NaN input -- see the min/max invariant in
+// the top-level CLAUDE.md.
+using VMinimumFToLVX = VectorBinaryToLVX<arith::MinimumFOp,
+    NoLaneOp, lvx::FminhoOp, lvx::FminwqOp, lvx::FmindpOp,
+    NoLaneOp, lvx::FminhxOp, lvx::FminwoOp, lvx::FmindqOp>;
+using VMaximumFToLVX = VectorBinaryToLVX<arith::MaximumFOp,
+    NoLaneOp, lvx::FmaxhoOp, lvx::FmaxwqOp, lvx::FmaxdpOp,
+    NoLaneOp, lvx::FmaxhxOp, lvx::FmaxwoOp, lvx::FmaxdqOp>;
+using VMinNumFToLVX = VectorBinaryToLVX<arith::MinNumFOp,
+    NoLaneOp, lvx::FminnhoOp, lvx::FminnwqOp, lvx::FminndpOp,
+    NoLaneOp, lvx::FminnhxOp, lvx::FminnwoOp, lvx::FminndqOp>;
+using VMaxNumFToLVX = VectorBinaryToLVX<arith::MaxNumFOp,
+    NoLaneOp, lvx::FmaxnhoOp, lvx::FmaxnwqOp, lvx::FmaxndpOp,
+    NoLaneOp, lvx::FmaxnhxOp, lvx::FmaxnwoOp, lvx::FmaxndqOp>;
+// `copysign` is `fsign*` at pair width and `copysign*` -- the composite of
+// `fsign*` -- at quad width, one of the few places the two names differ.
+using VCopySignToLVX = VectorBinaryToLVX<math::CopySignOp,
+    NoLaneOp, lvx::FsignhoOp,   lvx::FsignwqOp,   lvx::FsigndpOp,
+    NoLaneOp, lvx::CopysignhxOp, lvx::CopysignwoOp, lvx::CopysigndqOp>;
+using VNegFToLVX = VectorUnaryToLVX<arith::NegFOp,
+    NoLaneOp, lvx::FneghoOp, lvx::FnegwqOp, lvx::FnegdpOp,
+    NoLaneOp, lvx::FneghxOp, lvx::FnegwoOp, lvx::FnegdqOp>;
+using VAbsFToLVX = VectorUnaryToLVX<math::AbsFOp,
+    NoLaneOp, lvx::FabshoOp, lvx::FabswqOp, lvx::FabsdpOp,
+    NoLaneOp, lvx::FabshxOp, lvx::FabswoOp, lvx::FabsdqOp>;
+
+//===----------------------------------------------------------------------===//
 // Masks: the vector compares write one, `blend` reads one.
 //
 // `vector<Nxi1>` is a register holding N low bits (the type converter above).
@@ -1894,6 +2225,15 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     VectorDeinterleaveToLVX, VectorInterleaveToLVX,
     VectorExtractToLVX, VectorInsertToLVX, VectorShuffleToLVX,
     VectorCmpIToLVX, VectorCmpFToLVX, VectorSelectToLVX,
+    // Elementwise arithmetic (Phase 1)
+    VAddIToLVX, VSubIToLVX, VMulIToLVX,
+    VMinSIToLVX, VMaxSIToLVX, VMinUIToLVX, VMaxUIToLVX,
+    VAndIToLVX, VOrIToLVX, VXOrIToLVX,
+    VShLIToLVX, VShRSIToLVX, VShRUIToLVX,
+    VAbsIToLVX, VCtlzToLVX, VCttzToLVX, VCtpopToLVX,
+    VAddFToLVX, VSubFToLVX, VMulFToLVX,
+    VMinimumFToLVX, VMaximumFToLVX, VMinNumFToLVX, VMaxNumFToLVX,
+    VCopySignToLVX, VNegFToLVX, VAbsFToLVX,
     VectorShapeCastToLVX, VectorBitCastToLVX,
     MinimumFToLVX, MaximumFToLVX, MinNumFToLVX, MaxNumFToLVX,
     AbsFToLVX, CtlzToLVX, CttzToLVX, CtpopToLVX, AbsIToLVX,
