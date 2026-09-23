@@ -66,7 +66,7 @@ struct LoadRow {
   unsigned Indexed;     // base+index register
 };
 
-const LoadRow LoadRows[] = {
+constexpr LoadRow LoadRows[] = {
 #define LVX_LOAD(BITS, EXT, CLASS, BO, BOX, BOY, BI)                           \
   {BITS, EXT_##EXT, CLASS_GPR_##CLASS, LVX::BO, LVX::BI},
 #include "LVXMemoryTable.inc"
@@ -97,7 +97,7 @@ struct StoreRow {
   unsigned Indexed;
 };
 
-const StoreRow StoreRows[] = {
+constexpr StoreRow StoreRows[] = {
 #define LVX_STORE(BITS, CLASS, BO, BOX, BOY, BI)                               \
   {BITS, CLASS_GPR_##CLASS, LVX::BO, LVX::BI},
 #include "LVXMemoryTable.inc"
@@ -109,6 +109,39 @@ unsigned narrowStoreOpcode(unsigned Bits, LoadClass Class) {
       return Row.Narrow;
   return 0;
 }
+
+// The widths this back end SELECTS, as opposed to the ones the table happens
+// to carry. Checked at build time because the table is generated and can lose
+// a row without anyone noticing until the code is worse or gone: a missing
+// 8/16/32/64 row silently costs the ordinary loads and stores, and a missing
+// 128/256 row costs lq/sq/lo/so, which is every i128 and v4i64 access.
+//
+// That is not hypothetical. lq/sq/lo/so are becoming maskable -- their
+// bytemask comes from APPLY.maskbytes, fed by a MASKM BCU prefix -- and the
+// generator drops any opcode it sees as masked. A prefix is a separate
+// instruction, so these keep their operands and, with no MASKM in the bundle,
+// maskbytes() yields all-ones and the access is full width: exactly what a
+// row promises, and this back end emits no prefixes. If they disappear
+// anyway, the build stops here rather than the tests failing later with a
+// CHECK line that does not say why.
+constexpr bool hasLoad(unsigned Bits, LoadClass Class) {
+  for (const LoadRow &Row : LoadRows)
+    if (Row.Bits == Bits && Row.Class == Class)
+      return true;
+  return false;
+}
+constexpr bool hasStore(unsigned Bits, LoadClass Class) {
+  for (const StoreRow &Row : StoreRows)
+    if (Row.Bits == Bits && Row.Class == Class)
+      return true;
+  return false;
+}
+static_assert(hasLoad(128, CLASS_GPR128) && hasStore(128, CLASS_GPR128),
+              "lq/sq went missing: every i128 access selects through them");
+static_assert(hasLoad(256, CLASS_GPR256) && hasStore(256, CLASS_GPR256),
+              "lo/so went missing: every v4i64 access selects through them");
+static_assert(hasLoad(64, CLASS_GPR) && hasStore(64, CLASS_GPR),
+              "ld/sd went missing");
 
 // Whether a load or store of MemVT bits can hold a value of type VT in one
 // register, which is what lets the width alone pick the instruction. Two
