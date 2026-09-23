@@ -559,6 +559,18 @@ def : Pat<(i64 (bitconvert f64:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
 def : Pat<(i64 (LVXf32tobits f32:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
 def : Pat<(f32 (LVXbitstof32 i64:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
 def : Pat<(i64 (LVXf16tobits f16:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
+
+// A 128-bit pair is one i128 or two 64-bit lanes, and which it is is the
+// value's type, not the register's -- so every reinterpretation among them is
+// a register-to-register move, or nothing at all once the allocator has put
+// both in the same pair. GPR128 and GPR128V are the same registers under two
+// names; see LVXRegisterInfo.td for why they have to be two.
+def : Pat<(i128  (bitconvert v2i64:$a)), (COPY_TO_REGCLASS GPR128V:$a, GPR128)>;
+def : Pat<(i128  (bitconvert v2f64:$a)), (COPY_TO_REGCLASS GPR128V:$a, GPR128)>;
+def : Pat<(v2i64 (bitconvert i128:$a)),  (COPY_TO_REGCLASS GPR128:$a, GPR128V)>;
+def : Pat<(v2f64 (bitconvert i128:$a)),  (COPY_TO_REGCLASS GPR128:$a, GPR128V)>;
+def : Pat<(v2i64 (bitconvert v2f64:$a)), (COPY_TO_REGCLASS GPR128V:$a, GPR128V)>;
+def : Pat<(v2f64 (bitconvert v2i64:$a)), (COPY_TO_REGCLASS GPR128V:$a, GPR128V)>;
 def : Pat<(f16 (LVXbitstof16 i64:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
 
 // ---- f16 conversions -------------------------------------------------------

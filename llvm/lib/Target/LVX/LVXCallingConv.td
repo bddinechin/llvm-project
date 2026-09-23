@@ -53,6 +53,15 @@ def CC_LVX : CallingConv<[
   CCIfType<[f16], CCBitConvertToType<i16>>,
   CCIfType<[f32], CCBitConvertToType<i32>>,
 
+  // A 128-bit vector travels as the 128-bit integer it shares its registers
+  // with -- one aligned pair, and the same slot rule. Saying so here rather
+  // than only in clang's LVXABIInfo is what makes the back end consistent on
+  // its own: v2i64 is a legal type, and a legal type the convention cannot
+  // pass is a hole that only shows when the IR comes from somewhere other
+  // than clang ("unable to allocate function argument" on the first
+  // hand-written .ll that passes one).
+  CCIfType<[v2i64, v2f64], CCBitConvertToType<i128>>,
+
   // Promote small integer types to i64 — every argument slot is 64 bits
   // wide and integral scalars are placed in the low bits of the slot.
   CCIfType<[i1, i8, i16, i32], CCPromoteToType<i64>>,
@@ -87,6 +96,7 @@ def CC_LVX : CallingConv<[
 def CC_LVXRet : CallingConv<[
   CCIfType<[f16], CCBitConvertToType<i16>>,
   CCIfType<[f32], CCBitConvertToType<i32>>,
+  CCIfType<[v2i64, v2f64], CCBitConvertToType<i128>>,
   CCIfType<[i1, i8, i16, i32], CCPromoteToType<i64>>,
 
   CCIfType<[i64, f64],  CCAssignToReg<[R0, R1, R2, R3]>>,

@@ -157,6 +157,15 @@ bool widthAgrees(EVT VT, EVT MemVT) {
   return MemVT.getSizeInBits() < 64 && VT == MVT::i64;
 }
 
+// A 128- or 256-bit access, whatever type the value has: i128, v2i64 and
+// v2f64 all live in one pair and v4i64 in one quad, and the instruction cares
+// only which class it writes. Listing the types by name instead meant a new
+// legal vector type silently had no load at all.
+bool isWideMemVT(EVT VT) {
+  unsigned Bits = VT.getSizeInBits();
+  return (Bits == 128 || Bits == 256) && (VT.isVector() || VT == MVT::i128);
+}
+
 // The register class a value of this type lives in, for the two lookups
 // above. Everything 64 bits and under is a GPR: an i32 is loaded into a
 // whole register, zero- or sign-extended.
@@ -545,6 +554,23 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     return;
   }
 
+  // ISD::BUILD_VECTOR for a 128-bit pair: the two lanes are the pair's two
+  // registers, so this is the same REG_SEQUENCE that BUILD_PAIR gets -- the
+  // allocator puts them in an aligned pair and nothing is executed.
+  if (N->getOpcode() == ISD::BUILD_VECTOR &&
+      (N->getValueType(0) == MVT::v2i64 || N->getValueType(0) == MVT::v2f64)) {
+    SDValue RegClass =
+        CurDAG->getTargetConstant(LVX::GPR128VRegClassID, DL, MVT::i32);
+    SDValue Ops[] = {RegClass,
+                     N->getOperand(0),
+                     CurDAG->getTargetConstant(sub_hi, DL, MVT::i32),
+                     N->getOperand(1),
+                     CurDAG->getTargetConstant(sub_lo, DL, MVT::i32)};
+    ReplaceNode(N, CurDAG->getMachineNode(TargetOpcode::REG_SEQUENCE, DL,
+                                          N->getValueType(0), Ops));
+    return;
+  }
+
   // ISD::BUILD_VECTOR for v4i64 → two CATDQs (forming two GPR128 halves)
   // then REG_SEQUENCE to place them into a GPR256.
   // Layout (confirmed ABI + sub_hi/sub_lo semantics):
@@ -585,15 +611,23 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
   // The naming trap once more: sub_pair_hi and sub_hi are the indices at
   // bit offset 0 -- the LOW halves -- so element 0 is (sub_pair_hi,
   // sub_hi). This matches the BUILD_VECTOR below, which must agree with it.
-  if (N->getOpcode() == ISD::EXTRACT_VECTOR_ELT &&
-      N->getOperand(0).getValueType() == MVT::v4i64) {
-    if (auto *Idx = dyn_cast<ConstantSDNode>(N->getOperand(1))) {
+  if (N->getOpcode() == ISD::EXTRACT_VECTOR_ELT) {
+    EVT VecVT = N->getOperand(0).getValueType();
+    auto *Idx = dyn_cast<ConstantSDNode>(N->getOperand(1));
+    if (Idx && (VecVT == MVT::v4i64 || VecVT == MVT::v2i64 ||
+                VecVT == MVT::v2f64)) {
       uint64_t I = Idx->getZExtValue();
-      assert(I < 4 && "index out of range for v4i64");
-      SDValue Pair = CurDAG->getTargetExtractSubreg(
-          I < 2 ? sub_pair_hi : sub_pair_lo, DL, MVT::i128, N->getOperand(0));
-      SDValue Elt = CurDAG->getTargetExtractSubreg(
-          (I & 1) ? sub_lo : sub_hi, DL, MVT::i64, Pair);
+      EVT EltVT = VecVT.getVectorElementType();
+      SDValue Vec = N->getOperand(0);
+      if (VecVT == MVT::v4i64) {
+        assert(I < 4 && "index out of range for v4i64");
+        Vec = CurDAG->getTargetExtractSubreg(
+            I < 2 ? sub_pair_hi : sub_pair_lo, DL, MVT::i128, Vec);
+      } else {
+        assert(I < 2 && "index out of range for a 128-bit pair");
+      }
+      SDValue Elt = CurDAG->getTargetExtractSubreg((I & 1) ? sub_lo : sub_hi,
+                                                   DL, EltVT, Vec);
       ReplaceNode(N, Elt.getNode());
       return;
     }
@@ -711,10 +745,12 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
       // FWIDENWD after the load and is declared Expand in LVXTargetLowering,
       // so matching it here as a bare LWZ would silently drop the conversion.
       //
-      // The wide widths are here too: lq for an i128 and lo for a v4i64,
-      // both non-extending by nature -- there is nothing above them to
-      // extend to. classForType is what keeps them apart from the lvx-2
-      // splatting loads of the same width, which target a GPR256.
+      // The wide widths are here too: lq at 128 bits and lo at 256, for
+      // whichever type of that width the value has -- an i128, a v2i64 or a
+      // v2f64 all live in the same pair, and only the class matters to the
+      // instruction. They are non-extending by nature; there is nothing above
+      // them to extend to. classForType is what keeps them apart from the
+      // lvx-2 splatting loads of the same width, which target a GPR256.
       //
       // The node's own type has to be checked, not just the memory width: a
       // load of 64 bits whose RESULT is an i128 is an extending load into a
@@ -730,8 +766,7 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
            MemVT == MVT::i16 || MemVT == MVT::i8 ||
            ((MemVT == MVT::f32 || MemVT == MVT::f16) &&
             Ext == ISD::NON_EXTLOAD) ||
-           ((MemVT == MVT::i128 || MemVT == MVT::v4i64) &&
-            Ext == ISD::NON_EXTLOAD)))
+           (isWideMemVT(MemVT) && Ext == ISD::NON_EXTLOAD)))
         Opc = narrowLoadOpcode(MemVT.getSizeInBits(), Ext == ISD::SEXTLOAD,
                                classForType(MemVT));
 
@@ -802,8 +837,7 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
           (MemVT == MVT::i64 || MemVT == MVT::f64 || MemVT == MVT::f32 ||
            MemVT == MVT::f16 || MemVT == MVT::i32 || MemVT == MVT::i16 ||
            MemVT == MVT::i8 ||
-           ((MemVT == MVT::i128 || MemVT == MVT::v4i64) &&
-            !ST->isTruncatingStore())))
+           (isWideMemVT(MemVT) && !ST->isTruncatingStore())))
         Opc = narrowStoreOpcode(MemVT.getSizeInBits(), classForType(MemVT));
 
       Opc = Opc ? selectLoadStoreOpcode(Opc, Offset, IsFrameIndex) : 0;

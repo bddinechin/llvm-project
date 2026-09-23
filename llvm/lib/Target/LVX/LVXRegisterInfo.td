@@ -220,6 +220,26 @@ def GPR128 : RegisterClass<"LVX", [i128], 128, (add
 )>;
 
 //===----------------------------------------------------------------------===//
+// 128-bit vectors: the SAME registers as GPR128, seen as two 64-bit lanes
+//
+// A separate class rather than more value types on GPR128, and the reason is
+// TableGen's type inference, not the hardware. GPR carries i64 with f64/f32/
+// f16 and a bare "GPR:$rZ" is still unambiguous, because only one of those is
+// an integer type and an integer node picks it. Put i128 and v2i64 in one
+// class and that stops being true: the generated "(add GPR128:$rO,
+// GPR128:$rP)" for addq can no longer say which add it means, and every
+// pattern in LVXInstrPatterns.td that names GPR128 fails to infer.
+//
+// The lane types stop at 64 bits ON PURPOSE -- see LVXISelLowering: with no
+// lane-wise instruction in this description every vector operation unrolls to
+// scalars, so a type is worth making legal only when reading a lane is a
+// subregister read rather than a shift and a mask.
+//===----------------------------------------------------------------------===//
+
+def GPR128V : RegisterClass<"LVX", [v2i64, v2f64], 128, (add GPR128)>;
+
+
+//===----------------------------------------------------------------------===//
 // Sub-register indices for 256-bit quads
 //===----------------------------------------------------------------------===//
 

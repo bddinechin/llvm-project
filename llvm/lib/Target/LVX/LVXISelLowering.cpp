@@ -124,6 +124,24 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // intact as a single legal type.
   addRegisterClass(MVT::v4i64, &LVX::GPR256RegClass);
 
+  // 128-bit vectors of 64-bit lanes. Worth making legal even though this
+  // description has no lane-wise instruction at all, because the alternative
+  // is worse: v4i64 being the ONLY legal vector type, every narrower 128-bit
+  // vector was widened to 256 bits, and a "<2 x i64> a + b" came out as a
+  // 128-byte frame with sq/sq/lo/lo ... so/lq around two adds. Legal, it is
+  // the two adds.
+  //
+  // The lane types stop at 64 bits, and that is the rule rather than an
+  // omission: every operation here unrolls to scalars, so a lane read has to
+  // be a SUBREGISTER read to be free. v4i32/v8i16/v16i8 would pack four or
+  // more lanes into a pair, where reading one is a shift and a mask and
+  // unrolling costs that per lane -- worse than leaving the legalizer to
+  // widen their elements. The day lane-wise instructions arrive (lvx-2's
+  // ADDWQ, ADDHO, ADDBX ... which this description does not have) that
+  // reasoning inverts, and so does this list.
+  for (MVT VT : {MVT::v2i64, MVT::v2f64})
+    addRegisterClass(VT, &LVX::GPR128VRegClass);
+
   // v4i64 being the only legal vector type, the type legalizer promotes a
   // v4i8/v4i16/v4i32 to it -- and then asks for an extending vector load or
   // a truncating vector store, which the ISA has not got: lo and so move
@@ -131,10 +149,19 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // Left Legal (the default for a legal type), those select nothing at all.
   // Expand turns each into per-element accesses, which is slow but is what
   // the hardware can do until there is real vector lowering.
-  for (MVT VT : {MVT::v4i8, MVT::v4i16, MVT::v4i32}) {
-    setTruncStoreAction(MVT::v4i64, VT, Expand);
-    for (unsigned Ext : {ISD::EXTLOAD, ISD::SEXTLOAD, ISD::ZEXTLOAD})
-      setLoadExtAction(Ext, MVT::v4i64, VT, Expand);
+  for (MVT Wide : {MVT::v4i64, MVT::v2i64}) {
+    for (MVT Narrow : MVT::integer_fixedlen_vector_valuetypes()) {
+      if (Narrow.getVectorNumElements() != Wide.getVectorNumElements() ||
+          !Narrow.getScalarType().bitsLT(Wide.getScalarType()))
+        continue;
+      setTruncStoreAction(Wide, Narrow, Expand);
+      for (unsigned Ext : {ISD::EXTLOAD, ISD::SEXTLOAD, ISD::ZEXTLOAD})
+        setLoadExtAction(Ext, Wide, Narrow, Expand);
+    }
+  }
+  for (MVT Narrow : {MVT::v2f32, MVT::v2f16}) {
+    setTruncStoreAction(MVT::v2f64, Narrow, Expand);
+    setLoadExtAction(ISD::EXTLOAD, MVT::v2f64, Narrow, Expand);
   }
 
   // v4i64 is a legal TYPE with no legal OPERATIONS: it exists so that a
@@ -156,14 +183,23 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // and computationally empty, and isel then spins -- ten minutes on one
   // function, not a crash, which is the sort of thing a timeout finds and a
   // test suite does not. They are left Legal; nothing has asked for them.
-  for (unsigned Op :
-       {ISD::ADD, ISD::SUB, ISD::MUL, ISD::SDIV, ISD::UDIV, ISD::SREM,
-        ISD::UREM, ISD::AND, ISD::OR, ISD::XOR, ISD::SHL, ISD::SRA,
-        ISD::SRL, ISD::MULHS, ISD::MULHU, ISD::ABS, ISD::SMIN, ISD::SMAX,
-        ISD::UMIN, ISD::UMAX, ISD::SETCC, ISD::VSELECT,
-        ISD::INSERT_VECTOR_ELT, ISD::VECTOR_SHUFFLE, ISD::SCALAR_TO_VECTOR,
-        ISD::CONCAT_VECTORS, ISD::EXTRACT_SUBVECTOR, ISD::INSERT_SUBVECTOR})
-    setOperationAction(Op, MVT::v4i64, Expand);
+  for (MVT VT : {MVT::v4i64, MVT::v2i64, MVT::v2f64}) {
+    for (unsigned Op :
+         {ISD::ADD, ISD::SUB, ISD::MUL, ISD::SDIV, ISD::UDIV, ISD::SREM,
+          ISD::UREM, ISD::AND, ISD::OR, ISD::XOR, ISD::SHL, ISD::SRA,
+          ISD::SRL, ISD::MULHS, ISD::MULHU, ISD::ABS, ISD::SMIN, ISD::SMAX,
+          ISD::UMIN, ISD::UMAX, ISD::SETCC, ISD::VSELECT,
+          ISD::INSERT_VECTOR_ELT, ISD::VECTOR_SHUFFLE, ISD::SCALAR_TO_VECTOR,
+          ISD::CONCAT_VECTORS, ISD::EXTRACT_SUBVECTOR, ISD::INSERT_SUBVECTOR,
+          ISD::FADD, ISD::FSUB, ISD::FMUL, ISD::FDIV, ISD::FNEG, ISD::FABS,
+          ISD::FSQRT, ISD::FMA})
+      setOperationAction(Op, VT, Expand);
+
+    // A lane read at a constant index is a subregister read, selected in
+    // LVXISelDAGToDAG; a computed one has no instruction and goes through
+    // memory, which is what a null SDValue from the Custom hook asks for.
+    setOperationAction(ISD::EXTRACT_VECTOR_ELT, VT, Custom);
+  }
 
   // Floating point lives in the SAME general-purpose registers as integers --
   // LVX has no separate FP register file, and every FPU instruction in the
@@ -396,8 +432,6 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // generic expansion does, and what returning a null SDValue from a Custom
   // hook asks for. Left Legal, isel simply failed on it at -O0 and -O1,
   // where the index has not been folded to a constant yet.
-  setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v4i64, Custom);
-
   // fcopysign whose operands are different types -- see lowerCopySign.
   for (MVT VT : {MVT::f16, MVT::f32, MVT::f64})
     setOperationAction(ISD::FCOPYSIGN, VT, Custom);
