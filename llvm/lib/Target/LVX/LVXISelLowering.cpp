@@ -319,12 +319,15 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // longer is). Left at Promote they would sit unused behind an fwidenhw /
   // fnarrowwh pair that also rounds twice where the instruction rounds once.
   //
-  // Only what has no f16 instruction is promoted. The comparisons are the
-  // real entry here: fcomph exists, but the compare multiclasses in this file
-  // are hand-written and cover f32/f64 only, so an f16 setcc still widens.
-  for (unsigned Op :
-       {ISD::SETCC, ISD::SELECT, ISD::SELECT_CC, ISD::BR_CC})
-    setOperationAction(Op, MVT::f16, Promote);
+  // The comparison is native too: fcomph, through the same FCmpPat
+  // multiclass f32 and f64 use. What is left is what f32 and f64 also leave
+  // alone -- there is no FP compare-and-branch and no FP conditional move,
+  // so a comparison produces a 0/1 GPR and an integer branch or cmove reads
+  // it, and the two "is it ordered" predicates have no single encoding.
+  setOperationAction(ISD::BR_CC, MVT::f16, Expand);
+  setOperationAction(ISD::SELECT_CC, MVT::f16, Expand);
+  setCondCodeAction(ISD::SETO, MVT::f16, Expand);
+  setCondCodeAction(ISD::SETUO, MVT::f16, Expand);
 
   // The same four min/max and FRINT the f32/f64 loop above declares Legal,
   // for the same reason: both IEEE families have a half-word instruction

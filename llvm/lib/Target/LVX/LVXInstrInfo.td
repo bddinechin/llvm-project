@@ -384,11 +384,24 @@ def : Pat<(not   GPR:$rZ), (NOTD_DBWR GPR:$rZ)>;
 // The write being conditional is exactly why $rW is tied -- see the
 // CMOVED entry in LVXInstrEncodings.td, whose Constraints the machine
 // description's "(IF ... (COMMIT %1) (SKIP))" is what produces.
-// Types pinned to i64 rather than left as bare GPR: GPR now carries f64/f32
-// as well, and ISD::SELECT is type-agnostic, so TableGen cannot infer which
-// was meant. An FP select reaches the same instruction after a bitcast.
-def : Pat<(select i64:$rZ, i64:$rY, i64:$rW),
-          (CMOVED_DCMWRR i64:$rW, i64:$rZ, i64:$rY, 5 /* .dnez */)>;
+// Types pinned rather than left as bare GPR: GPR carries f64/f32/f16 as well,
+// and ISD::SELECT is type-agnostic, so TableGen cannot infer which was meant
+// -- hence one instantiation per type rather than one pattern.
+//
+// There has to be an instantiation per FP type: the comment here used to say
+// an FP select "reaches the same instruction after a bitcast", and it did
+// not. "a < b ? x : y" on float or double failed to select outright, and had
+// since FP arrived; nothing in the suite performed one. The condition stays
+// i64 -- it is the 0/1 a comparison produces -- while the selected values
+// carry the select's own type.
+multiclass SelectPat<ValueType vt> {
+  def : Pat<(select i64:$rZ, vt:$rY, vt:$rW),
+            (CMOVED_DCMWRR vt:$rW, i64:$rZ, vt:$rY, 5 /* .dnez */)>;
+}
+defm : SelectPat<i64>;
+defm : SelectPat<f64>;
+defm : SelectPat<f32>;
+defm : SelectPat<f16>;
 
 // ---- Control flow ---------------------------------------------------------
 //
@@ -513,6 +526,7 @@ multiclass FCmpPat<ValueType vt, Instruction cmp> {
 }
 defm : FCmpPat<f64, FCOMPD_FDCWRR>;
 defm : FCmpPat<f32, FCOMPW_FWCWRR>;
+defm : FCmpPat<f16, FCOMPH_FHCWRR>;
 
 // All ten conversions are GENERATED now, from the "<from>_to_<to>" helper each
 // one calls. i64 stays the only legal integer type, so the narrower FIXED*/

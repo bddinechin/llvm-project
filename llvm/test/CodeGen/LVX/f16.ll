@@ -157,16 +157,26 @@ define half @fma(half %a, half %b, half %c) {
   ret half %r
 }
 
-; A comparison still widens: fcomph exists, but the compare multiclasses in
-; LVXInstrInfo.td are hand-written and cover f32/f64 only, so SETCC is the
-; one f16 operation left on Promote.
+; The comparison is native too, through the same FCmpPat multiclass f32 and
+; f64 use -- no widening.
 define i32 @cmp(half %a, half %b) {
 ; CHECK-LABEL: cmp:
-; CHECK: fwidenhw
-; CHECK: fcompw
+; CHECK-NOT: fwidenhw
+; CHECK:     fcomph.olt $r0 = $r0, $r1
   %c = fcmp olt half %a, %b
   %r = zext i1 %c to i32
   ret i32 %r
+}
+
+; And a select: the comparison makes a 0/1 GPR and cmoved reads it. There is
+; no FP conditional move, which is why it goes through the integer one.
+define half @sel(half %a, half %b, half %x, half %y) {
+; CHECK-LABEL: sel:
+; CHECK:     fcomph.olt
+; CHECK:     cmoved.dnez
+  %c = fcmp olt half %a, %b
+  %r = select i1 %c, half %x, half %y
+  ret half %r
 }
 
 declare half @llvm.minimum.f16(half, half)
