@@ -78,6 +78,14 @@ def SDT_LVXBitsToF32 : SDTypeProfile<1, 1, [SDTCisVT<0, f32>, SDTCisVT<1, i64>]>
 def LVXf32tobits : SDNode<"LVXISD::F32_TO_BITS", SDT_LVXF32ToBits>;
 def LVXbitstof32 : SDNode<"LVXISD::BITS_TO_F32", SDT_LVXBitsToF32>;
 
+// The same pair for f16, needed for the same reason one step further down:
+// i16 is no more a legal type here than i32 is, so a bitcast through it goes
+// via memory.
+def SDT_LVXF16ToBits : SDTypeProfile<1, 1, [SDTCisVT<0, i64>, SDTCisVT<1, f16>]>;
+def SDT_LVXBitsToF16 : SDTypeProfile<1, 1, [SDTCisVT<0, f16>, SDTCisVT<1, i64>]>;
+def LVXf16tobits : SDNode<"LVXISD::F16_TO_BITS", SDT_LVXF16ToBits>;
+def LVXbitstof16 : SDNode<"LVXISD::BITS_TO_F16", SDT_LVXBitsToF16>;
+
 //===----------------------------------------------------------------------===//
 // Call-frame pseudo instructions
 //
@@ -438,6 +446,13 @@ def : Pat<(fneg f64:$a),         (FNEGD_FDMO1 f64:$a)>;
 def : Pat<(fabs f64:$a),         (FABSD_FDMO1 f64:$a)>;
 def : Pat<(fneg f32:$a),         (FNEGW_FWMO1 f32:$a)>;
 def : Pat<(fabs f32:$a),         (FABSW_FWMO1 f32:$a)>;
+// The half word has its own, and it must be used rather than promoted: a
+// sign operation is pure bit manipulation, so widening to f32 and narrowing
+// back would be three instructions for one -- and promoting FCOPYSIGN in
+// particular sends the legalizer round in a circle (its two operands need
+// not share a type), which is a hang, not a diagnostic.
+def : Pat<(fneg f16:$a),         (FNEGH_FHMO1 f16:$a)>;
+def : Pat<(fabs f16:$a),         (FABSH_FHMO1 f16:$a)>;
 
 // Fused multiply-add. FFMAD computes
 //   result1 = f64_mulAdd(RM, argument3, argument2^fsign, argument1^fsign)
@@ -468,6 +483,7 @@ def : Pat<(fabs f32:$a),         (FABSW_FWMO1 f32:$a)>;
 // right answer even with the broken mask.
 def : Pat<(fcopysign f64:$mag, f64:$sgn), (FSIGND_FDMMWR f64:$mag, f64:$sgn)>;
 def : Pat<(fcopysign f32:$mag, f32:$sgn), (FSIGNW_FWMMWR f32:$mag, f32:$sgn)>;
+def : Pat<(fcopysign f16:$mag, f16:$sgn), (FSIGNH_FHMMWR f16:$mag, f16:$sgn)>;
 
 // Comparisons. floatcomp members: 0 .one, 1 .ueq, 2 .oeq, 3 .une, 4 .olt,
 // 5 .uge, 6 .oge, 7 .ult. There is no GT/LE member, so those come from
@@ -521,6 +537,45 @@ def : Pat<(f64 (bitconvert i64:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
 def : Pat<(i64 (bitconvert f64:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
 def : Pat<(i64 (LVXf32tobits f32:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
 def : Pat<(f32 (LVXbitstof32 i64:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
+def : Pat<(i64 (LVXf16tobits f16:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
+def : Pat<(f16 (LVXbitstof16 i64:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
+
+// ---- f16 conversions -------------------------------------------------------
+//
+// fwidenhw takes a `mostsig` modifier saying WHICH half word of the source
+// register it widens; 0 is the least significant one, which is where a scalar
+// f16 sits. (1 is for the packed pair, which nothing selects here yet.)
+// fnarrowwh takes a rounding mode, and 7 -- the unsuffixed member -- means
+// "use $cs.RM", the only thing an unconstrained fpround can mean. Both match
+// how the generated f32<->f64 pair spells the same two things.
+def : Pat<(f32 (fpextend f16:$rZ)), (FWIDENHW_FWWIDEN f16:$rZ, 0)>;
+def : Pat<(f16 (fpround f32:$rZ)),  (FNARROWWH_FHWR  f32:$rZ, 7)>;
+
+// f16 to and from integer, also two instructions: the fixed/float family
+// starts at the word. The modifier values match the generated f32 patterns
+// beside them -- 1 is .rz on the way to an integer, because truncation
+// toward zero is what fp_to_sint means whatever $cs says, and 7 is the
+// unsuffixed "use $cs.RM" on the way back.
+//
+// These cannot be expressed by setOperationAction: the action for
+// FP_TO_SINT is keyed on the RESULT type (i64, which is Legal), so marking
+// f16 Promote does nothing at all and isel simply fails to select.
+def : Pat<(i64 (fp_to_sint f16:$rZ)),
+          (FIXEDWD_FDFIXED (FWIDENHW_FWWIDEN f16:$rZ, 0), 1)>;
+def : Pat<(i64 (fp_to_uint f16:$rZ)),
+          (FIXEDUWD_FDFIXED (FWIDENHW_FWWIDEN f16:$rZ, 0), 1)>;
+def : Pat<(f16 (sint_to_fp i64:$rZ)),
+          (FNARROWWH_FHWR (FLOATDW_FWFLOAT i64:$rZ, 7), 7)>;
+def : Pat<(f16 (uint_to_fp i64:$rZ)),
+          (FNARROWWH_FHWR (FLOATUDW_FWFLOAT i64:$rZ, 7), 7)>;
+
+// f16 <-> f64 is two instructions: there is no half-to-double in the ISA.
+// Widening is exact, so the order cannot lose anything; narrowing rounds
+// twice, which is what the hardware offers and what lvx-gcc emits too.
+def : Pat<(f64 (fpextend f16:$rZ)),
+          (FWIDENWD_FDWIDEN (FWIDENHW_FWWIDEN f16:$rZ, 0), 0)>;
+def : Pat<(f16 (fpround f64:$rZ)),
+          (FNARROWWH_FHWR (FNARROWDW_FWWR f64:$rZ, 7), 7)>;
 
 // Patterns generated from the machine description (BE/LLVM llvm-patterns.pl).
 include "LVXInstrPatterns.td"

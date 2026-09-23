@@ -350,8 +350,9 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     auto *CFP = cast<ConstantFPSDNode>(N);
     EVT VT = N->getValueType(0);
     APInt Bits = CFP->getValueAPF().bitcastToAPInt();
-    int64_t Val = VT == MVT::f32 ? (int64_t)Bits.getZExtValue()
-                                 : (int64_t)Bits.getSExtValue();
+    int64_t Val = (VT == MVT::f32 || VT == MVT::f16)
+                      ? (int64_t)Bits.getZExtValue()
+                      : (int64_t)Bits.getSExtValue();
     unsigned Opc = isInt<16>(Val) ? LVX::MAKED_DWI
                  : isInt<43>(Val) ? LVX::MAKED_DWI_X
                                   : LVX::MAKED_DWI_Y;
@@ -694,7 +695,8 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
       if (WidthAgrees &&
           (MemVT == MVT::i64 || MemVT == MVT::f64 || MemVT == MVT::i32 ||
            MemVT == MVT::i16 || MemVT == MVT::i8 ||
-           (MemVT == MVT::f32 && Ext == ISD::NON_EXTLOAD) ||
+           ((MemVT == MVT::f32 || MemVT == MVT::f16) &&
+            Ext == ISD::NON_EXTLOAD) ||
            ((MemVT == MVT::i128 || MemVT == MVT::v4i64) &&
             Ext == ISD::NON_EXTLOAD)))
         Opc = narrowLoadOpcode(MemVT.getSizeInBits(), Ext == ISD::SEXTLOAD,
@@ -765,7 +767,8 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
       bool WidthAgrees = widthAgrees(VT, MemVT);
       if (WidthAgrees &&
           (MemVT == MVT::i64 || MemVT == MVT::f64 || MemVT == MVT::f32 ||
-           MemVT == MVT::i32 || MemVT == MVT::i16 || MemVT == MVT::i8 ||
+           MemVT == MVT::f16 || MemVT == MVT::i32 || MemVT == MVT::i16 ||
+           MemVT == MVT::i8 ||
            ((MemVT == MVT::i128 || MemVT == MVT::v4i64) &&
             !ST->isTruncatingStore())))
         Opc = narrowStoreOpcode(MemVT.getSizeInBits(), classForType(MemVT));

@@ -117,8 +117,10 @@ def R63 : LVXReg64<63, "$r63">;
 // LVXInstrEncodings.td takes GPR operands. Without them an FP pattern cannot
 // bind its f64/f32 operand to a GPR-typed instruction operand and TableGen
 // rejects it with "Type set is empty for each HW mode". f32 occupies the low
-// 32 bits of its register (the ISA's f32 results are zero-extended to 64).
-def GPR : RegisterClass<"LVX", [i64, f64, f32], 64, (add
+// 32 bits of its register (the ISA's f32 results are zero-extended to 64),
+// and f16 the low 16 the same way -- fwidenhw with mostsig=0 reads exactly
+// that half word.
+def GPR : RegisterClass<"LVX", [i64, f64, f32, f16], 64, (add
   // argument / result (R0-R11)
   R0,  R1,  R2,  R3,  R4,  R5,  R6,  R7,  R8,  R9,  R10, R11,
   // other caller-saved scratch

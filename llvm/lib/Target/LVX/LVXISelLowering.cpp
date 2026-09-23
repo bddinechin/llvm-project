@@ -171,6 +171,13 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // of their GPR (the ISA's f32 operations zero-extend their result).
   addRegisterClass(MVT::f64, &LVX::GPRRegClass);
   addRegisterClass(MVT::f32, &LVX::GPRRegClass);
+  // f16 lives in a GPR too, in the low half word: the ISA has a half-word
+  // instruction wherever it has a word one (faddh, fmulh, fminh, fsignh,
+  // ffmah ...), and fwidenhw/fnarrowwh convert to and from f32. It was in no
+  // register class until now, which made MVT::f16 exist throughout the
+  // machine description and be selectable nowhere -- so clang, which types
+  // _Float16 natively, produced half values the back end could not place.
+  addRegisterClass(MVT::f16, &LVX::GPRRegClass);
 
   // Compute derived properties from the register classes we just declared
   // (mirrors the standard boilerplate every target's constructor performs
@@ -302,6 +309,53 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
     setCondCodeAction(ISD::SETUO, VT, Expand);
   }
 
+  //===--------------------------------------------------------------------===//
+  // f16
+  //
+  // The type is legal (it has a register class above) and the conversions to
+  // and from f32 are single instructions, but no ARITHMETIC pattern names f16
+  // yet: MDS/BE/LLVM's llvm-patterns.pl skips the f16 helpers, and says why --
+  // "MVT::f16 is not added to any register class in LVXISelLowering, so a
+  // pattern mentioning it would not compile". That reason is gone as of this
+  // change; until the generator is told so, every f16 operation is Promote,
+  // which widens it to f32, computes there and narrows back.
+  //
+  // Promote is correct, not free: it spends an fwidenhw and an fnarrowwh
+  // around each operation and rounds twice, where faddh would round once.
+  // Each becomes Legal the day its pattern is generated, one at a time.
+  for (unsigned Op :
+       {ISD::FADD, ISD::FSUB, ISD::FMUL, ISD::FDIV, ISD::FMA, ISD::FSQRT,
+        ISD::FMINNUM, ISD::FMAXNUM, ISD::FMINIMUM, ISD::FMAXIMUM, ISD::FRINT,
+        ISD::SETCC, ISD::SELECT, ISD::SELECT_CC, ISD::BR_CC})
+    setOperationAction(Op, MVT::f16, Promote);
+
+  // NOT promoted, and the exceptions are the interesting part:
+  //
+  //  - fneg/fabs/fcopysign have half-word instructions of their own and are
+  //    selected by pattern in LVXInstrInfo.td. They are pure sign-bit work,
+  //    so promoting would cost three instructions for one -- and promoting
+  //    FCOPYSIGN sends the legalizer round in a circle, because its two
+  //    operands need not share a type. That is a hang, not a diagnostic.
+  //
+  //  - the integer conversions are keyed on the RESULT type, which for
+  //    fp_to_sint is i64 and already Legal, so "Promote for f16" would
+  //    silently do nothing and isel would fail. They too are patterns.
+
+  // No hardware, as for f32/f64: these are libm calls in C.
+  for (unsigned Op : {ISD::FREM, ISD::FSIN, ISD::FCOS, ISD::FSINCOS,
+                      ISD::FPOW, ISD::FEXP, ISD::FEXP2, ISD::FLOG,
+                      ISD::FLOG2, ISD::FLOG10, ISD::FCEIL, ISD::FFLOOR,
+                      ISD::FTRUNC, ISD::FROUND, ISD::FNEARBYINT})
+    setOperationAction(Op, MVT::f16, Promote);
+
+  // A half constant is its bit pattern in a GPR, like every other FP
+  // constant here (LVXISelDAGToDAG materializes it with a maked).
+  setOperationAction(ISD::ConstantFP, MVT::f16, Legal);
+
+  // f16 <-> f64 is two instructions, and the patterns in LVXInstrInfo.td
+  // spell it as such; fpextend/fpround themselves stay Legal.
+  setOperationAction(ISD::BITCAST, MVT::f16, Legal);
+
   // There is no extending FP load and no truncating FP store: widening and
   // narrowing are separate instructions (FWIDENWD / FNARROWDW). Without these,
   // DAGCombiner folds "fpextend (load f32)" into a single f32->f64 EXTLOAD and
@@ -309,6 +363,12 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // then silently dropped -- the bits get moved but never converted.
   setLoadExtAction(ISD::EXTLOAD, MVT::f64, MVT::f32, Expand);
   setTruncStoreAction(MVT::f64, MVT::f32, Expand);
+  // Same for the half word: a load of an f16 is a 16-bit load and then a
+  // fwidenhw, never one instruction, and a store of one narrows first.
+  for (MVT VT : {MVT::f32, MVT::f64}) {
+    setLoadExtAction(ISD::EXTLOAD, VT, MVT::f16, Expand);
+    setTruncStoreAction(VT, MVT::f16, Expand);
+  }
 
   // A ConstantFP has no immediate form -- LVXISelDAGToDAG materializes it as
   // an integer MAKE of the value's bit pattern, like any other constant.
@@ -486,6 +546,10 @@ static SDValue extendToSlot(SelectionDAG &DAG, const SDLoc &DL, SDValue Val,
   // LVXISD::F32_TO_BITS comment in LVXInstrInfo.td.
   if (VT == MVT::f32 && LocVT == MVT::i64)
     return DAG.getNode(LVXISD::F32_TO_BITS, DL, MVT::i64, Val);
+  // And the same for f16, for the same reason one step further down: i16 is
+  // no more a legal type than i32 is.
+  if (VT == MVT::f16 && LocVT == MVT::i64)
+    return DAG.getNode(LVXISD::F16_TO_BITS, DL, MVT::i64, Val);
 
   if (VT.isFloatingPoint() && VT.getSizeInBits() < LocVT.getSizeInBits()) {
     Val = DAG.getNode(ISD::BITCAST, DL,
@@ -513,6 +577,8 @@ static SDValue truncateFromSlot(SelectionDAG &DAG, const SDLoc &DL,
   // for f32 anyway.
   if (VT == MVT::f32)
     return DAG.getNode(LVXISD::BITS_TO_F32, DL, MVT::f32, Val);
+  if (VT == MVT::f16)
+    return DAG.getNode(LVXISD::BITS_TO_F16, DL, MVT::f16, Val);
   if (VT.bitsLT(MVT::i64))
     return DAG.getNode(ISD::TRUNCATE, DL, VT, Val);
   return DAG.getNode(ISD::BITCAST, DL, VT, Val);
@@ -793,6 +859,13 @@ LVXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
           DAG.getCopyFromReg(Chain, DL, VA.getLocReg(), VA.getLocVT(), Glue);
       Chain = RetVal.getValue(1);
       Glue = RetVal.getValue(2);
+      // Out of the slot and back into the value's own type, exactly as the
+      // argument side does. CC_LVXRet promotes a narrow return the same way
+      // CC_LVX promotes a narrow argument, so handing the caller the raw
+      // 64-bit slot is a type mismatch -- "LowerCall emitted a value with
+      // the wrong type" on the first _Float16-returning call.
+      if (VA.getValVT() != VA.getLocVT())
+        RetVal = truncateFromSlot(DAG, DL, RetVal, VA.getValVT());
       InVals.push_back(RetVal);
     }
   }
