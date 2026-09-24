@@ -65,6 +65,7 @@ public:
 private:
   SDValue lowerShift128(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerCopySign(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerBuildVectorPacked(SDValue Op, SelectionDAG &DAG) const;
 
   SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const override;

@@ -611,6 +611,33 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
   // The naming trap once more: sub_pair_hi and sub_hi are the indices at
   // bit offset 0 -- the LOW halves -- so element 0 is (sub_pair_hi,
   // sub_hi). This matches the BUILD_VECTOR below, which must agree with it.
+  // A lane NARROWER than a register: the containing register is still a
+  // subregister read, and the lane is a shift within it. No mask: the node's
+  // result type is i64 (the element type is not legal on its own), so the
+  // bits above the lane are don't-care -- any-extend is what the legalizer
+  // asked for.
+  if (N->getOpcode() == ISD::EXTRACT_VECTOR_ELT) {
+    EVT VecVT = N->getOperand(0).getValueType();
+    unsigned LaneBits = VecVT.getScalarSizeInBits();
+    auto *CIdx = dyn_cast<ConstantSDNode>(N->getOperand(1));
+    if (CIdx && VecVT.isVector() && LaneBits < 64 &&
+        VecVT.getSizeInBits() == 128) {
+      unsigned I = CIdx->getZExtValue();
+      unsigned PerHalf = 64 / LaneBits;
+      SDValue Half = CurDAG->getTargetExtractSubreg(
+          (I / PerHalf) ? sub_lo : sub_hi, DL, MVT::i64, N->getOperand(0));
+      unsigned Shift = (I % PerHalf) * LaneBits;
+      if (!Shift) {
+        ReplaceNode(N, Half.getNode());
+        return;
+      }
+      ReplaceNode(N, CurDAG->getMachineNode(
+                         LVX::SRLD_DSWRI, DL, MVT::i64, Half,
+                         CurDAG->getTargetConstant(Shift, DL, MVT::i64)));
+      return;
+    }
+  }
+
   if (N->getOpcode() == ISD::EXTRACT_VECTOR_ELT) {
     EVT VecVT = N->getOperand(0).getValueType();
     auto *Idx = dyn_cast<ConstantSDNode>(N->getOperand(1));

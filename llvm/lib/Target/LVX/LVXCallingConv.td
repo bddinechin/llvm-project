@@ -60,7 +60,7 @@ def CC_LVX : CallingConv<[
   // pass is a hole that only shows when the IR comes from somewhere other
   // than clang ("unable to allocate function argument" on the first
   // hand-written .ll that passes one).
-  CCIfType<[v2i64, v2f64], CCBitConvertToType<i128>>,
+  CCIfType<[v2i64, v2f64, v4i32, v8i16, v16i8], CCBitConvertToType<i128>>,
 
   // Promote small integer types to i64 — every argument slot is 64 bits
   // wide and integral scalars are placed in the low bits of the slot.
@@ -96,7 +96,7 @@ def CC_LVX : CallingConv<[
 def CC_LVXRet : CallingConv<[
   CCIfType<[f16], CCBitConvertToType<i16>>,
   CCIfType<[f32], CCBitConvertToType<i32>>,
-  CCIfType<[v2i64, v2f64], CCBitConvertToType<i128>>,
+  CCIfType<[v2i64, v2f64, v4i32, v8i16, v16i8], CCBitConvertToType<i128>>,
   CCIfType<[i1, i8, i16, i32], CCPromoteToType<i64>>,
 
   CCIfType<[i64, f64],  CCAssignToReg<[R0, R1, R2, R3]>>,

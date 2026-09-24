@@ -236,7 +236,8 @@ def GPR128 : RegisterClass<"LVX", [i128], 128, (add
 // subregister read rather than a shift and a mask.
 //===----------------------------------------------------------------------===//
 
-def GPR128V : RegisterClass<"LVX", [v2i64, v2f64], 128, (add GPR128)>;
+def GPR128V : RegisterClass<"LVX", [v2i64, v2f64, v4i32, v8i16, v16i8], 128,
+                            (add GPR128)>;
 
 
 //===----------------------------------------------------------------------===//

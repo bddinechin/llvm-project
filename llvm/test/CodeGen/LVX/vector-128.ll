@@ -83,3 +83,68 @@ define i128 @bits(<2 x i64> %v) {
   %r = bitcast <2 x i64> %v to i128
   ret i128 %r
 }
+
+; Lanes NARROWER than a register are packed, several to a register, and the
+; operations still unroll -- but in registers. With these types illegal the
+; legalizer scalarized through MEMORY instead, storing the pair and loading
+; each lane back: 67 instructions and 15 memory operations for a four-lane
+; add, against 27 and none.
+define <4 x i32> @add32(<4 x i32> %a, <4 x i32> %b) {
+; CHECK-LABEL: add32:
+; CHECK-NOT:   sq
+; CHECK-NOT:   lwz
+; CHECK-NOT:   sw
+; CHECK:       ret
+  %r = add <4 x i32> %a, %b
+  ret <4 x i32> %r
+}
+
+; A packed lane is the containing register (a subregister read) and a shift
+; within it -- no mask, because the element type is not legal on its own so
+; the extract's result is an i64 and the bits above the lane are don't-care.
+define i32 @lane32_0(<4 x i32> %v) {
+; CHECK-LABEL: lane32_0:
+; CHECK-NOT:   srld
+; CHECK-NOT:   sq
+; CHECK:       ret
+  %e = extractelement <4 x i32> %v, i32 0
+  ret i32 %e
+}
+
+define i32 @lane32_1(<4 x i32> %v) {
+; CHECK-LABEL: lane32_1:
+; CHECK-NOT:   sq
+; CHECK:       srld $r0 = $r0, 32
+; CHECK:       ret
+  %e = extractelement <4 x i32> %v, i32 1
+  ret i32 %e
+}
+
+; Lane 2 lives in the pair's other register, so it is the other subregister
+; and no shift at all.
+define i32 @lane32_2(<4 x i32> %v) {
+; CHECK-LABEL: lane32_2:
+; CHECK-NOT:   srld
+; CHECK:       copyd $r0 = $r1
+; CHECK:       ret
+  %e = extractelement <4 x i32> %v, i32 2
+  ret i32 %e
+}
+
+define <8 x i16> @add16(<8 x i16> %a, <8 x i16> %b) {
+; CHECK-LABEL: add16:
+; CHECK-NOT:   sq
+; CHECK-NOT:   lhz
+; CHECK:       ret
+  %r = add <8 x i16> %a, %b
+  ret <8 x i16> %r
+}
+
+define <16 x i8> @add8(<16 x i8> %a, <16 x i8> %b) {
+; CHECK-LABEL: add8:
+; CHECK-NOT:   sq
+; CHECK-NOT:   lbz
+; CHECK:       ret
+  %r = add <16 x i8> %a, %b
+  ret <16 x i8> %r
+}

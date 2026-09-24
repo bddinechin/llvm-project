@@ -139,7 +139,7 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // widen their elements. The day lane-wise instructions arrive (lvx-2's
   // ADDWQ, ADDHO, ADDBX ... which this description does not have) that
   // reasoning inverts, and so does this list.
-  for (MVT VT : {MVT::v2i64, MVT::v2f64})
+  for (MVT VT : {MVT::v2i64, MVT::v2f64, MVT::v4i32, MVT::v8i16, MVT::v16i8})
     addRegisterClass(VT, &LVX::GPR128VRegClass);
 
   // v4i64 being the only legal vector type, the type legalizer promotes a
@@ -149,7 +149,8 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // Left Legal (the default for a legal type), those select nothing at all.
   // Expand turns each into per-element accesses, which is slow but is what
   // the hardware can do until there is real vector lowering.
-  for (MVT Wide : {MVT::v4i64, MVT::v2i64}) {
+  for (MVT Wide : {MVT::v4i64, MVT::v2i64, MVT::v4i32, MVT::v8i16,
+                   MVT::v16i8}) {
     for (MVT Narrow : MVT::integer_fixedlen_vector_valuetypes()) {
       if (Narrow.getVectorNumElements() != Wide.getVectorNumElements() ||
           !Narrow.getScalarType().bitsLT(Wide.getScalarType()))
@@ -183,7 +184,8 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // and computationally empty, and isel then spins -- ten minutes on one
   // function, not a crash, which is the sort of thing a timeout finds and a
   // test suite does not. They are left Legal; nothing has asked for them.
-  for (MVT VT : {MVT::v4i64, MVT::v2i64, MVT::v2f64}) {
+  for (MVT VT : {MVT::v4i64, MVT::v2i64, MVT::v2f64, MVT::v4i32, MVT::v8i16,
+                 MVT::v16i8}) {
     for (unsigned Op :
          {ISD::ADD, ISD::SUB, ISD::MUL, ISD::SDIV, ISD::UDIV, ISD::SREM,
           ISD::UREM, ISD::AND, ISD::OR, ISD::XOR, ISD::SHL, ISD::SRA,
@@ -199,6 +201,12 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
     // LVXISelDAGToDAG; a computed one has no instruction and goes through
     // memory, which is what a null SDValue from the Custom hook asks for.
     setOperationAction(ISD::EXTRACT_VECTOR_ELT, VT, Custom);
+
+    // Building one is Custom only where the lanes are PACKED: with
+    // register-wide lanes the tuple is the vector and LVXISelDAGToDAG selects
+    // the BUILD_VECTOR as a REG_SEQUENCE, so it stays Legal there.
+    if (VT.getScalarSizeInBits() < 64)
+      setOperationAction(ISD::BUILD_VECTOR, VT, Custom);
   }
 
   // Floating point lives in the SAME general-purpose registers as integers --
@@ -475,6 +483,8 @@ SDValue LVXTargetLowering::LowerOperation(SDValue Op,
     return lowerShift128(Op, DAG);
   case ISD::FCOPYSIGN:
     return lowerCopySign(Op, DAG);
+  case ISD::BUILD_VECTOR:
+    return lowerBuildVectorPacked(Op, DAG);
   case ISD::EXTRACT_VECTOR_ELT:
     // A constant index is a subregister read and isel takes it from here; a
     // computed one has no instruction, and a null SDValue is how a Custom
@@ -484,6 +494,59 @@ SDValue LVXTargetLowering::LowerOperation(SDValue Op,
     llvm_unreachable(
         "Unimplemented operation in LVXTargetLowering::LowerOperation");
   }
+}
+
+// Building a vector whose lanes are NARROWER than a register: the lanes have
+// to be packed, two or more to a register, with shifts and ors.
+//
+// Lanes exactly a register wide need none of this -- there the vector IS the
+// register tuple, and LVXISelDAGToDAG selects the BUILD_VECTOR as a
+// REG_SEQUENCE that the allocator usually makes disappear. This is only for
+// the packed types, and it exists because the alternative the legalizer picks
+// is far worse: with v4i32 illegal it scalarized through MEMORY, storing the
+// pair and loading each lane back with lwz, 67 instructions for a four-lane
+// add. Packing in registers is about twenty and touches none.
+SDValue LVXTargetLowering::lowerBuildVectorPacked(SDValue Op,
+                                                  SelectionDAG &DAG) const {
+  EVT VT = Op.getValueType();
+  unsigned LaneBits = VT.getScalarSizeInBits();
+  if (LaneBits >= 64)
+    return Op; // register-wide lanes: the tuple is the vector, isel takes it
+
+  SDLoc DL(Op);
+  unsigned Lanes = VT.getVectorNumElements();
+  unsigned PerHalf = 64 / LaneBits;
+  uint64_t LaneMask = (LaneBits == 64) ? ~uint64_t(0)
+                                       : (uint64_t(1) << LaneBits) - 1;
+
+  // One 64-bit half at a time, low lane first: a lane's bits sit at
+  // LaneBits * (index within the half), little-endian throughout.
+  SmallVector<SDValue, 4> Halves;
+  for (unsigned H = 0; H * PerHalf < Lanes; ++H) {
+    SDValue Acc;
+    for (unsigned I = 0; I < PerHalf && H * PerHalf + I < Lanes; ++I) {
+      SDValue Lane = Op.getOperand(H * PerHalf + I);
+      if (Lane.isUndef())
+        continue;
+      // The incoming lane is a whole register and its bits above the lane
+      // width are not ours to keep.
+      Lane = DAG.getNode(ISD::AND, DL, MVT::i64,
+                         DAG.getNode(ISD::ANY_EXTEND, DL, MVT::i64, Lane),
+                         DAG.getConstant(LaneMask, DL, MVT::i64));
+      if (unsigned Shift = I * LaneBits)
+        Lane = DAG.getNode(ISD::SHL, DL, MVT::i64, Lane,
+                           DAG.getConstant(Shift, DL, MVT::i64));
+      Acc = Acc ? DAG.getNode(ISD::OR, DL, MVT::i64, Acc, Lane) : Lane;
+    }
+    Halves.push_back(Acc ? Acc : DAG.getUNDEF(MVT::i64));
+  }
+
+  // The halves are the register tuple, which is the same BUILD_VECTOR shape
+  // the register-wide types use -- so build it as the i64-lane vector of the
+  // same width and reinterpret.
+  MVT WideVT = MVT::getVectorVT(MVT::i64, Halves.size());
+  SDValue Wide = DAG.getNode(ISD::BUILD_VECTOR, DL, WideVT, Halves);
+  return DAG.getNode(ISD::BITCAST, DL, VT, Wide);
 }
 
 // fcopysign whose two operands are different types. ISD::FCOPYSIGN allows

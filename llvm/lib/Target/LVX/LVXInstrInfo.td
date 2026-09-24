@@ -565,12 +565,26 @@ def : Pat<(i64 (LVXf16tobits f16:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
 // a register-to-register move, or nothing at all once the allocator has put
 // both in the same pair. GPR128 and GPR128V are the same registers under two
 // names; see LVXRegisterInfo.td for why they have to be two.
-def : Pat<(i128  (bitconvert v2i64:$a)), (COPY_TO_REGCLASS GPR128V:$a, GPR128)>;
-def : Pat<(i128  (bitconvert v2f64:$a)), (COPY_TO_REGCLASS GPR128V:$a, GPR128)>;
-def : Pat<(v2i64 (bitconvert i128:$a)),  (COPY_TO_REGCLASS GPR128:$a, GPR128V)>;
-def : Pat<(v2f64 (bitconvert i128:$a)),  (COPY_TO_REGCLASS GPR128:$a, GPR128V)>;
-def : Pat<(v2i64 (bitconvert v2f64:$a)), (COPY_TO_REGCLASS GPR128V:$a, GPR128V)>;
-def : Pat<(v2f64 (bitconvert v2i64:$a)), (COPY_TO_REGCLASS GPR128V:$a, GPR128V)>;
+multiclass PairBitcast<ValueType a, RegisterClass ra, ValueType b,
+                       RegisterClass rb> {
+  def : Pat<(a (bitconvert b:$x)), (COPY_TO_REGCLASS rb:$x, ra)>;
+  def : Pat<(b (bitconvert a:$x)), (COPY_TO_REGCLASS ra:$x, rb)>;
+}
+defm : PairBitcast<i128,  GPR128,  v2i64, GPR128V>;
+defm : PairBitcast<i128,  GPR128,  v2f64, GPR128V>;
+defm : PairBitcast<i128,  GPR128,  v4i32, GPR128V>;
+defm : PairBitcast<v2i64, GPR128V, v2f64, GPR128V>;
+defm : PairBitcast<v2i64, GPR128V, v4i32, GPR128V>;
+defm : PairBitcast<v2f64, GPR128V, v4i32, GPR128V>;
+defm : PairBitcast<i128,  GPR128,  v8i16, GPR128V>;
+defm : PairBitcast<i128,  GPR128,  v16i8, GPR128V>;
+defm : PairBitcast<v2i64, GPR128V, v8i16, GPR128V>;
+defm : PairBitcast<v2i64, GPR128V, v16i8, GPR128V>;
+defm : PairBitcast<v4i32, GPR128V, v8i16, GPR128V>;
+defm : PairBitcast<v4i32, GPR128V, v16i8, GPR128V>;
+defm : PairBitcast<v8i16, GPR128V, v16i8, GPR128V>;
+defm : PairBitcast<v2f64, GPR128V, v8i16, GPR128V>;
+defm : PairBitcast<v2f64, GPR128V, v16i8, GPR128V>;
 def : Pat<(f16 (LVXbitstof16 i64:$a)), (COPY_TO_REGCLASS GPR:$a, GPR)>;
 
 // ---- f16 conversions -------------------------------------------------------
