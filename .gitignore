@@ -96,3 +96,4 @@ pythonenv*
 /llvm/lib/Target/LVX/LVXInstrPatterns.td
 /llvm/lib/Target/LVX/LVXImmediateExtensions.inc
 /llvm/lib/Target/LVX/LVXMemoryTable.inc
+/llvm/lib/Target/LVX/LVXLaneSIMD.inc
