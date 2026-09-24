@@ -1921,6 +1921,236 @@ struct VectorMaskedStoreToLVX
 // the preserving-copy pass would elide the copies when the source dies at
 // the insert; see docs/VectorCoverage.md §7.
 //===----------------------------------------------------------------------===//
+// Reductions (Phase 4).
+//
+// The ISA has no horizontal instruction, and the 64-bit SIMD family was
+// retired, so there is no lane-parallel op below a pair. That fixes the shape
+// of a reduction:
+//
+//   * a quad folds to a pair with one lane-parallel op on its two halves, and
+//     the halves are lane views, so that step is one instruction;
+//
+//   * with 64-bit lanes a pair's two units *are* its two lanes, so one scalar
+//     op finishes it -- `vector.reduction <add>` over `vector<2xi64>` is a
+//     single `addd`;
+//
+//   * narrower lanes have several per unit and nothing adds two units
+//     lane-wise, so each level brings the lanes alongside each other first:
+//     `even<w>q(v, v)` puts the even lanes of the whole pair in each unit and
+//     `odd<w>q(v, v)` the odd ones, and the lane-parallel op on those two
+//     halves the live lane count. Three instructions a level, log2(lanes)
+//     levels, and lane 0 holds the answer at the end.
+//
+// So i64x2 is 1, i32x4 is 6, i16x8 is 9, i8x16 is 12 -- which is the measure
+// §1 asked for before proposing a horizontal instruction, and the i8 and i16
+// rows are what would justify one.
+//===----------------------------------------------------------------------===//
+
+/// The lane-parallel op of `kind` on two pairs, or null when the ISA has none
+/// at that lane width. The tables are the elementwise lowering's own.
+static Value reduceStep(ConversionPatternRewriter &rewriter, Location loc,
+                        vector::CombiningKind kind, unsigned bits, bool isFloat,
+                        Type pairTy, Value a, Value b) {
+  using K = vector::CombiningKind;
+  // `add` and `mul` name both families; the element type is what says which.
+  switch (kind) {
+  case K::ADD:
+    if (isFloat)
+      return byWidthBinary<NoLaneOp, lvx::FaddhoOp, lvx::FaddwqOp,
+                           lvx::FadddpOp>(bits, rewriter, loc, pairTy, a, b);
+    return byWidthBinary<lvx::AddbxOp, lvx::AddhoOp, lvx::AddwqOp,
+                         lvx::AdddpOp>(bits, rewriter, loc, pairTy, a, b);
+  case K::MUL:
+    if (isFloat)
+      return byWidthBinary<NoLaneOp, lvx::FmulhoOp, lvx::FmulwqOp,
+                           lvx::FmuldpOp>(bits, rewriter, loc, pairTy, a, b);
+    return byWidthBinary<NoLaneOp, lvx::MulhoOp, lvx::MulwqOp, lvx::MuldpOp>(
+        bits, rewriter, loc, pairTy, a, b);
+  case K::MINSI:
+    return byWidthBinary<lvx::MinbxOp, lvx::MinhoOp, lvx::MinwqOp,
+                         lvx::MindpOp>(bits, rewriter, loc, pairTy, a, b);
+  case K::MAXSI:
+    return byWidthBinary<lvx::MaxbxOp, lvx::MaxhoOp, lvx::MaxwqOp,
+                         lvx::MaxdpOp>(bits, rewriter, loc, pairTy, a, b);
+  case K::MINUI:
+    return byWidthBinary<lvx::MinubxOp, lvx::MinuhoOp, lvx::MinuwqOp,
+                         lvx::MinudpOp>(bits, rewriter, loc, pairTy, a, b);
+  case K::MAXUI:
+    return byWidthBinary<lvx::MaxubxOp, lvx::MaxuhoOp, lvx::MaxuwqOp,
+                         lvx::MaxudpOp>(bits, rewriter, loc, pairTy, a, b);
+  case K::AND:
+    return rewriter.create<lvx::AndqOp>(loc, pairTy, a, b);
+  case K::OR:
+    return rewriter.create<lvx::IorqOp>(loc, pairTy, a, b);
+  case K::XOR:
+    return rewriter.create<lvx::EorqOp>(loc, pairTy, a, b);
+  // `minimumf`/`maximumf` propagate a NaN, `minnumf`/`maxnumf` return the
+  // numeric operand -- the split the whole toolchain turns on (lvx-csw
+  // CLAUDE.md, "The min/max NaN split"). `fmin`/`fmax` are the propagating
+  // pair, `fminn`/`fmaxn` the numeric one.
+  case K::MINIMUMF:
+    return byWidthBinary<NoLaneOp, lvx::FminhoOp, lvx::FminwqOp,
+                         lvx::FmindpOp>(bits, rewriter, loc, pairTy, a, b);
+  case K::MAXIMUMF:
+    return byWidthBinary<NoLaneOp, lvx::FmaxhoOp, lvx::FmaxwqOp,
+                         lvx::FmaxdpOp>(bits, rewriter, loc, pairTy, a, b);
+  case K::MINNUMF:
+    return byWidthBinary<NoLaneOp, lvx::FminnhoOp, lvx::FminnwqOp,
+                         lvx::FminndpOp>(bits, rewriter, loc, pairTy, a, b);
+  case K::MAXNUMF:
+    return byWidthBinary<NoLaneOp, lvx::FmaxnhoOp, lvx::FmaxnwqOp,
+                         lvx::FmaxndpOp>(bits, rewriter, loc, pairTy, a, b);
+  }
+  return {};
+}
+
+/// `even<w>q(v, v)` / `odd<w>q(v, v)`: the even (resp. odd) lanes of the whole
+/// pair, in both of the result's units.
+static Value evenOdd(ConversionPatternRewriter &rewriter, Location loc,
+                     unsigned bits, Type pairTy, Value v, bool odd) {
+  if (odd)
+    return byWidthBinary<lvx::OddbqOp, lvx::OddhqOp, lvx::OddwqOp,
+                         lvx::OdddqOp>(bits, rewriter, loc, pairTy, v, v);
+  return byWidthBinary<lvx::EvenbqOp, lvx::EvenhqOp, lvx::EvenwqOp,
+                       lvx::EvendqOp>(bits, rewriter, loc, pairTy, v, v);
+}
+
+/// The scalar op of `kind` on two 64-bit registers, for the last step when
+/// the lanes are 64 bits wide. Only the kinds a 64-bit lane can carry.
+static Value reduceScalar64(ConversionPatternRewriter &rewriter, Location loc,
+                            vector::CombiningKind kind, bool isFloat,
+                            Type regTy, Value a, Value b) {
+  using K = vector::CombiningKind;
+  switch (kind) {
+  case K::ADD:
+    if (isFloat) return rewriter.create<lvx::FadddOp>(loc, regTy, a, b);
+    return rewriter.create<lvx::AdddOp>(loc, regTy, a, b);
+  case K::MUL:
+    if (isFloat) return rewriter.create<lvx::FmuldOp>(loc, regTy, a, b);
+    return rewriter.create<lvx::MuldOp>(loc, regTy, a, b);
+  case K::MINSI:    return rewriter.create<lvx::MindOp>(loc, regTy, a, b);
+  case K::MAXSI:    return rewriter.create<lvx::MaxdOp>(loc, regTy, a, b);
+  case K::MINUI:    return rewriter.create<lvx::MinudOp>(loc, regTy, a, b);
+  case K::MAXUI:    return rewriter.create<lvx::MaxudOp>(loc, regTy, a, b);
+  case K::AND:      return rewriter.create<lvx::AnddOp>(loc, regTy, a, b);
+  case K::OR:       return rewriter.create<lvx::IordOp>(loc, regTy, a, b);
+  case K::XOR:      return rewriter.create<lvx::EordOp>(loc, regTy, a, b);
+  case K::MINIMUMF: return rewriter.create<lvx::FmindOp>(loc, regTy, a, b);
+  case K::MAXIMUMF: return rewriter.create<lvx::FmaxdOp>(loc, regTy, a, b);
+  case K::MINNUMF:  return rewriter.create<lvx::FminndOp>(loc, regTy, a, b);
+  case K::MAXNUMF:  return rewriter.create<lvx::FmaxndOp>(loc, regTy, a, b);
+  }
+  return {};
+}
+
+/// `and`/`or`/`xor` on two 64-bit registers.
+static Value bitwiseScalar(ConversionPatternRewriter &rewriter, Location loc,
+                           vector::CombiningKind kind, Type regTy, Value a,
+                           Value b) {
+  using K = vector::CombiningKind;
+  if (kind == K::AND)
+    return rewriter.create<lvx::AnddOp>(loc, regTy, a, b);
+  if (kind == K::OR)
+    return rewriter.create<lvx::IordOp>(loc, regTy, a, b);
+  return rewriter.create<lvx::EordOp>(loc, regTy, a, b);
+}
+
+struct VectorReductionToLVX : public OpConversionPattern<vector::ReductionOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::ReductionOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    VectorType vecTy = op.getSourceVectorType();
+    Type tupleTy = getTypeConverter()->convertType(vecTy);
+    unsigned units = tupleTy ? tupleWidth(tupleTy) : 0;
+    if (!units || vecTy.getRank() != 1)
+      return rewriter.notifyMatchFailure(op, "vector shape has no register tuple");
+    unsigned bits = vecTy.getElementTypeBitWidth();
+    unsigned lanes = vecTy.getNumElements();
+    // A float reduction may only be reassociated when the op says so, and a
+    // tree reassociates -- that is what makes it a tree. Without `reassoc`
+    // the answer would differ from the source's left-to-right order in the
+    // last bit, so leave it to upstream to unroll into a lane chain (§1: a
+    // float reduction without reassoc is the sequential chain, not refused).
+    // The attribute is DefaultValued, so it is the *flag* that has to be
+    // tested -- asking whether the attribute is present answers `yes` even
+    // for `fastmath<none>`.
+    if (isa<FloatType>(vecTy.getElementType()) &&
+        !arith::bitEnumContainsAll(op.getFastmath(),
+                                   arith::FastMathFlags::reassoc))
+      return rewriter.notifyMatchFailure(
+          op, "a float reduction without reassoc is the sequential chain");
+    vector::CombiningKind kind = op.getKind();
+    bool isFloat = isa<FloatType>(vecTy.getElementType());
+    Location loc = op.getLoc();
+    Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
+    Type regTy = RegisterType::get(rewriter.getContext(), std::nullopt);
+    Value v = adaptor.getVector();
+
+    // `and`/`or`/`xor` are bitwise and lane-independent, so their lanes never
+    // have to be brought alongside each other: fold the units with the 64-bit
+    // scalar op, then halve *within* the unit by shifting it down over itself.
+    // The shift brings in zeros, which is the identity for `or` and `xor` and
+    // for `and` only clears bits above the answer's own. Half the tree's cost
+    // -- i32x4 is 3 ops rather than 6, i8x16 is 7 rather than 12.
+    using K = vector::CombiningKind;
+    if (kind == K::AND || kind == K::OR || kind == K::XOR) {
+      if (units == 4) {
+        Value lo = quadHalf(rewriter, loc, v, 0);
+        Value hi = quadHalf(rewriter, loc, v, 1);
+        v = kind == K::AND
+                ? rewriter.create<lvx::AndqOp>(loc, pairTy, lo, hi).getResult()
+            : kind == K::OR
+                ? rewriter.create<lvx::IorqOp>(loc, pairTy, lo, hi).getResult()
+                : rewriter.create<lvx::EorqOp>(loc, pairTy, lo, hi).getResult();
+      }
+      Value r = bitwiseScalar(rewriter, loc, kind, regTy,
+                              rewriter.create<lvx::LaneOp>(loc, regTy, v, 0),
+                              rewriter.create<lvx::LaneOp>(loc, regTy, v, 1));
+      for (unsigned sh = 32; sh >= bits && sh >= 8; sh /= 2) {
+        Value down = rewriter.create<lvx::SrldImmOp>(
+            loc, regTy, r, rewriter.getI64IntegerAttr(sh));
+        r = bitwiseScalar(rewriter, loc, kind, regTy, r, down);
+      }
+      rewriter.replaceOp(op, r);
+      return success();
+    }
+
+    if (units == 4) { // a quad: one op on its two halves, and it is a pair
+      v = reduceStep(rewriter, loc, kind, bits, isFloat, pairTy,
+                     quadHalf(rewriter, loc, v, 0),
+                     quadHalf(rewriter, loc, v, 1));
+      if (!v)
+        return rewriter.notifyMatchFailure(op, "no instruction for this lane shape");
+      lanes /= 2;
+    }
+    while (lanes > 1) {
+      if (bits == 64) { // the pair's units are its lanes
+        Value lo = rewriter.create<lvx::LaneOp>(loc, regTy, v, 0);
+        Value hi = rewriter.create<lvx::LaneOp>(loc, regTy, v, 1);
+        Value r = reduceScalar64(rewriter, loc, kind, isFloat, regTy, lo, hi);
+        if (!r)
+          return rewriter.notifyMatchFailure(op, "no scalar op for this kind");
+        rewriter.replaceOp(op, r);
+        return success();
+      }
+      Value even = evenOdd(rewriter, loc, bits, pairTy, v, /*odd=*/false);
+      Value odd = evenOdd(rewriter, loc, bits, pairTy, v, /*odd=*/true);
+      if (!even || !odd)
+        return rewriter.notifyMatchFailure(op, "no even/odd at this lane width");
+      v = reduceStep(rewriter, loc, kind, bits, isFloat, pairTy, even, odd);
+      if (!v)
+        return rewriter.notifyMatchFailure(op, "no instruction for this lane shape");
+      lanes /= 2;
+    }
+    // Lane 0 of the surviving pair is the answer, and a lane view of unit 0
+    // is the register whose low `bits` hold it -- no instruction.
+    rewriter.replaceOpWithNewOp<lvx::LaneOp>(op, regTy, v, 0);
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 
 /// The unit of `tuple` holding element `pos`, and the element's bit offset in
 /// it.
@@ -2471,7 +2701,7 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     VectorExtractToLVX, VectorInsertToLVX, VectorShuffleToLVX,
     VectorCmpIToLVX, VectorCmpFToLVX, VectorSelectToLVX,
     VectorSplatConstantToLVX,
-    VectorConstantMaskToLVX, VectorCreateMaskToLVX,
+    VectorConstantMaskToLVX, VectorCreateMaskToLVX, VectorReductionToLVX,
     VectorMaskedLoadToLVX, VectorMaskedStoreToLVX,
     // Elementwise arithmetic (Phase 1)
     VAddIToLVX, VSubIToLVX, VMulIToLVX,
