@@ -1789,7 +1789,9 @@ struct VectorConstantMaskToLVX
 /// count outside the vector (a negative one masks nothing, a large one masks
 /// everything) whereas a shift by 64 or more is not defined at all, and a
 /// negative count would shift by its low six bits and set the wrong lanes.
-/// Four ops; a constant count folds to `constant_mask` upstream before this.
+/// Five ops -- `maxd_i`, `mind_i`, the `li` the shift's source needs, `slld`,
+/// `addd_i` -- of which the `li` is loop-invariant, so four per iteration. A
+/// constant count folds to `vector.constant_mask` upstream and is one `li`.
 struct VectorCreateMaskToLVX : public OpConversionPattern<vector::CreateMaskOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
