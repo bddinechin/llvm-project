@@ -911,6 +911,63 @@ static memref::LoadOp splatLoadOf(vector::BroadcastOp bcast,
   return load;
 }
 
+/// `splat{b,h,w,d}q $d = $s` by element width, filling a pair; null when the
+/// ISA has no splat for the width.
+static Value createSplat(ConversionPatternRewriter &rewriter, Location loc,
+                         Type pairTy, unsigned elemBits, Value scalar) {
+  switch (elemBits) {
+  case 8:
+    return rewriter.create<lvx::SplatbqOp>(loc, pairTy, scalar);
+  case 16:
+    return rewriter.create<lvx::SplathqOp>(loc, pairTy, scalar);
+  case 32:
+    return rewriter.create<lvx::SplatwqOp>(loc, pairTy, scalar);
+  case 64:
+    return rewriter.create<lvx::SplatdqOp>(loc, pairTy, scalar);
+  default:
+    return {};
+  }
+}
+
+/// A splat vector constant: the element into a register, then the splat. Two
+/// ops, and the `lvx.li` is loop-invariant. Only a splat -- an arbitrary
+/// `dense<[...]>` would be a constant pool this back end does not have, and
+/// stays class D.
+///
+/// This is not only for source-written constants: a `vector.maskedload` whose
+/// `pass_thru` is the zero vector consumes the constant rather than the
+/// value, so the constant is left dead -- and `applyFullConversion` legalizes
+/// dead ops too.
+struct VectorSplatConstantToLVX : public OpConversionPattern<arith::ConstantOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arith::ConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = dyn_cast<VectorType>(op.getType());
+    if (!vecTy)
+      return rewriter.notifyMatchFailure(op, "the scalar pattern handles this");
+    auto dense = dyn_cast<DenseElementsAttr>(op.getValue());
+    if (!dense || !dense.isSplat())
+      return rewriter.notifyMatchFailure(op, "only a splat constant");
+    Type tupleTy = getTypeConverter()->convertType(vecTy);
+    if (tupleWidth(tupleTy) != 2)
+      return rewriter.notifyMatchFailure(
+          op, "the ISA splats a pair; a quad splat has no composite");
+    auto scalarAttr = dyn_cast<TypedAttr>(dense.getSplatValue<Attribute>());
+    if (!scalarAttr)
+      return rewriter.notifyMatchFailure(op, "no scalar attribute to load");
+    Location loc = op.getLoc();
+    Type regTy = RegisterType::get(rewriter.getContext(), std::nullopt);
+    Value scalar = rewriter.create<lvx::LiOp>(loc, regTy, scalarAttr);
+    Value result = createSplat(rewriter, loc, tupleTy,
+                               vecTy.getElementTypeBitWidth(), scalar);
+    if (!result)
+      return rewriter.notifyMatchFailure(op, "no splat for this element width");
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
 // `vector.broadcast %s : T to vector<NxT>` of a scalar: `splat{b,h,w,d}q`
 // by element width, which fills a pair; of a `memref.load` to a quad,
 // `l{b,h,w,d}so` from the load's address (splatLoadOf). (Any other quad
@@ -936,23 +993,10 @@ struct VectorBroadcastToLVX : public OpConversionPattern<vector::BroadcastOp> {
     // the pair-to-quad cast the framework inserts for any other consumer is
     // left unresolved, which fails the conversion for exactly that consumer.
     tupleTy = lvx::PairType::get(rewriter.getContext());
-    Value result;
-    switch (getScalarBitWidth(sourceTy)) {
-    case 8:
-      result = rewriter.create<lvx::SplatbqOp>(op.getLoc(), tupleTy, adaptor.getSource());
-      break;
-    case 16:
-      result = rewriter.create<lvx::SplathqOp>(op.getLoc(), tupleTy, adaptor.getSource());
-      break;
-    case 32:
-      result = rewriter.create<lvx::SplatwqOp>(op.getLoc(), tupleTy, adaptor.getSource());
-      break;
-    case 64:
-      result = rewriter.create<lvx::SplatdqOp>(op.getLoc(), tupleTy, adaptor.getSource());
-      break;
-    default:
+    Value result = createSplat(rewriter, op.getLoc(), tupleTy,
+                               getScalarBitWidth(sourceTy), adaptor.getSource());
+    if (!result)
       return rewriter.notifyMatchFailure(op, "no splat for this element width");
-    }
     rewriter.replaceOp(op, result);
     return success();
   }
@@ -1617,6 +1661,41 @@ struct VectorCmpFToLVX : public OpConversionPattern<arith::CmpFOp> {
 /// false value is the tied operand, and when it is live past the select the
 /// tied-operand preserving-copy pass gives the blend a private copy, exactly
 /// as it does for an `ffma` accumulator.
+/// `blend{bx,ho,wq,dp} $d = $mask? $yes, $no` at `vecTy`'s lane width, or null
+/// when the ISA has no blend for it. The blend writes through its destination,
+/// so `no` is its tied operand and the preserving-copy pass covers a `no` that
+/// is live past it.
+static Value createBlend(ConversionPatternRewriter &rewriter, Location loc,
+                         Type tupleTy, VectorType vecTy, Value yes, Value mask,
+                         Value no) {
+  switch (vecTy.getElementTypeBitWidth()) {
+  case 8:
+    return rewriter.create<lvx::BlendbxOp>(loc, tupleTy, yes, mask, no);
+  case 16:
+    return rewriter.create<lvx::BlendhoOp>(loc, tupleTy, yes, mask, no);
+  case 32:
+    return rewriter.create<lvx::BlendwqOp>(loc, tupleTy, yes, mask, no);
+  case 64:
+    return rewriter.create<lvx::BlenddpOp>(loc, tupleTy, yes, mask, no);
+  default:
+    return {};
+  }
+}
+
+/// Is `v` a vector constant of all zeros? Asked of the *original* operand, so
+/// the constant is still an `arith.constant` here.
+static bool isZeroVector(Value v) {
+  auto constant = v.getDefiningOp<arith::ConstantOp>();
+  if (!constant)
+    return false;
+  auto dense = dyn_cast<DenseElementsAttr>(constant.getValue());
+  if (!dense || !dense.isSplat())
+    return false;
+  if (isa<FloatType>(dense.getElementType()))
+    return dense.getSplatValue<APFloat>().isZero();
+  return dense.getSplatValue<APInt>().isZero();
+}
+
 struct VectorSelectToLVX : public OpConversionPattern<arith::SelectOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
@@ -1636,24 +1715,188 @@ struct VectorSelectToLVX : public OpConversionPattern<arith::SelectOp> {
     Location loc = op.getLoc();
     Value yes = adaptor.getTrueValue(), mask = adaptor.getCondition(),
           no = adaptor.getFalseValue();
-    Value result;
-    switch (vecTy.getElementTypeBitWidth()) {
-    case 8:
-      result = rewriter.create<lvx::BlendbxOp>(loc, tupleTy, yes, mask, no);
-      break;
-    case 16:
-      result = rewriter.create<lvx::BlendhoOp>(loc, tupleTy, yes, mask, no);
-      break;
-    case 32:
-      result = rewriter.create<lvx::BlendwqOp>(loc, tupleTy, yes, mask, no);
-      break;
-    case 64:
-      result = rewriter.create<lvx::BlenddpOp>(loc, tupleTy, yes, mask, no);
-      break;
-    default:
+    Value result = createBlend(rewriter, loc, tupleTy, vecTy, yes, mask, no);
+    if (!result)
       return rewriter.notifyMatchFailure(op, "no blend for this lane width");
-    }
     rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// Masks: making one, and the memory accesses that consume one.
+//
+// A `vector<Nxi1>` is a register holding N low bits, one per lane -- what
+// `comp*q`/`fcomp*q` write and what `masks` reads (§1). Making one from a
+// lane *count* is the loop-tail idiom: lanes `0..n-1` active is `(1 << n) - 1`.
+//
+// The LSU is the exception to bit-per-lane: `maskm` takes one bit per *byte*,
+// the LSU block having no room to encode a lane size, so a masked access puts
+// an `extb{2,4,8}d` between the lane mask and the prefix (lvx-mds
+// docs/Lane-masking-design.md §4). That widening is a real op with a real
+// result, so CSE shares it between a masked load and a masked store of the
+// same lane width under the same mask -- which is the whole of a masked loop
+// body.
+//===----------------------------------------------------------------------===//
+
+/// The byte-enable mask an LSU access needs, from a lane mask: `extb{2,4,8}d`
+/// replicates each lane's bit over that lane's bytes. Byte lanes need none.
+static Value laneMaskToByteEnables(ConversionPatternRewriter &rewriter,
+                                   Location loc, Value mask,
+                                   unsigned bytesPerLane) {
+  Type regTy = mask.getType();
+  switch (bytesPerLane) {
+  case 1:
+    return mask;
+  case 2:
+    return rewriter.create<lvx::Extb2dOp>(loc, regTy, mask);
+  case 4:
+    return rewriter.create<lvx::Extb4dOp>(loc, regTy, mask);
+  case 8:
+    return rewriter.create<lvx::Extb8dOp>(loc, regTy, mask);
+  default:
+    return {};
+  }
+}
+
+/// `vector.constant_mask [n]`: the constant `(1 << n) - 1`, one `lvx.li`.
+struct VectorConstantMaskToLVX
+    : public OpConversionPattern<vector::ConstantMaskOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::ConstantMaskOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = cast<VectorType>(op.getType());
+    ArrayRef<int64_t> dims = op.getMaskDimSizes();
+    if (vecTy.getRank() != 1 || dims.size() != 1)
+      return rewriter.notifyMatchFailure(op, "only a 1-D mask has a register");
+    unsigned lanes = vecTy.getNumElements();
+    if (lanes > 64)
+      return rewriter.notifyMatchFailure(op, "more lanes than a register bits");
+    Type regTy = getTypeConverter()->convertType(vecTy);
+    if (!regTy)
+      return rewriter.notifyMatchFailure(op, "no register for this mask");
+    uint64_t active = std::min<int64_t>(dims[0], lanes);
+    uint64_t bits = active == 64 ? ~uint64_t{0} : (uint64_t{1} << active) - 1;
+    rewriter.replaceOpWithNewOp<lvx::LiOp>(
+        op, regTy, rewriter.getI64IntegerAttr(static_cast<int64_t>(bits)));
+    return success();
+  }
+};
+
+/// `vector.create_mask %n`: `(1 << n) - 1`, with `%n` clamped to `[0, lanes]`
+/// first. The clamp is not optional -- `vector.create_mask` is defined for a
+/// count outside the vector (a negative one masks nothing, a large one masks
+/// everything) whereas a shift by 64 or more is not defined at all, and a
+/// negative count would shift by its low six bits and set the wrong lanes.
+/// Four ops; a constant count folds to `constant_mask` upstream before this.
+struct VectorCreateMaskToLVX : public OpConversionPattern<vector::CreateMaskOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::CreateMaskOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = cast<VectorType>(op.getType());
+    if (vecTy.getRank() != 1 || adaptor.getOperands().size() != 1)
+      return rewriter.notifyMatchFailure(op, "only a 1-D mask has a register");
+    unsigned lanes = vecTy.getNumElements();
+    if (lanes > 63)
+      return rewriter.notifyMatchFailure(op, "more lanes than a shift reaches");
+    Type regTy = getTypeConverter()->convertType(vecTy);
+    if (!regTy)
+      return rewriter.notifyMatchFailure(op, "no register for this mask");
+    Location loc = op.getLoc();
+    Value count = adaptor.getOperands()[0];
+    Value low = rewriter.create<lvx::MaxdImmOp>(loc, regTy, count,
+                                                rewriter.getI64IntegerAttr(0));
+    Value clamped = rewriter.create<lvx::MindImmOp>(
+        loc, regTy, low, rewriter.getI64IntegerAttr(lanes));
+    Value one = rewriter.create<lvx::LiOp>(loc, regTy,
+                                           rewriter.getI64IntegerAttr(1));
+    Value shifted = rewriter.create<lvx::SlldOp>(loc, regTy, one, clamped);
+    rewriter.replaceOpWithNewOp<lvx::AdddImmOp>(
+        op, regTy, shifted, rewriter.getI64IntegerAttr(-1));
+    return success();
+  }
+};
+
+/// The bytes one lane of `vecTy` occupies, or 0 when the ISA has no mask
+/// granularity for it.
+static unsigned bytesPerLaneOf(VectorType vecTy) {
+  unsigned bits = vecTy.getElementTypeBitWidth();
+  return (bits == 8 || bits == 16 || bits == 32 || bits == 64) ? bits / 8 : 0;
+}
+
+/// `vector.maskedload`: `extb*` to byte enables, then the `maskm`-prefixed
+/// access. Inactive lanes come back zero, so a `pass_thru` that is not a zero
+/// constant needs a blend after -- `maskm` has no merge form, by design
+/// (lvx-mds docs/Lane-masking-design.md §1).
+struct VectorMaskedLoadToLVX
+    : public OpConversionPattern<vector::MaskedLoadOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::MaskedLoadOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = op.getVectorType();
+    auto memrefType = cast<MemRefType>(op.getBase().getType());
+    Type tupleTy = getTypeConverter()->convertType(vecTy);
+    Type regTy = getTypeConverter()->convertType(memrefType);
+    unsigned bytes = bytesPerLaneOf(vecTy);
+    if (!tupleWidth(tupleTy) || !bytes)
+      return rewriter.notifyMatchFailure(op, "no register tuple for this shape");
+    FailureOr<Value> address =
+        computeAddress(rewriter, op.getLoc(), memrefType, adaptor.getBase(),
+                       adaptor.getIndices(), regTy);
+    if (failed(address))
+      return rewriter.notifyMatchFailure(
+          op, "unsupported memref layout for address linearization");
+    Location loc = op.getLoc();
+    Value enables =
+        laneMaskToByteEnables(rewriter, loc, adaptor.getMask(), bytes);
+    Value loaded = rewriter.create<lvx::MaskedLoadOp>(
+        loc, tupleTy, enables, *address, rewriter.getI64IntegerAttr(0));
+    if (isZeroVector(op.getPassThru())) {
+      rewriter.replaceOp(op, loaded);
+      return success();
+    }
+    // Inactive lanes are zero, so blending them against the pass-thru under
+    // the *lane* mask restores them.
+    Value blended = createBlend(rewriter, loc, tupleTy, vecTy, loaded,
+                                adaptor.getMask(), adaptor.getPassThru());
+    if (!blended)
+      return rewriter.notifyMatchFailure(
+          op, "no blend for this lane width, and pass_thru is not zero");
+    rewriter.replaceOp(op, blended);
+    return success();
+  }
+};
+
+/// `vector.maskedstore`: the same widening, then the prefixed store. Disabled
+/// bytes are not written at all -- no read-modify-write, so no data race with
+/// whatever else owns them.
+struct VectorMaskedStoreToLVX
+    : public OpConversionPattern<vector::MaskedStoreOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::MaskedStoreOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = op.getVectorType();
+    auto memrefType = cast<MemRefType>(op.getBase().getType());
+    Type regTy = getTypeConverter()->convertType(memrefType);
+    unsigned bytes = bytesPerLaneOf(vecTy);
+    if (!tupleWidth(adaptor.getValueToStore().getType()) || !bytes)
+      return rewriter.notifyMatchFailure(op, "no register tuple for this shape");
+    FailureOr<Value> address =
+        computeAddress(rewriter, op.getLoc(), memrefType, adaptor.getBase(),
+                       adaptor.getIndices(), regTy);
+    if (failed(address))
+      return rewriter.notifyMatchFailure(
+          op, "unsupported memref layout for address linearization");
+    Location loc = op.getLoc();
+    Value enables =
+        laneMaskToByteEnables(rewriter, loc, adaptor.getMask(), bytes);
+    rewriter.replaceOpWithNewOp<lvx::MaskedStoreOp>(
+        op, adaptor.getValueToStore(), enables, *address,
+        rewriter.getI64IntegerAttr(0));
     return success();
   }
 };
@@ -2225,6 +2468,9 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     VectorDeinterleaveToLVX, VectorInterleaveToLVX,
     VectorExtractToLVX, VectorInsertToLVX, VectorShuffleToLVX,
     VectorCmpIToLVX, VectorCmpFToLVX, VectorSelectToLVX,
+    VectorSplatConstantToLVX,
+    VectorConstantMaskToLVX, VectorCreateMaskToLVX,
+    VectorMaskedLoadToLVX, VectorMaskedStoreToLVX,
     // Elementwise arithmetic (Phase 1)
     VAddIToLVX, VSubIToLVX, VMulIToLVX,
     VMinSIToLVX, VMaxSIToLVX, VMinUIToLVX, VMaxUIToLVX,

@@ -119,3 +119,86 @@ func.func @broadcast_load_f32x8(%a: memref<8xf32>, %c: memref<8xf32>) {
   vector.store %x, %c[%i] : memref<8xf32>, vector<8xf32>
   return
 }
+
+// -----
+
+// A masked access is one op in the IR and two syllables in the bundle: the
+// `maskm` prefix plus the access. `extb4d` widens the 4-lane mask to the 16
+// byte enables the LSU consumes, f32 lanes being 4 bytes each.
+
+// ROW: vector.maskedload | f32x4
+// CHECK-LABEL: @maskedload_f32x4
+// CHECK: lvx.extb4d
+// CHECK: lvx.masked_load
+func.func @maskedload_f32x4(%a: memref<8xf32>, %c: memref<8xf32>, %m: vector<4xi1>) {
+  %i = arith.constant 0 : index
+  %p = arith.constant dense<0.0> : vector<4xf32>
+  // ROW-OP
+  %x = vector.maskedload %a[%i], %m, %p : memref<8xf32>, vector<4xi1>, vector<4xf32> into vector<4xf32>
+  vector.store %x, %c[%i] : memref<8xf32>, vector<4xf32>
+  return
+}
+
+// -----
+
+// A pass-thru that is not zero costs a blend after the load: `maskm` zeroes
+// the inactive lanes and has no merge form, by design.
+
+// ROW: vector.maskedload(passthru) | f32x4
+// CHECK-LABEL: @maskedload_passthru_f32x4
+// CHECK: lvx.extb4d
+// CHECK: lvx.masked_load
+// CHECK: lvx.blendwq
+func.func @maskedload_passthru_f32x4(%a: memref<8xf32>, %b: memref<8xf32>, %c: memref<8xf32>, %m: vector<4xi1>) {
+  %i = arith.constant 0 : index
+  %p = vector.load %b[%i] : memref<8xf32>, vector<4xf32>
+  // ROW-OP
+  %x = vector.maskedload %a[%i], %m, %p : memref<8xf32>, vector<4xi1>, vector<4xf32> into vector<4xf32>
+  vector.store %x, %c[%i] : memref<8xf32>, vector<4xf32>
+  return
+}
+
+// -----
+
+// ROW: vector.maskedstore | f32x4
+// CHECK-LABEL: @maskedstore_f32x4
+// CHECK: lvx.extb4d
+// CHECK: lvx.masked_store
+func.func @maskedstore_f32x4(%a: memref<8xf32>, %c: memref<8xf32>, %m: vector<4xi1>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<8xf32>, vector<4xf32>
+  // ROW-OP
+  vector.maskedstore %c[%i], %m, %x : memref<8xf32>, vector<4xi1>, vector<4xf32>
+  return
+}
+
+// -----
+
+// i64 lanes are 8 bytes, so the widening is `extb8d`; i8 lanes are already
+// byte-granular and need none.
+
+// ROW: vector.maskedstore | i64x2
+// CHECK-LABEL: @maskedstore_i64x2
+// CHECK: lvx.extb8d
+// CHECK: lvx.masked_store
+func.func @maskedstore_i64x2(%a: memref<4xi64>, %c: memref<4xi64>, %m: vector<2xi1>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<4xi64>, vector<2xi64>
+  // ROW-OP
+  vector.maskedstore %c[%i], %m, %x : memref<4xi64>, vector<2xi1>, vector<2xi64>
+  return
+}
+
+// -----
+
+// ROW: vector.maskedstore | i8x16
+// CHECK-LABEL: @maskedstore_i8x16
+// CHECK-NOT: lvx.extb
+// CHECK: lvx.masked_store
+func.func @maskedstore_i8x16(%a: memref<32xi8>, %c: memref<32xi8>, %m: vector<16xi1>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<32xi8>, vector<16xi8>
+  // ROW-OP
+  vector.maskedstore %c[%i], %m, %x : memref<32xi8>, vector<16xi1>, vector<16xi8>
+  return
+}

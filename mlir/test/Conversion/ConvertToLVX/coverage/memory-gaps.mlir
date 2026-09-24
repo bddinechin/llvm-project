@@ -10,28 +10,6 @@
 // scalar is also used: the fold requires the load to have no other use.
 // (Not a gap, a deliberate choice -- see ConvertToLVX.cpp.)
 
-// ROW: vector.maskedload | f32x4
-func.func @maskedload_f32x4(%a: memref<8xf32>, %c: memref<8xf32>, %m: vector<4xi1>, %p: vector<4xf32>) {
-  %i = arith.constant 0 : index
-  // expected-error @below {{failed to legalize operation 'vector.maskedload'}}
-  %x = vector.maskedload %a[%i], %m, %p : memref<8xf32>, vector<4xi1>, vector<4xf32> into vector<4xf32>
-  vector.store %x, %c[%i] : memref<8xf32>, vector<4xf32>
-  return
-}
-
-// -----
-
-// ROW: vector.maskedstore | f32x4
-func.func @maskedstore_f32x4(%a: memref<8xf32>, %c: memref<8xf32>, %m: vector<4xi1>) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<8xf32>, vector<4xf32>
-  // expected-error @below {{failed to legalize operation 'vector.maskedstore'}}
-  vector.maskedstore %c[%i], %m, %x : memref<8xf32>, vector<4xi1>, vector<4xf32>
-  return
-}
-
-// -----
-
 // ROW: vector.gather | f32x4
 func.func @gather_f32x4(%a: memref<8xf32>, %c: memref<8xf32>, %idx: vector<4xi32>, %m: vector<4xi1>, %p: vector<4xf32>) {
   %i = arith.constant 0 : index

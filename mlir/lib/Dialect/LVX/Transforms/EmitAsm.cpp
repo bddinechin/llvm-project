@@ -14,6 +14,7 @@
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
 #include "mlir/Dialect/LVX/IR/LVXComposites.h"
+#include "mlir/Dialect/LVX/IR/LVXImmediates.h"
 #include "mlir/Dialect/LVX/IR/LVXTiedOperands.h"
 #include "mlir/Dialect/LVX/IR/RegisterUnits.h"
 
@@ -375,6 +376,43 @@ private:
     return (mnemonic + "." + stringifyVariant(*variant)).str();
   }
 
+  // A masked access prints as one line: the `maskm` prefix, then the access
+  // it governs. gas gives the prefix its own BCU syllable and derives its
+  // `activate` mask from the bundle the access lands in -- which is why the
+  // prefix carries no unit here, and why the bundler has to reserve the BCU
+  // slot itself, gas not being in a position to tell it that it did
+  // (lvx-mds docs/Lane-masking-design.md §7).
+  //
+  // `.mt` always: `.mtd` distributes the mask over a composite's parts and
+  // the LSU has no composites, a 512-bit access being a single instruction.
+  LogicalResult emitMaskedLoad(lvx::MaskedLoadOp op) {
+    FailureOr<std::string> rd = reg(op.getResult());
+    FailureOr<std::string> rm = reg(op.getMask());
+    FailureOr<std::string> rb = reg(op.getBase());
+    FailureOr<int64_t> disp = displacement(op, op.getOffset());
+    if (failed(rd) || failed(rm) || failed(rb) || failed(disp))
+      return failure();
+    StringRef mnemonic =
+        widthOf(op.getResult().getType()) == 4 ? "lo" : "lq";
+    os << "\tmaskm.mt " << *rm << "? " << mnemonic << " " << *rd << " = "
+       << *disp << "[" << *rb << "]" << endOfOp();
+    return success();
+  }
+
+  LogicalResult emitMaskedStore(lvx::MaskedStoreOp op) {
+    FailureOr<std::string> rv = reg(op.getValue());
+    FailureOr<std::string> rm = reg(op.getMask());
+    FailureOr<std::string> rb = reg(op.getBase());
+    FailureOr<int64_t> disp = displacement(op, op.getOffset());
+    if (failed(rv) || failed(rm) || failed(rb) || failed(disp))
+      return failure();
+    StringRef mnemonic =
+        widthOf(op.getValue().getType()) == 4 ? "so" : "sq";
+    os << "\tmaskm.mt " << *rm << "? " << mnemonic << " " << *disp << "["
+       << *rb << "] = " << *rv << endOfOp();
+    return success();
+  }
+
   LogicalResult emitLoad(Operation *op, StringRef mnemonic, Value base,
                         TypedAttr offset, std::optional<Variant> variant) {
     FailureOr<std::string> rd = reg(op->getResult(0));
@@ -519,6 +557,8 @@ private:
         .Case([&](SdOp op) { return emitStore(op, "sd", op.getValue(), op.getBase(), op.getOffset()); })
         .Case([&](SqOp op) { return emitStore(op, "sq", op.getValue(), op.getBase(), op.getOffset()); })
         .Case([&](SoOp op) { return emitStore(op, "so", op.getValue(), op.getBase(), op.getOffset()); })
+        .Case([&](lvx::MaskedLoadOp op) { return emitMaskedLoad(op); })
+        .Case([&](lvx::MaskedStoreOp op) { return emitMaskedStore(op); })
         // Unary float ops carrying a rounding-mode suffix.
         .Case([&](FsqrtdOp op) { return emitUnaryMode(op, "fsqrtd", op.getFloatmode()); })
         .Case([&](FsqrtwOp op) { return emitUnaryMode(op, "fsqrtw", op.getFloatmode()); })
@@ -634,12 +674,48 @@ private:
   /// The arity rule: this dialect's mnemonics match real LVX mnemonics
   /// verbatim (top-level CLAUDE.md), and the "$rd = $rs..." shape is uniform
   /// across the arithmetic/cast op families (lvx-mlir/docs/AssemblyEmission.md).
+  /// An immediate form: `lvx.maxd_i %r, 3` is `maxd $rd = $rs, 3`. The
+  /// dialect names these `<mnemonic>_i` and carries the immediate as an
+  /// attribute, not an operand -- so the arity rule alone would print the
+  /// suffix as part of the mnemonic and drop the immediate entirely, which
+  /// is what it did until the first of these was selected (`vector.create_
+  /// mask`'s clamp, 2026-09-24): `maxd_i $r9 = $r5`, rejected by gas.
+  ///
+  /// Which attribute holds it is the machine description's business, not a
+  /// convention to guess: `immediateOf` names it (`signed10` for `maxd_i`,
+  /// `offset` for a load), and `chooseFormat` has already read the same
+  /// entry to pick the encoding this value fits.
+  LogicalResult emitImmediateForm(Operation *op, StringRef mnemonic) {
+    const OpImmediate *imm = immediateOf(mnemonic);
+    if (!imm)
+      return op->emitError("lvx-emit-asm: no immediate entry for ") << mnemonic;
+    auto value = op->getAttrOfType<IntegerAttr>(imm->attribute);
+    if (!value)
+      return op->emitError("lvx-emit-asm: ")
+             << mnemonic << " has no integer " << imm->attribute;
+    FailureOr<std::string> rd = reg(op->getResult(0));
+    if (failed(rd))
+      return failure();
+    StringRef real = mnemonic.drop_back(2); // the `_i`
+    os << "\t" << withSx(op, real) << " " << *rd << " =";
+    for (auto [k, operand] : llvm::enumerate(op->getOperands())) {
+      FailureOr<std::string> rs = reg(operand);
+      if (failed(rs))
+        return failure();
+      os << (k ? ", " : " ") << *rs;
+    }
+    os << ", " << value.getValue().getSExtValue() << endOfOp();
+    return success();
+  }
+
   LogicalResult emitByArity(Operation *op, StringRef mnemonic) {
     // A tied operand is read through the destination and has no field of
     // its own, so it is not part of the printed shape.
     FailureOr<unsigned> tied = tiedSuffix(op);
     if (failed(tied))
       return failure();
+    if (op->getNumResults() == 1 && mnemonic.ends_with("_i"))
+      return emitImmediateForm(op, mnemonic);
     unsigned printed = op->getNumOperands() - *tied;
     if (op->getNumResults() == 1 && printed == 1)
       return emitUnary(op, mnemonic);

@@ -120,3 +120,63 @@ lvx_func.func @formats(%p: !lvx.reg<r0>) {
   %y = lvx.ld %p, 8 : i64 : (!lvx.reg<r0>) -> !lvx.reg<r2>
   lvx_func.return
 }
+
+// -----
+
+// BCU prefix sharing. A masked access is two syllables -- the `maskm` prefix
+// in a BCU slot plus the access in an LSU slot -- but two masked ops whose
+// mask register and modifier agree share the one prefix syllable, because the
+// assembler merges them (`lvx_cond_insn_merge` ORs the second unit into the
+// activate mask of the syllable already there). The bundler has to model that
+// or it reserves a slot gas never uses. lvx-gcc does the same thing in
+// `lvx_sched_dfa_new_cycle`, comparing the guard conditions with rtx_equal_p.
+//
+// Reaching the point where it shows takes some arranging, because the binding
+// resource is normally TINY (4 per bundle, and every ALU *and* LSU op takes
+// one) rather than the 8 issue syllables. Two masked loads and two extended
+// immediate adds are 4 TINY and 7 syllables: 8 with one prefix between the
+// loads, 9 with one each, so the same-mask case is exactly one bundle and the
+// two-mask case cannot be. The adds carry immediates too wide for the bare
+// format, so `chooseFormat` gives them ALU_TINY.X (2 syllables) and
+// ALU_TINY.Y (3).
+//
+// Loads rather than stores because two stores are ordered against each other
+// anyway -- the bundler has no alias analysis, so it never puts two writes in
+// one bundle and the prefix count could not be what decided it.
+//
+// Each function returns a value computed in the bundle so that its `ret`
+// lands in the next one. That is not presentation: no control instruction has
+// an entry in the generated reservations (`reservationOf` knows none of ret,
+// goto, cb, call), so a terminator reserves nothing and the bundler would put
+// this `ret` in the full bundle, which gas then rejects outright -- "resource
+// ISSUE over-used in bundle: 9 used, 8 available". Keeping it out of the
+// bundle is what lets this test measure the prefix and nothing else.
+
+// CHECK-LABEL: lvx_func.func @one_prefix
+// CHECK: lvx.masked_load {{.*}}cycle = 0
+// CHECK: lvx.masked_load {{.*}}cycle = 0
+// CHECK: lvx_func.return {cycle = 1
+lvx_func.func @one_prefix(%s: !lvx.reg<r1>, %m: !lvx.reg<r2>,
+                          %p: !lvx.reg<r4>, %q: !lvx.reg<r5>) -> !lvx.reg<r0> {
+  %a = lvx.addd_i %s, 305419896 : i64 : (!lvx.reg<r1>) -> !lvx.reg<r0>
+  %b = lvx.addd_i %s, 81985529216486895 : i64 : (!lvx.reg<r1>) -> !lvx.reg<r7>
+  %x = lvx.masked_load %m, %p, 0 : i64 : (!lvx.reg<r2>, !lvx.reg<r4>) -> !lvx.pair<r14r15>
+  %y = lvx.masked_load %m, %q, 0 : i64 : (!lvx.reg<r2>, !lvx.reg<r5>) -> !lvx.pair<r16r17>
+  lvx_func.return %a : !lvx.reg<r0>
+}
+
+// -----
+
+// The same block with two different mask registers: one syllable more than a
+// bundle holds, so something must move to the next one.
+// CHECK-LABEL: lvx_func.func @two_prefixes
+// CHECK: lvx.masked_load {{.*}}cycle = 0
+// CHECK: lvx.masked_load {{.*}}cycle = 1
+lvx_func.func @two_prefixes(%s: !lvx.reg<r1>, %m: !lvx.reg<r2>, %n: !lvx.reg<r3>,
+                            %p: !lvx.reg<r4>, %q: !lvx.reg<r5>) -> !lvx.reg<r0> {
+  %a = lvx.addd_i %s, 305419896 : i64 : (!lvx.reg<r1>) -> !lvx.reg<r0>
+  %b = lvx.addd_i %s, 81985529216486895 : i64 : (!lvx.reg<r1>) -> !lvx.reg<r7>
+  %x = lvx.masked_load %m, %p, 0 : i64 : (!lvx.reg<r2>, !lvx.reg<r4>) -> !lvx.pair<r14r15>
+  %y = lvx.masked_load %n, %q, 0 : i64 : (!lvx.reg<r3>, !lvx.reg<r5>) -> !lvx.pair<r16r17>
+  lvx_func.return %a : !lvx.reg<r0>
+}

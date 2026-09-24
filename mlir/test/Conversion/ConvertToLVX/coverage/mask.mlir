@@ -153,3 +153,45 @@ func.func @select_i64x2(%a: memref<4xi64>, %b: memref<4xi64>, %c: memref<4xi64>)
   vector.store %z, %c[%i] : memref<4xi64>, vector<2xi64>
   return
 }
+
+// -----
+
+// Making a mask. A lane count is the loop-tail idiom: lanes 0..n-1 active is
+// `(1 << n) - 1`. A constant count folds to `vector.constant_mask` upstream
+// and is one `maked`; a dynamic one is four ops, the clamp included -- a
+// count outside the vector is defined for `create_mask` (negative masks
+// nothing, large masks everything) where a shift by it is not.
+
+// ROW: vector.constant_mask | i1x4
+// CHECK-LABEL: @constant_mask_i1x4
+// CHECK: lvx.li 7
+// CHECK-NOT: lvx.slld
+func.func @constant_mask_i1x4(%a: memref<8xf32>, %b: memref<8xf32>, %c: memref<8xf32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<8xf32>, vector<4xf32>
+  %y = vector.load %b[%i] : memref<8xf32>, vector<4xf32>
+  // ROW-OP
+  %m = vector.constant_mask [3] : vector<4xi1>
+  %z = arith.select %m, %x, %y : vector<4xi1>, vector<4xf32>
+  vector.store %z, %c[%i] : memref<8xf32>, vector<4xf32>
+  return
+}
+
+// -----
+
+// ROW: vector.create_mask | i1x4
+// CHECK-LABEL: @create_mask_i1x4
+// CHECK: lvx.maxd_i
+// CHECK: lvx.mind_i
+// CHECK: lvx.slld
+// CHECK: lvx.addd_i
+func.func @create_mask_i1x4(%a: memref<8xf32>, %b: memref<8xf32>, %c: memref<8xf32>, %n: index) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<8xf32>, vector<4xf32>
+  %y = vector.load %b[%i] : memref<8xf32>, vector<4xf32>
+  // ROW-OP
+  %m = vector.create_mask %n : vector<4xi1>
+  %z = arith.select %m, %x, %y : vector<4xi1>, vector<4xf32>
+  vector.store %z, %c[%i] : memref<8xf32>, vector<4xf32>
+  return
+}

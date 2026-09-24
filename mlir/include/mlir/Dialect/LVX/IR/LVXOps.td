@@ -138,6 +138,75 @@ def LVX_ConcatOp : LVX_Op<"concat", [Pure]> {
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// Masked memory access: the `maskm` BCU prefix and the access it governs, as
+// one op (lvx-mlir/docs/VectorCoverage.md §1, "`masks` in the IR").
+//===----------------------------------------------------------------------===//
+
+class LVX_MaskedAccessOp<string mnemonic, list<Trait> traits = []>
+    : LVX_Op<mnemonic, traits> {
+  let description = [{
+    A `maskm`-prefixed load or store: one op, two syllables, the composites'
+    model. The prefix takes a BCU slot and the access its LSU slot, and the
+    assembler places the prefix and derives its `activate` mask from the
+    bundle -- so `-lvx-emit-asm` prints the two on one line and the bundler's
+    job is to reserve the BCU slot, not to name it.
+
+    `mask` is a **byte**-enable mask, one bit per byte of the access, because
+    the LSU block has no room to encode a lane size (lvx-mds
+    docs/Lane-masking-design.md §3). Everything upstream speaks lanes, so the
+    lowering puts an `extb{2,4,8}d` between them -- which is also why the mask
+    is an operand and not an attribute: it is a register, the allocator must
+    see the use and the scheduler the edge from whatever computed it.
+
+    Disabled bytes are neither read nor written: no memory exception from
+    them, a load's destination bytes cleared, a store's memory bytes kept.
+    There is no merge form, by design, so a `vector.maskedload` whose
+    `pass_thru` is not zero blends afterwards.
+
+    The `lanetodo` is always `mt` here: `mtd`/`mfd` distribute the mask across
+    a composite's parts, and the LSU has no composites -- a 512-bit access is
+    a single instruction.
+  }];
+}
+
+def LVX_MaskedLoadOp : LVX_MaskedAccessOp<"masked_load",
+                                          [MemoryEffects<[MemRead]>]> {
+  let summary = "a `maskm`-prefixed load (pseudo: prefix + access)";
+  let arguments = (ins LVX_RegType:$mask, LVX_RegType:$base,
+                       TypedAttrInterface:$offset, LVX_CycleAttr:$cycle);
+  let results = (outs LVX_AnyRegType:$result);
+  let assemblyFormat = [{
+    $mask `,` $base `,` $offset attr-dict `:` `(` qualified(type($mask)) `,`
+    qualified(type($base)) `)` `->` qualified(type($result))
+  }];
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$mask,
+                   "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, resultType, mask, base, offset,
+            ::mlir::IntegerAttr());
+    }]>];
+}
+
+def LVX_MaskedStoreOp : LVX_MaskedAccessOp<"masked_store",
+                                           [MemoryEffects<[MemWrite]>]> {
+  let summary = "a `maskm`-prefixed store (pseudo: prefix + access)";
+  let arguments = (ins LVX_AnyRegType:$value, LVX_RegType:$mask,
+                       LVX_RegType:$base, TypedAttrInterface:$offset,
+                       LVX_CycleAttr:$cycle);
+  let assemblyFormat = [{
+    $value `,` $mask `,` $base `,` $offset attr-dict `:` `(`
+    qualified(type($value)) `,` qualified(type($mask)) `,`
+    qualified(type($base)) `)`
+  }];
+  let builders = [
+    OpBuilder<(ins "::mlir::Value":$value, "::mlir::Value":$mask,
+                   "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
+      build($_builder, $_state, value, mask, base, offset,
+            ::mlir::IntegerAttr());
+    }]>];
+}
+
 def LVX_SpOp : LVX_Op<"sp", [Pure]> {
   let summary = "materialize the current stack-pointer value (pseudo)";
   let description = [{

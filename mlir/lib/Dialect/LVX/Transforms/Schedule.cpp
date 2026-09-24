@@ -88,6 +88,15 @@ static std::optional<StringRef> printedMnemonic(Operation *op) {
       return StringRef("copyo");
     }
   }
+  // A masked access reserves its LSU slot as the bare access does; the BCU
+  // syllable its `maskm` prefix takes is accounted separately, since two
+  // masked ops sharing a prefix share that one syllable (`prefixOf`).
+  if (auto ml = dyn_cast<lvx::MaskedLoadOp>(op))
+    return widthOf(ml.getResult().getType()) == 4 ? StringRef("lo")
+                                                  : StringRef("lq");
+  if (auto ms = dyn_cast<lvx::MaskedStoreOp>(op))
+    return widthOf(ms.getValue().getType()) == 4 ? StringRef("so")
+                                                 : StringRef("sq");
   if (isa<LaneOp, ConcatOp, SpOp, RegLiveInOp, RegLiveOutOp>(op))
     return std::nullopt;
   if (isa<lvx_cf::LoopendOp>(op))
@@ -194,9 +203,33 @@ struct Edge {
   unsigned latency;
 };
 
+/// What a BCU prefix is, for the purpose of sharing one between the syllables
+/// of a bundle: the mask register it reads and the modifier it applies. Two
+/// prefixed ops in one bundle need one syllable between them when these agree
+/// and one each when they do not -- the rule lvx-gcc's `lvx_sched_dfa_new_cycle`
+/// implements with `rtx_equal_p` on the guard condition.
+struct PrefixKey {
+  Value mask;
+  StringRef modifier;
+  bool operator==(const PrefixKey &o) const {
+    return mask == o.mask && modifier == o.modifier;
+  }
+};
+
+/// The BCU prefix `op` needs, if any. `maskm.mt` for a masked access; a
+/// `guard`-predicated op would key the same way on its condition register.
+static std::optional<PrefixKey> prefixOf(Operation *op) {
+  if (auto ml = dyn_cast<lvx::MaskedLoadOp>(op))
+    return PrefixKey{ml.getMask(), "maskm.mt"};
+  if (auto ms = dyn_cast<lvx::MaskedStoreOp>(op))
+    return PrefixKey{ms.getMask(), "maskm.mt"};
+  return std::nullopt;
+}
+
 struct Node {
   Operation *op;
   const Reservation *reservation = nullptr; // null: takes no resources
+  std::optional<PrefixKey> prefix;          // the BCU prefix syllable it needs
   const OpTiming *timing = nullptr;
   SmallVector<Edge, 4> succs;
   unsigned numPreds = 0;
@@ -253,6 +286,7 @@ private:
         n.reservation = reservationOf(*mnemonic, format);
         n.timing = timingOf(*mnemonic);
       }
+      n.prefix = prefixOf(&op);
       nodes.push_back(n);
     }
 
@@ -400,6 +434,14 @@ private:
 
     while (placed != nodes.size()) {
       unsigned used[kNumResources] = {};
+      // The distinct BCU prefixes already issued in this bundle. A prefixed
+      // op whose prefix is among them costs no further syllable: the
+      // assembler merges it into the one already there (gas
+      // `lvx_cond_insn_merge`, which ORs the new unit into that syllable's
+      // activate mask). One that is not needs a BCU slot of its own, and
+      // there are two -- so a bundle holds at most two distinct prefixes,
+      // however many syllables they govern between them.
+      SmallVector<PrefixKey, 2> prefixes;
       bool progress = true;
       while (progress) {
         progress = false;
@@ -412,16 +454,35 @@ private:
           Node &n = nodes[ready[k]];
           if (n.earliest > bundle)
             continue;
+          // A prefix already in this bundle is free; a new one is a syllable
+          // in a BCU slot, on top of whatever the op itself reserves.
+          bool newPrefix = n.prefix && !llvm::is_contained(prefixes, *n.prefix);
+          unsigned extra[kNumResources] = {};
+          if (newPrefix) {
+            extra[static_cast<unsigned>(Resource::bcu)] = 1;
+            extra[static_cast<unsigned>(Resource::issue)] = 1;
+          }
+          bool fits = true;
+          for (unsigned idx = 0; idx != kNumResources; ++idx)
+            if (extra[idx] &&
+                used[idx] + extra[idx] > kResourceAvailability[idx])
+              fits = false;
           if (n.reservation) {
-            bool fits = true;
             for (unsigned r = 0; r != n.reservation->numUses; ++r) {
               const ResourceUse &use = n.reservation->uses[r];
               unsigned idx = static_cast<unsigned>(use.resource);
-              if (used[idx] + use.count > kResourceAvailability[idx])
+              if (used[idx] + extra[idx] + use.count >
+                  kResourceAvailability[idx])
                 fits = false;
             }
-            if (!fits)
-              continue;
+          }
+          if (!fits)
+            continue;
+          for (unsigned idx = 0; idx != kNumResources; ++idx)
+            used[idx] += extra[idx];
+          if (newPrefix)
+            prefixes.push_back(*n.prefix);
+          if (n.reservation) {
             for (unsigned r = 0; r != n.reservation->numUses; ++r)
               used[static_cast<unsigned>(n.reservation->uses[r].resource)] +=
                   n.reservation->uses[r].count;
