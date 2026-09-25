@@ -1789,9 +1789,16 @@ struct VectorConstantMaskToLVX
 /// count outside the vector (a negative one masks nothing, a large one masks
 /// everything) whereas a shift by 64 or more is not defined at all, and a
 /// negative count would shift by its low six bits and set the wrong lanes.
-/// Five ops -- `maxd_i`, `mind_i`, the `li` the shift's source needs, `slld`,
-/// `addd_i` -- of which the `li` is loop-invariant, so four per iteration. A
-/// constant count folds to `vector.constant_mask` upstream and is one `li`.
+/// Five ops -- `maxd_i`, `mind_i`, `li`, `slld`, `addd_i` -- of which the `li`
+/// is loop-invariant, so four per iteration. A constant count folds to
+/// `vector.constant_mask` upstream and is one `li`.
+///
+/// The `li` is for the *value* being shifted, not the amount. LVX has
+/// immediate shifts at every width, scalar and vector (`slld_i`, `sllwq_i`,
+/// ...), but their immediate is the shift *amount* and the value is always a
+/// register. Here it is the other way round -- the amount is the dynamic
+/// count, the value is the constant 1 -- and no instruction takes a constant
+/// as the shifted value, so the 1 has to be materialised.
 struct VectorCreateMaskToLVX : public OpConversionPattern<vector::CreateMaskOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
