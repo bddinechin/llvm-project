@@ -1921,6 +1921,187 @@ struct VectorMaskedStoreToLVX
 // the preserving-copy pass would elide the copies when the source dies at
 // the insert; see docs/VectorCoverage.md §7.
 //===----------------------------------------------------------------------===//
+// Conversions (Phase 5).
+//
+// Three shapes, and which one applies follows from how many bits the lanes
+// gain or lose:
+//
+//   same width   `float*`/`fixed*` read a pair as integers and write it as
+//                floats or the other way round -- one instruction.
+//
+//   narrowing    `trunc*`/`fnarrow*` take a quad and write a pair, so the
+//                whole conversion is one instruction.
+//
+//   widening     `widen*`/`fwiden*` take a pair and write a pair, selecting
+//                its least or its most significant half (`mostsig`). A quad
+//                result is therefore two of them plus an `lvx.concat`, which
+//                the allocator places and which emits nothing.
+//
+// `extl*` selects the even or the odd lanes instead of the low or the high
+// half; nothing here wants that yet, but it is what a deinterleaving widen
+// would use.
+//===----------------------------------------------------------------------===//
+
+/// The widening instruction on `v`'s low (`high` = false) or high half.
+/// `NoLaneOp` stands for a lane width the ISA does not widen, as it does in
+/// the elementwise tables, and yields null rather than failing to compile.
+template <typename Op> struct LaneWiden {
+  static Value create(ConversionPatternRewriter &rewriter, Location loc,
+                      Type pairTy, Value v, bool high) {
+    return rewriter.create<Op>(loc, pairTy,
+                               high ? rewriter.getUnitAttr() : UnitAttr(), v,
+                               lvx::FormatAttr(), IntegerAttr());
+  }
+};
+template <> struct LaneWiden<NoLaneOp> {
+  static Value create(ConversionPatternRewriter &, Location, Type, Value,
+                      bool) {
+    return {};
+  }
+};
+
+/// An integer/float conversion that keeps the lane width: one instruction on
+/// a pair. `W` is the 32-bit form and `D` the 64-bit one.
+/// `TowardZero` says the op is defined to truncate -- `arith.fptosi` and
+/// `fptoui` are, and the bare instruction rounds by whatever `$cs` holds, so
+/// the mode has to be spelled. An integer-to-float conversion takes no such
+/// obligation and leaves it to `$cs`, as every other FP op here does.
+template <typename SourceOp, typename W, typename D, bool TowardZero = false>
+struct VectorSameWidthCastToLVX : public OpConversionPattern<SourceOp> {
+  using OpConversionPattern<SourceOp>::OpConversionPattern;
+  using OpAdaptor = typename OpConversionPattern<SourceOp>::OpAdaptor;
+  LogicalResult
+  matchAndRewrite(SourceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = dyn_cast<VectorType>(op.getType());
+    auto srcTy = dyn_cast<VectorType>(op.getIn().getType());
+    if (!vecTy || !srcTy)
+      return rewriter.notifyMatchFailure(op, "the scalar pattern handles this");
+    Type tupleTy = this->getTypeConverter()->convertType(vecTy);
+    if (tupleWidth(tupleTy) != 2 ||
+        srcTy.getElementTypeBitWidth() != vecTy.getElementTypeBitWidth())
+      return rewriter.notifyMatchFailure(op, "not a same-width pair conversion");
+    auto mode = TowardZero ? lvx::FloatModeAttr::get(rewriter.getContext(),
+                                                     lvx::FloatMode::rz)
+                           : lvx::FloatModeAttr();
+    Value result;
+    switch (vecTy.getElementTypeBitWidth()) {
+    case 32:
+      result = rewriter.create<W>(op.getLoc(), tupleTy, mode, adaptor.getIn(),
+                                  lvx::FormatAttr(), IntegerAttr());
+      break;
+    case 64:
+      result = rewriter.create<D>(op.getLoc(), tupleTy, mode, adaptor.getIn(),
+                                  lvx::FormatAttr(), IntegerAttr());
+      break;
+    default:
+      return rewriter.notifyMatchFailure(op, "no conversion at this lane width");
+    }
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+/// A narrowing conversion: the instruction reads a quad and writes a pair, so
+/// it is the whole lowering. `H`/`W`/`D` are selected by the *source* lane
+/// width (16, 32, 64).
+template <typename SourceOp, typename H, typename W, typename D>
+struct VectorNarrowToLVX : public OpConversionPattern<SourceOp> {
+  using OpConversionPattern<SourceOp>::OpConversionPattern;
+  using OpAdaptor = typename OpConversionPattern<SourceOp>::OpAdaptor;
+  LogicalResult
+  matchAndRewrite(SourceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = dyn_cast<VectorType>(op.getType());
+    auto srcTy = dyn_cast<VectorType>(op.getIn().getType());
+    if (!vecTy || !srcTy)
+      return rewriter.notifyMatchFailure(op, "the scalar pattern handles this");
+    Type tupleTy = this->getTypeConverter()->convertType(vecTy);
+    Type srcTupleTy = this->getTypeConverter()->convertType(srcTy);
+    if (tupleWidth(tupleTy) != 2 || tupleWidth(srcTupleTy) != 4)
+      return rewriter.notifyMatchFailure(op, "not a quad narrowed to a pair");
+    Value result;
+    switch (srcTy.getElementTypeBitWidth()) {
+    case 16: result = LaneUnary<H>::create(rewriter, op.getLoc(), tupleTy,
+                                           adaptor.getIn()); break;
+    case 32: result = LaneUnary<W>::create(rewriter, op.getLoc(), tupleTy,
+                                           adaptor.getIn()); break;
+    case 64: result = LaneUnary<D>::create(rewriter, op.getLoc(), tupleTy,
+                                           adaptor.getIn()); break;
+    default:
+      return rewriter.notifyMatchFailure(op, "no narrowing at this lane width");
+    }
+    if (!result)
+      return rewriter.notifyMatchFailure(op, "no narrowing at this lane width");
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+/// A widening conversion: two instructions, one per half of the source pair,
+/// concatenated into the quad result. `B`/`H`/`W` are selected by the source
+/// lane width (8, 16, 32).
+template <typename SourceOp, typename B, typename H, typename W>
+struct VectorWidenToLVX : public OpConversionPattern<SourceOp> {
+  using OpConversionPattern<SourceOp>::OpConversionPattern;
+  using OpAdaptor = typename OpConversionPattern<SourceOp>::OpAdaptor;
+  LogicalResult
+  matchAndRewrite(SourceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = dyn_cast<VectorType>(op.getType());
+    auto srcTy = dyn_cast<VectorType>(op.getIn().getType());
+    if (!vecTy || !srcTy)
+      return rewriter.notifyMatchFailure(op, "the scalar pattern handles this");
+    Type tupleTy = this->getTypeConverter()->convertType(vecTy);
+    Type srcTupleTy = this->getTypeConverter()->convertType(srcTy);
+    if (tupleWidth(tupleTy) != 4 || tupleWidth(srcTupleTy) != 2)
+      return rewriter.notifyMatchFailure(op, "not a pair widened to a quad");
+    Location loc = op.getLoc();
+    Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
+    Value in = adaptor.getIn(), lo, hi;
+    switch (srcTy.getElementTypeBitWidth()) {
+    case 8:
+      lo = LaneWiden<B>::create(rewriter, loc, pairTy, in, false);
+      hi = LaneWiden<B>::create(rewriter, loc, pairTy, in, true);
+      break;
+    case 16:
+      lo = LaneWiden<H>::create(rewriter, loc, pairTy, in, false);
+      hi = LaneWiden<H>::create(rewriter, loc, pairTy, in, true);
+      break;
+    case 32:
+      lo = LaneWiden<W>::create(rewriter, loc, pairTy, in, false);
+      hi = LaneWiden<W>::create(rewriter, loc, pairTy, in, true);
+      break;
+    default:
+      return rewriter.notifyMatchFailure(op, "no widening at this lane width");
+    }
+    if (!lo || !hi)
+      return rewriter.notifyMatchFailure(op, "no widening at this lane width");
+    rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy, ValueRange{lo, hi});
+    return success();
+  }
+};
+
+using VSIToFPToLVX  = VectorSameWidthCastToLVX<arith::SIToFPOp,
+                          lvx::FloatwqOp, lvx::FloatdpOp>;
+using VUIToFPToLVX  = VectorSameWidthCastToLVX<arith::UIToFPOp,
+                          lvx::FloatuwqOp, lvx::FloatudpOp>;
+using VFPToSIToLVX  = VectorSameWidthCastToLVX<arith::FPToSIOp,
+                          lvx::FixedwqOp, lvx::FixeddpOp, /*TowardZero=*/true>;
+using VFPToUIToLVX  = VectorSameWidthCastToLVX<arith::FPToUIOp,
+                          lvx::FixeduwqOp, lvx::FixedudpOp, /*TowardZero=*/true>;
+using VTruncIToLVX  = VectorNarrowToLVX<arith::TruncIOp,
+                          lvx::TrunchbxOp, lvx::TruncwhoOp, lvx::TruncdwqOp>;
+using VTruncFToLVX  = VectorNarrowToLVX<arith::TruncFOp,
+                          NoLaneOp, lvx::FnarrowwhoOp, lvx::FnarrowdwqOp>;
+using VExtSIToLVX   = VectorWidenToLVX<arith::ExtSIOp,
+                          lvx::WidensbhoOp, lvx::WidenshwqOp, lvx::WidenswdpOp>;
+using VExtUIToLVX   = VectorWidenToLVX<arith::ExtUIOp,
+                          lvx::WidenzbhoOp, lvx::WidenzhwqOp, lvx::WidenzwdpOp>;
+using VExtFToLVX    = VectorWidenToLVX<arith::ExtFOp,
+                          NoLaneOp, lvx::FwidenhwqOp, lvx::FwidenwdpOp>;
+
+//===----------------------------------------------------------------------===//
 // Reductions (Phase 4).
 //
 // The ISA has no horizontal instruction, and the 64-bit SIMD family was
@@ -2702,6 +2883,8 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     VectorCmpIToLVX, VectorCmpFToLVX, VectorSelectToLVX,
     VectorSplatConstantToLVX,
     VectorConstantMaskToLVX, VectorCreateMaskToLVX, VectorReductionToLVX,
+    VSIToFPToLVX, VUIToFPToLVX, VFPToSIToLVX, VFPToUIToLVX,
+    VTruncIToLVX, VTruncFToLVX, VExtSIToLVX, VExtUIToLVX, VExtFToLVX,
     VectorMaskedLoadToLVX, VectorMaskedStoreToLVX,
     // Elementwise arithmetic (Phase 1)
     VAddIToLVX, VSubIToLVX, VMulIToLVX,

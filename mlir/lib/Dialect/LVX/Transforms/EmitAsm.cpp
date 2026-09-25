@@ -216,10 +216,30 @@ private:
   /// the 32-bit result into the 64-bit register, `.sx` means sign-extend.
   /// Carried as a unit attribute, so absent == the hardware default and the
   /// ordinary form prints exactly as it always did.
-  static std::string withSx(Operation *op, StringRef mnemonic) {
+  /// The unit-attribute modifiers, which are spelled as dotted suffixes and
+  /// are the op's whole meaning when present -- `widenswdp` takes the low
+  /// half of its operand and `widenswdp.m` the high one, so dropping the
+  /// suffix does not produce a worse instruction, it produces a wrong one
+  /// (and silently: both halves then widen the low lanes).
+  ///
+  ///   `sx`        signextw, on the word ops that sign-extend their result
+  ///   `m`         mostsig,  on `widen*`/`fwiden*`: the high half, not the low
+  ///   `o`         oddlanes, on `extl*`: the odd lanes, not the even
+  ///   `floatmode` the rounding mode, where the op takes one and the absent
+  ///               suffix means "whatever $cs currently says" -- so
+  ///               `arith.fptosi`, which is defined to truncate, has to spell
+  ///               `.rz` and cannot rely on the default
+  static std::string withModifiers(Operation *op, StringRef mnemonic) {
+    std::string name = mnemonic.str();
     if (op->hasAttr("sx"))
-      return (mnemonic + ".sx").str();
-    return mnemonic.str();
+      name += ".sx";
+    if (op->hasAttr("m"))
+      name += ".m";
+    if (op->hasAttr("o"))
+      name += ".o";
+    if (auto mode = op->getAttrOfType<FloatModeAttr>("floatmode"))
+      name += ("." + stringifyFloatMode(mode.getValue())).str();
+    return name;
   }
 
   LogicalResult emitBinary(Operation *op, StringRef mnemonic) {
@@ -228,7 +248,7 @@ private:
     FailureOr<std::string> rs2 = reg(op->getOperand(1));
     if (failed(rd) || failed(rs1) || failed(rs2))
       return failure();
-    os << "\t" << withSx(op, mnemonic) << " " << *rd << " = " << *rs1 << ", "
+    os << "\t" << withModifiers(op, mnemonic) << " " << *rd << " = " << *rs1 << ", "
        << *rs2 << endOfOp();
     return success();
   }
@@ -252,7 +272,7 @@ private:
     FailureOr<std::string> rs2 = reg(op->getOperand(0));
     if (failed(rd) || failed(rs1) || failed(rs2))
       return failure();
-    os << "\t" << withSx(op, mnemonic) << " " << *rd << " = " << *rs1 << ", " << *rs2
+    os << "\t" << withModifiers(op, mnemonic) << " " << *rd << " = " << *rs1 << ", " << *rs2
        << endOfOp();
     return success();
   }
@@ -313,7 +333,7 @@ private:
     FailureOr<std::string> rs = reg(op->getOperand(0));
     if (failed(rd) || failed(rs))
       return failure();
-    os << "\t" << withSx(op, mnemonic) << " " << *rd << " = " << *rs
+    os << "\t" << withModifiers(op, mnemonic) << " " << *rd << " = " << *rs
        << endOfOp();
     return success();
   }
@@ -368,7 +388,7 @@ private:
 
   /// The real `variant` modifier on a load: bare, `.s` (speculative), `.u`
   /// (uncached) or `.us`. Absent is the hardware default and prints as the
-  /// plain mnemonic, exactly as `withSx` handles `signextw`.
+  /// plain mnemonic, exactly as `withModifiers` handles `signextw`.
   static std::string withVariant(std::optional<Variant> variant,
                                  StringRef mnemonic) {
     if (!variant)
@@ -697,7 +717,7 @@ private:
     if (failed(rd))
       return failure();
     StringRef real = mnemonic.drop_back(2); // the `_i`
-    os << "\t" << withSx(op, real) << " " << *rd << " =";
+    os << "\t" << withModifiers(op, real) << " " << *rd << " =";
     for (auto [k, operand] : llvm::enumerate(op->getOperands())) {
       FailureOr<std::string> rs = reg(operand);
       if (failed(rs))
