@@ -40,30 +40,32 @@ public:
       : BaseT(TM, F.getDataLayout()), ST(TM->getSubtargetImpl(F)),
         TLI(ST->getTargetLowering()) {}
 
-  // No vector registers. This is a statement about the DESCRIPTION this back
-  // end was built against, not about the architecture: lib/Target/LVX holds
-  // one core's generated description at a time and it is lvx_v1 by default,
-  // which has no SIMD at all. lvx-gcc says the same thing the same way --
-  // lvx_autovectorize_vector_modes returns 0 unless LVX_2.
+  // Whether this build has lane-wise ARITHMETIC, counted from the generated
+  // per-core list. Not a hand-written flag and not keyed on -mcpu:
+  // lib/Target/LVX holds one core's description at a time, validation passes
+  // -mcpu=lvx-2 against a build that may hold lvx_v1, and reporting vector
+  // registers there would vectorize into instructions this build does not
+  // contain.
   //
-  // It cannot be keyed on -mcpu, tempting as that is: validation passes
-  // -mcpu=lvx-2 while the build still holds the lvx_v1 description, and
-  // reporting vector registers there would vectorize into instructions that
-  // are not in this build at all.
-  //
-  // Reporting 0 is what makes the vectorizers decline. Left absent, they
-  // costed against BasicTTIImpl's defaults and vectorized anything -- which
-  // on a core with no SIMD is pure loss (every vector operation scalarizes
-  // again, plus the packing around it), and reached shapes with no lowering:
+  // Splats are deliberately NOT counted. lvx-1 has splatbq/hq/wq/dq and no
+  // lane-wise arithmetic at all, so a vectorized loop there is still unrolled
+  // to scalars with packing around it -- pure loss, which is what the
+  // vectorizer must be told by reporting no vector registers. Only an
+  // operation that computes makes a vector worth forming.
+  static constexpr unsigned LaneOps = 0
+#define LVX_LANE_OP(OP, VT) +1
+#include "LVXLaneSIMD.inc"
+      ;
+  static constexpr bool HasLaneSIMD = LaneOps != 0;
+
+  // Left absent entirely, the vectorizers costed against BasicTTIImpl's
+  // defaults and vectorized anything, reaching shapes with no lowering:
   // "bitcast <4 x i1> to i4", the lane-mask packing lvx-2's COMP* does in one
   // instruction and lvx-1 cannot do at all, crashed the legalizer outright.
-  //
-  // When lib/Target/LVX holds lvx_v2, this is one of the places that changes:
-  // 128 bits, and real costs beside it.
   unsigned getNumberOfRegisters(unsigned ClassID) const override {
     bool Vector = ClassID == 1;
     if (Vector)
-      return 0;
+      return HasLaneSIMD ? 64 : 0;
     return 64; // $r0-$r63
   }
 
@@ -72,6 +74,10 @@ public:
     case TTI::RGK_Scalar:
       return TypeSize::getFixed(64);
     case TTI::RGK_FixedWidthVector:
+      // The lane-wise instructions are 128-bit; a 256-bit operation is two
+      // of them, which lvx-gcc costs as no ALU gain (see its
+      // lvx_autovectorize_vector_modes).
+      return TypeSize::getFixed(HasLaneSIMD ? 128 : 0);
     case TTI::RGK_ScalableVector:
       return TypeSize::getFixed(0);
     }

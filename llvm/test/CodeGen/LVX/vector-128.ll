@@ -148,3 +148,41 @@ define <16 x i8> @add8(<16 x i8> %a, <16 x i8> %b) {
   %r = add <16 x i8> %a, %b
   ret <16 x i8> %r
 }
+
+; A splat is one instruction on BOTH cores -- splatbq/hq/wq/dq are in lvx-1's
+; description too, and they are the first lane-wise instructions this back end
+; selects. The pattern is generated; what makes it reachable is the generated
+; per-core list turning SPLAT_VECTOR Legal for the types that have one.
+define <16 x i8> @splat8(i8 %x) {
+; CHECK-LABEL: splat8:
+; CHECK-NOT:   iord
+; CHECK-NOT:   slld
+; CHECK:       splatbq $r0r1 = $r0
+; CHECK:       ret
+  %v = insertelement <16 x i8> poison, i8 %x, i32 0
+  %s = shufflevector <16 x i8> %v, <16 x i8> poison, <16 x i32> zeroinitializer
+  ret <16 x i8> %s
+}
+
+define <4 x i32> @splat32(i32 %x) {
+; CHECK-LABEL: splat32:
+; CHECK:       splatwq $r0r1 = $r0
+; CHECK:       ret
+  %v = insertelement <4 x i32> poison, i32 %x, i32 0
+  %s = shufflevector <4 x i32> %v, <4 x i32> poison, <4 x i32> zeroinitializer
+  ret <4 x i32> %s
+}
+
+; Reading a packed lane stays a register read plus a shift, and lane 9 of a
+; v16i8 is in the pair's other register so the read is free. This is the path
+; that goes through the 64-bit-lane vector rather than a second subregister
+; rule in isel -- a v16i8 EXTRACT_SUBREG reached InstrEmitter with a register
+; class that had no such subregister and asserted.
+define i8 @lane8_9(<16 x i8> %v) {
+; CHECK-LABEL: lane8_9:
+; CHECK-NOT:   sq
+; CHECK:       srld $r0 = $r1, 8
+; CHECK:       ret
+  %e = extractelement <16 x i8> %v, i32 9
+  ret i8 %e
+}

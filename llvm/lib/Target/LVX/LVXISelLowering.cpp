@@ -209,6 +209,22 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
       setOperationAction(ISD::BUILD_VECTOR, VT, Custom);
   }
 
+  // ...and then the ones this core actually HAS become Legal again. The list
+  // is generated per core from the instructions whose Behavior is a lane loop
+  // (MDS/BE/LLVM), so it is empty of arithmetic on lvx-1 and carries adddp,
+  // sbfdp, the min/max family and the splats on lvx-2 -- exactly the
+  // operations LVXInstrPatterns.td has patterns for in this build.
+  //
+  // It has to be a list and not a width: Expand WINS over a pattern, so an
+  // operation left Expand here makes its generated pattern dead code, and one
+  // set Legal without a pattern fails to select. Both are silent in their own
+  // way, and neither is something a "does this core have SIMD" flag could
+  // tell apart. f16 arithmetic sat behind Promote for exactly this reason
+  // until the day its patterns were generated.
+#define LVX_LANE_OP(OP, VT) setOperationAction(ISD::OP, MVT::VT, Legal);
+#define LVX_LANE_SPLAT(VT) setOperationAction(ISD::SPLAT_VECTOR, MVT::VT, Legal);
+#include "LVXLaneSIMD.inc"
+
   // Floating point lives in the SAME general-purpose registers as integers --
   // LVX has no separate FP register file, and every FPU instruction in the
   // generated encodings takes GPR operands. f32 values occupy the low 32 bits
@@ -486,10 +502,7 @@ SDValue LVXTargetLowering::LowerOperation(SDValue Op,
   case ISD::BUILD_VECTOR:
     return lowerBuildVectorPacked(Op, DAG);
   case ISD::EXTRACT_VECTOR_ELT:
-    // A constant index is a subregister read and isel takes it from here; a
-    // computed one has no instruction, and a null SDValue is how a Custom
-    // hook asks for the generic expansion (through memory).
-    return isa<ConstantSDNode>(Op.getOperand(1)) ? Op : SDValue();
+    return lowerExtractLane(Op, DAG);
   default:
     llvm_unreachable(
         "Unimplemented operation in LVXTargetLowering::LowerOperation");
@@ -547,6 +560,48 @@ SDValue LVXTargetLowering::lowerBuildVectorPacked(SDValue Op,
   MVT WideVT = MVT::getVectorVT(MVT::i64, Halves.size());
   SDValue Wide = DAG.getNode(ISD::BUILD_VECTOR, DL, WideVT, Halves);
   return DAG.getNode(ISD::BITCAST, DL, VT, Wide);
+}
+
+// Reading one lane.
+//
+// With register-wide lanes there is nothing to do: the lane IS one of the
+// tuple's registers and LVXISelDAGToDAG selects the subregister read. A
+// PACKED lane is that same register read plus a shift within it, and the way
+// to say so is to reinterpret the vector as the 64-bit-lane vector of the
+// same width and extract from THAT -- one path, already working, instead of a
+// second one in isel that has to know how each packed class reaches its
+// subregisters. (It did not: a v16i8 source reached InstrEmitter as an
+// EXTRACT_SUBREG whose register class had no such subregister, and asserted.)
+//
+// No mask is needed. The element type is narrower than a register and so not
+// legal on its own, which means the node's result type is already i64 and the
+// bits above the lane are don't-care -- the any-extend the legalizer asked
+// for.
+SDValue LVXTargetLowering::lowerExtractLane(SDValue Op,
+                                            SelectionDAG &DAG) const {
+  EVT VecVT = Op.getOperand(0).getValueType();
+  auto *Idx = dyn_cast<ConstantSDNode>(Op.getOperand(1));
+  // A computed index has no instruction; a null SDValue is how a Custom hook
+  // asks for the generic expansion, which goes through memory.
+  if (!Idx)
+    return SDValue();
+
+  unsigned LaneBits = VecVT.getScalarSizeInBits();
+  if (LaneBits >= 64)
+    return Op; // the lane is a register: isel reads the subregister
+
+  SDLoc DL(Op);
+  unsigned PerHalf = 64 / LaneBits;
+  unsigned I = Idx->getZExtValue();
+  MVT WideVT = MVT::getVectorVT(MVT::i64, VecVT.getSizeInBits() / 64);
+  SDValue Wide = DAG.getNode(ISD::BITCAST, DL, WideVT, Op.getOperand(0));
+  SDValue Half =
+      DAG.getNode(ISD::EXTRACT_VECTOR_ELT, DL, MVT::i64, Wide,
+                  DAG.getConstant(I / PerHalf, DL, MVT::i64));
+  if (unsigned Shift = (I % PerHalf) * LaneBits)
+    Half = DAG.getNode(ISD::SRL, DL, MVT::i64, Half,
+                       DAG.getConstant(Shift, DL, MVT::i64));
+  return DAG.getNode(ISD::TRUNCATE, DL, Op.getValueType(), Half);
 }
 
 // fcopysign whose two operands are different types. ISD::FCOPYSIGN allows
