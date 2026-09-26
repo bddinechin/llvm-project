@@ -7,9 +7,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LVX/IR/LVX.h"
-// The machine model. Nothing consumes it yet -- a bundler and a software
-// pipeliner are the consumers it is for -- but it is included here, in the
-// dialect's own translation unit, so that it is COMPILED: the table is
+// The machine model. The bundler (-lvx-schedule, Transforms/Schedule.cpp)
+// consumes it; the software pipeliner will be the other consumer. It is
+// included here, in the dialect's own translation unit, so that it is
+// COMPILED even where no pass pulls it in: the table is
 // constexpr and carries a static_assert that no scheduling class reserves
 // more of a resource than a bundle provides, and a generated header nobody
 // includes is a generated header nobody checks.
