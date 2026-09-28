@@ -1474,8 +1474,10 @@ using VSubIToLVX = VectorBinaryToLVX<arith::SubIOp,
     lvx::SbfbxOp, lvx::SbfhoOp, lvx::SbfwqOp, lvx::SbfdpOp,
     lvx::SbfbvOp, lvx::SbfhxOp, lvx::SbfwoOp, lvx::SbfdqOp>;
 // No 8-bit multiply: only the widening `mulxbho`, which is another op.
+// `mulbx` arrived 2026-09-27; there is still no `mulbv`, so i8x32 is two
+// halves rather than a composite (§7's composite gap).
 using VMulIToLVX = VectorBinaryToLVX<arith::MulIOp,
-    NoLaneOp,     lvx::MulhoOp, lvx::MulwqOp, lvx::MuldpOp,
+    lvx::MulbxOp, lvx::MulhoOp, lvx::MulwqOp, lvx::MuldpOp,
     NoLaneOp,     NoLaneOp,     NoLaneOp,     NoLaneOp>;
 using VMinSIToLVX = VectorBinaryToLVX<arith::MinSIOp,
     lvx::MinbxOp, lvx::MinhoOp, lvx::MinwqOp, lvx::MindpOp,

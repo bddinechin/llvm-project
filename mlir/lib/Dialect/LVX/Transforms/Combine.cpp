@@ -20,6 +20,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
+#include "mlir/Dialect/LVX/IR/LVXImmediates.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -233,13 +234,90 @@ struct FoldSxwdIntoW : public OpRewritePattern<SxwdOp> {
   }
 };
 
+/// `<op>wq(%v, splatwq(li C))` -> `<op>wq_i(%v, C)`: a lane-parallel op against
+/// a constant vector, using the ISA's immediate form instead of materialising
+/// and broadcasting the constant.
+///
+/// What this is and is not worth. The immediate form is `ALU_LITE.X` -- two
+/// syllables, always, there being no narrow variant -- while `li` and `splatwq`
+/// are loop-invariant and hoist. So in a loop this does not remove an
+/// instruction: it trades one `issue` slot for one fewer register held across
+/// the loop. That is usually a good trade, because `tiny` (4 a bundle, and
+/// every ALU and LSU op takes one) is what binds a bundle rather than `issue`
+/// (8), and because register pressure is a hard error in this back end. In
+/// straight-line code it is a plain win, three instructions to one.
+///
+/// Restricted to 32-bit lanes on purpose. There a 32-bit immediate is exactly
+/// one lane, which is the case measured on the ISS (`addwq $d = $s, 5` adds 5
+/// to all four lanes). At 64-bit lanes the same 32-bit immediate has to be
+/// extended or splatted to fill the lane -- what the `splat32` modifier is
+/// for -- and at 8 and 16 bits it would have to be replicated; none of that is
+/// established here, so none of it is folded.
+struct FoldSplatConstantIntoImmediate : public RewritePattern {
+  FoldSplatConstantIntoImmediate(MLIRContext *ctx)
+      : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
+
+  LogicalResult matchAndRewrite(Operation *op,
+                                PatternRewriter &rewriter) const override {
+    if (op->getDialect() != op->getContext()->getLoadedDialect("lvx"))
+      return failure();
+    if (op->getNumOperands() != 2 || op->getNumResults() != 1)
+      return failure();
+    StringRef mnemonic = op->getName().stripDialect();
+    // 32-bit lanes only (see above), and not an immediate form already.
+    if (!mnemonic.ends_with("wq") || mnemonic.ends_with("_i"))
+      return failure();
+    // `sbf`/`fsbf` are "subtract from": the printed operand order is reversed
+    // (EmitAsm's emitBinarySubtractFrom), so which side the immediate belongs
+    // on is not the IR's order and this fold would silently swap the operands.
+    if (mnemonic.starts_with("sbf") || mnemonic.starts_with("fsbf"))
+      return failure();
+
+    std::string immName = (mnemonic + "_i").str();
+    const OpImmediate *info = immediateOf(immName);
+    if (!info)
+      return failure();
+
+    // The second operand must be a splat of a materialised constant, and both
+    // must be dead afterwards -- otherwise the constant stays live and this
+    // adds a syllable for nothing.
+    Operation *splat = op->getOperand(1).getDefiningOp();
+    if (!splat || !isa<SplatwqOp>(splat) || !splat->hasOneUse())
+      return failure();
+    auto li = dyn_cast_or_null<LiOp>(splat->getOperand(0).getDefiningOp());
+    if (!li || !li->hasOneUse())
+      return failure();
+    auto value = dyn_cast<IntegerAttr>(li.getValue());
+    if (!value)
+      return failure();
+    // It has to fit some form of the immediate, or -lvx-schedule would later
+    // fail to choose a format for it.
+    bool fits = false;
+    for (unsigned k = 0; k != info->numForms; ++k)
+      fits |= valueFits(value.getValue(), info->forms[k]);
+    if (!fits)
+      return failure();
+
+    OperationState state(op->getLoc(), ("lvx." + immName));
+    state.addOperands(op->getOperand(0));
+    state.addTypes(op->getResult(0).getType());
+    state.addAttribute(info->attribute, value);
+    for (NamedAttribute attr : op->getAttrs())
+      if (attr.getName() != info->attribute)
+        state.addAttribute(attr.getName(), attr.getValue());
+    rewriter.replaceOp(op, rewriter.create(state)->getResults());
+    return success();
+  }
+};
+
 struct LVXCombinePass
     : public lvx::impl::LVXCombinePassBase<LVXCombinePass> {
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
     patterns.add<FoldMulAddToAddxD, FoldMulAddToAddxW,
                  DropRedundantZxwd, FoldSxwdIntoW,
-                 FoldEorToNotD, FoldEorToNotW>(&getContext());
+                 FoldEorToNotD, FoldEorToNotW,
+                 FoldSplatConstantIntoImmediate>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
       signalPassFailure();
   }

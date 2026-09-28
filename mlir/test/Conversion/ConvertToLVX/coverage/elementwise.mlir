@@ -2242,3 +2242,37 @@ func.func @arith_shrui_i64x4(%a: memref<64xi64>, %b: memref<64xi64>, %c: memref<
   vector.store %z, %c[%i] : memref<64xi64>, vector<4xi64>
   return
 }
+
+// -----
+
+// `mulbx` arrived in the ISA on 2026-09-27; until then `arith.muli` at byte
+// lanes was the one row that was class D at *both* widths.
+// ROW: arith.muli | i8x16
+// CHECK-LABEL: @muli_i8x16
+// CHECK: lvx.mulbx
+func.func @muli_i8x16(%a: memref<32xi8>, %b: memref<32xi8>, %c: memref<32xi8>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<32xi8>, vector<16xi8>
+  %y = vector.load %b[%i] : memref<32xi8>, vector<16xi8>
+  // ROW-OP
+  %z = arith.muli %x, %y : vector<16xi8>
+  vector.store %z, %c[%i] : memref<32xi8>, vector<16xi8>
+  return
+}
+
+// -----
+
+// No `mulbv`, so the quad is two halves rather than a composite.
+// ROW: arith.muli | i8x32
+// CHECK-LABEL: @muli_i8x32
+// CHECK: lvx.mulbx
+// CHECK: lvx.mulbx
+func.func @muli_i8x32(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64xi8>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi8>, vector<32xi8>
+  %y = vector.load %b[%i] : memref<64xi8>, vector<32xi8>
+  // ROW-OP
+  %z = arith.muli %x, %y : vector<32xi8>
+  vector.store %z, %c[%i] : memref<64xi8>, vector<32xi8>
+  return
+}

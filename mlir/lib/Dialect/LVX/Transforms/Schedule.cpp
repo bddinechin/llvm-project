@@ -131,21 +131,6 @@ static unsigned writeCycle(const OpTiming *t, unsigned i) {
 // and an op's format is chosen from its immediate's value (§2).
 //===----------------------------------------------------------------------===//
 
-static bool valueFits(const APInt &value, const ImmediateForm &form) {
-  unsigned w = form.width;
-  if (w >= value.getBitWidth())
-    return true;
-  switch (form.extend) {
-  case ImmediateExtend::Signed:
-    return value.isSignedIntN(w);
-  case ImmediateExtend::Unsigned:
-    return value.isIntN(w);
-  case ImmediateExtend::Wrap:
-    return value.isSignedIntN(w) || value.isIntN(w);
-  }
-  return false;
-}
-
 /// Sets `format` on an op with an immediate that has none yet: the narrowest
 /// form the immediate fits, among the forms whose required unit modifiers
 /// are exactly the ones the op carries (a `.m` form wants `splat32` and a

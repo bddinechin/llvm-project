@@ -6,32 +6,6 @@
 
 // -----
 
-// ROW: arith.muli | i8x16
-func.func @arith_muli_i8x16(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64xi8>, %s: i8) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xi8>, vector<16xi8>
-  %y = vector.load %b[%i] : memref<64xi8>, vector<16xi8>
-  // expected-error @below {{failed to legalize operation 'arith.muli'}}
-  %z = arith.muli %x, %y : vector<16xi8>
-  vector.store %z, %c[%i] : memref<64xi8>, vector<16xi8>
-  return
-}
-
-// -----
-
-// ROW: arith.muli | i8x32
-func.func @arith_muli_i8x32(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64xi8>, %s: i8) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xi8>, vector<32xi8>
-  %y = vector.load %b[%i] : memref<64xi8>, vector<32xi8>
-  // expected-error @below {{failed to legalize operation 'arith.muli'}}
-  %z = arith.muli %x, %y : vector<32xi8>
-  vector.store %z, %c[%i] : memref<64xi8>, vector<32xi8>
-  return
-}
-
-// -----
-
 // ROW: arith.divf | f32x4
 func.func @arith_divf_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
   %i = arith.constant 0 : index
