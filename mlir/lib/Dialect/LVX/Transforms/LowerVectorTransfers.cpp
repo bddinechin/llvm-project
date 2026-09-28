@@ -20,6 +20,7 @@
 
 #include "mlir/Dialect/Linalg/Transforms/Hoisting.h"
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
+#include "mlir/Dialect/Vector/Transforms/VectorTransforms.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir {
@@ -70,6 +71,43 @@ struct LVXLowerVectorTransfersPass
     // that feeds an extract to a scalar memref.load, and lower the
     // in-bounds identity transfers that are left into vector.load/store;
     // then the 0-d vector.load that leaves behind, and the broadcast chain.
+    // 1b. `vector.contract` and `vector.multi_reduction`: the reduced shapes,
+    // which upstream emits for a dot product or a matmul vectorised along k
+    // and which nothing here can lower directly -- the type converter has no
+    // register tuple for a 2-D vector.
+    //
+    // `Dot` is the strategy to want: it rewrites a contraction into
+    // `vector.extract` + `vector.reduction` + `vector.insert`, every one of
+    // which already lowers (Phase 3 for the lane ops, Phase 4 for the
+    // reduction tree). `OuterProduct` would leave `vector.outerproduct` on a
+    // 2-D vector, and `Matmul` a `vector.shape_cast` to a linearised form on
+    // the way to `llvm.matrix.multiply`, which this back end does not go
+    // through. `InnerReduction` for the multi-reduction, so the reduced
+    // dimension ends up innermost where a 1-D `vector.reduction` can take it.
+    //
+    // Done in its own pattern application, before the transfers: a contraction
+    // decomposes into extracts and inserts on the *vectors*, and those want to
+    // be in place before anything rewrites how the vectors are read.
+    {
+      RewritePatternSet contractions(&getContext());
+      vector::populateVectorReductionToContractPatterns(contractions);
+      vector::populateVectorContractLoweringPatterns(
+          contractions, vector::VectorContractLowering::Dot);
+      // The multi-reduction lowering is three stages upstream, and all three
+      // are needed to reach a 1-D `vector.reduction`: Reorder moves the
+      // reduced dimensions innermost, Flattening collapses what is left to
+      // two, Unrolling turns a 2-D reduction into per-row
+      // `vector.reduction`s (`[TwoDimMultiReductionToReduction]`).
+      auto mrOpt = vector::VectorMultiReductionLowering::InnerReduction;
+      vector::populateVectorMultiReductionReorderPatterns(contractions, mrOpt);
+      vector::populateVectorMultiReductionFlatteningPatterns(contractions,
+                                                            mrOpt);
+      vector::populateVectorMultiReductionUnrollingPatterns(contractions,
+                                                           mrOpt);
+      if (failed(applyPatternsGreedily(func, std::move(contractions))))
+        return signalPassFailure();
+    }
+
     RewritePatternSet patterns(&getContext());
     vector::populateVectorTransferPermutationMapLoweringPatterns(patterns,
                                                                  /*benefit=*/3);

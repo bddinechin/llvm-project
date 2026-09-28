@@ -54,3 +54,4 @@ func.func @mymma(%A: memref<8x16xf32>, %B: memref<16x16xf32>, %C: memref<8x16xf3
     }
   return
 }
+
