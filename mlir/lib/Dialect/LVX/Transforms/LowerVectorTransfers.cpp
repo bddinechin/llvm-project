@@ -20,6 +20,7 @@
 
 #include "mlir/Dialect/Linalg/Transforms/Hoisting.h"
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
+#include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
 #include "mlir/Dialect/Vector/Transforms/VectorTransforms.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -53,6 +54,53 @@ struct ZeroDimLoadToScalar : public OpRewritePattern<vector::LoadOp> {
     return success();
   }
 };
+
+/// The widest vector shape an LVX register tuple holds: 256 bits, one
+/// dimension. A `!lvx.quad` is four 64-bit units, so `vector<8xf32>` and
+/// `vector<4xi64>` are the largest that have a type at all -- above that, and
+/// at any rank above one, the type converter has nothing to map the vector to
+/// and every op on it fails to legalize, starting at the load.
+///
+/// So this answers, for each op, the shape to cut it down to: the last
+/// dimension capped at what fits, every leading dimension to one. A 2-D
+/// `vector<4x4xf32>` becomes four `vector<1x4xf32>`, which
+/// `populateCastAwayVectorLeadingOneDimPatterns` then flattens to
+/// `vector<4xf32>`; a `vector<16xf32>` becomes two `vector<8xf32>`.
+///
+/// `std::nullopt` aborts the unrolling for that op, which is what an op that
+/// already fits wants -- there is nothing to cut.
+static constexpr unsigned kNativeBits = 256;
+
+static std::optional<SmallVector<int64_t>> lvxNativeShape(Operation *op) {
+  auto unrollable = dyn_cast<VectorUnrollOpInterface>(op);
+  if (!unrollable)
+    return std::nullopt;
+  std::optional<SmallVector<int64_t>> shape = unrollable.getShapeForUnroll();
+  if (!shape || shape->empty())
+    return std::nullopt;
+
+  // The element width, from whichever vector the op carries.
+  VectorType vecTy;
+  for (Value v : op->getResults())
+    if (auto t = dyn_cast<VectorType>(v.getType())) { vecTy = t; break; }
+  if (!vecTy)
+    for (Value v : op->getOperands())
+      if (auto t = dyn_cast<VectorType>(v.getType())) { vecTy = t; break; }
+  if (!vecTy || !vecTy.getElementType().isIntOrFloat())
+    return std::nullopt;
+  unsigned elemBits = vecTy.getElementTypeBitWidth();
+  if (!elemBits)
+    return std::nullopt;
+  int64_t lanes = kNativeBits / elemBits;
+
+  SmallVector<int64_t> native(*shape);
+  for (size_t i = 0; i + 1 < native.size(); ++i)
+    native[i] = 1;
+  native.back() = std::min(native.back(), lanes);
+  if (native == *shape)
+    return std::nullopt; // already a shape the register file holds
+  return native;
+}
 
 struct LVXLowerVectorTransfersPass
     : public lvx::impl::LVXLowerVectorTransfersPassBase<
@@ -105,6 +153,25 @@ struct LVXLowerVectorTransfersPass
       vector::populateVectorMultiReductionUnrollingPatterns(contractions,
                                                            mrOpt);
       if (failed(applyPatternsGreedily(func, std::move(contractions))))
+        return signalPassFailure();
+    }
+
+    // 1c. Cut every vector down to a shape a register tuple holds: at most
+    // 256 bits, one dimension.  This is what lets a contraction's 2-D operand
+    // be extracted from at all, and what an oversized 1-D vector needs --
+    // `vector<16xf32>` has no type here, so every op on it fails to legalize.
+    // Both are the same defect, a shape the register file cannot hold.
+    //
+    // Cast-away-leading-one-dims comes with it: unrolling a 2-D vector yields
+    // `vector<1xN>` pieces, and it is that pattern set which flattens them to
+    // the `vector<N>` the rest of the back end speaks.
+    {
+      RewritePatternSet shapes(&getContext());
+      vector::populateVectorUnrollPatterns(
+          shapes, vector::UnrollVectorOptions().setNativeShapeFn(
+                      lvxNativeShape));
+      vector::populateCastAwayVectorLeadingOneDimPatterns(shapes);
+      if (failed(applyPatternsGreedily(func, std::move(shapes))))
         return signalPassFailure();
     }
 
