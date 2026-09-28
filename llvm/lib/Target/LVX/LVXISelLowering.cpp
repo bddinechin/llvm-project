@@ -283,6 +283,18 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // of one MULXDQ and two MULDs.
   setOperationAction(ISD::MUL, MVT::i128, Custom);
 
+  // Widening a vector -- (sign|zero|any)_extend from a narrower lane to a
+  // wider one -- has no instruction in an lvx_v1 description and no generic
+  // fallback that terminates here: Expand on these turns them into forms that
+  // legalize back into themselves on a type that is legal, so isel spins (see
+  // the note above the Expand loop). Custom-lowering them to one scalar
+  // extension per lane always works and costs what the middle end's own
+  // scalarization would; a description with the packed EXTL*/WIDEN* forms can
+  // replace it with patterns later. Reached from the widening-multiply
+  // builtins, which extend before multiplying.
+  for (unsigned Op : {ISD::SIGN_EXTEND, ISD::ZERO_EXTEND, ISD::ANY_EXTEND})
+    setOperationAction(Op, MVT::v4i64, Custom);
+
   // COMPD writes the comparison result zero-extended to a full double word
   // ("The boolean result extended to double word is stored into the %1"), so
   // a boolean really is 0 or 1 here. Saying so lets the generic combines use
@@ -508,6 +520,10 @@ SDValue LVXTargetLowering::LowerOperation(SDValue Op,
     return lowerShift128(Op, DAG);
   case ISD::MUL:
     return lowerMul128(Op, DAG);
+  case ISD::SIGN_EXTEND:
+  case ISD::ZERO_EXTEND:
+  case ISD::ANY_EXTEND:
+    return lowerVectorExtend(Op, DAG);
   case ISD::FCOPYSIGN:
     return lowerCopySign(Op, DAG);
   case ISD::BUILD_VECTOR:
@@ -690,6 +706,36 @@ SDValue LVXTargetLowering::lowerCopySign(SDValue Op, SelectionDAG &DAG) const {
 // sub_hi is SubRegIndex<64, 0>, the lower-numbered GPR of the pair, which
 // holds the LOW 64 bits (catdq $rM = $rZ, $rY puts $rZ there). See the
 // DIVMODD comment in LVXISelDAGToDAG.cpp, which trips on the same thing.
+// Widen a vector one lane at a time: read each source lane into a GPR, extend
+// it there, and build the result. The extraction is done at i64 -- the only
+// width a GPR has -- so the lane's own width is re-imposed with
+// SIGN_EXTEND_INREG or a mask rather than by the extract itself, which leaves
+// the upper bits undefined.
+SDValue LVXTargetLowering::lowerVectorExtend(SDValue Op,
+                                            SelectionDAG &DAG) const {
+  EVT VT = Op.getValueType();
+  if (!VT.isVector())
+    return SDValue(); // a scalar extend: the patterns have it
+  SDLoc DL(Op);
+  SDValue Src = Op.getOperand(0);
+  EVT SrcEltVT = Src.getValueType().getVectorElementType();
+  unsigned NumElts = VT.getVectorNumElements();
+  unsigned Opc = Op.getOpcode();
+
+  SmallVector<SDValue, 8> Lanes;
+  for (unsigned I = 0; I != NumElts; ++I) {
+    SDValue Lane = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, DL, MVT::i64, Src,
+                               DAG.getVectorIdxConstant(I, DL));
+    if (Opc == ISD::SIGN_EXTEND)
+      Lane = DAG.getNode(ISD::SIGN_EXTEND_INREG, DL, MVT::i64, Lane,
+                         DAG.getValueType(SrcEltVT));
+    else if (Opc == ISD::ZERO_EXTEND)
+      Lane = DAG.getZeroExtendInReg(Lane, DL, SrcEltVT);
+    Lanes.push_back(Lane);
+  }
+  return DAG.getBuildVector(VT, DL, Lanes);
+}
+
 // A 128-bit multiply. The widening shapes -- both operands an extension of a
 // 64-bit value -- are what MULXDQ is, so those are returned untouched for the
 // patterns in LVXInstrInfo.td to select. Anything else is a genuine 128x128

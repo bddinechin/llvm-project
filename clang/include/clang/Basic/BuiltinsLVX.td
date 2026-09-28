@@ -109,3 +109,109 @@ def CopySignD : LVXBuiltin<"double(double, double)"> {
 def CopySignND : LVXBuiltin<"double(double, double)"> {
   let Spellings = ["__builtin_lvx_copysignnd"];
 }
+
+//===----------------------------------------------------------------------===//
+// The vector sign family
+//
+// Same meanings as the scalar ones above, one lane at a time. The names carry
+// the lane shape: WQ = 4x32 and HO = 8x16 and DP = 2x64 at 128 bits, WO = 8x32
+// and DQ = 4x64 at 256 bits (issued as two 128-bit halves).
+//
+// xorsign has no scalar form to mirror: `a` with its sign bit XORed with b's.
+// It is a bitwise operation, not `copysign(a, a*b)` -- those agree on every
+// finite value but not on a NaN, whose sign the multiply does not carry.
+//===----------------------------------------------------------------------===//
+
+def CopySignWQ : LVXBuiltin<"_Vector<4, float>(_Vector<4, float>, _Vector<4, float>)"> {
+  let Spellings = ["__builtin_lvx_copysignwq"];
+}
+def CopySignNWQ : LVXBuiltin<"_Vector<4, float>(_Vector<4, float>, _Vector<4, float>)"> {
+  let Spellings = ["__builtin_lvx_copysignnwq"];
+}
+def CopySignHO : LVXBuiltin<"_Vector<8, _Float16>(_Vector<8, _Float16>, _Vector<8, _Float16>)"> {
+  let Spellings = ["__builtin_lvx_copysignho"];
+}
+def CopySignDP : LVXBuiltin<"_Vector<2, double>(_Vector<2, double>, _Vector<2, double>)"> {
+  let Spellings = ["__builtin_lvx_copysigndp"];
+}
+def CopySignWO : LVXBuiltin<"_Vector<8, float>(_Vector<8, float>, _Vector<8, float>)"> {
+  let Spellings = ["__builtin_lvx_copysignwo"];
+}
+def CopySignDQ : LVXBuiltin<"_Vector<4, double>(_Vector<4, double>, _Vector<4, double>)"> {
+  let Spellings = ["__builtin_lvx_copysigndq"];
+}
+def CopySignNDQ : LVXBuiltin<"_Vector<4, double>(_Vector<4, double>, _Vector<4, double>)"> {
+  let Spellings = ["__builtin_lvx_copysignndq"];
+}
+def XorSignWQ : LVXBuiltin<"_Vector<4, float>(_Vector<4, float>, _Vector<4, float>)"> {
+  let Spellings = ["__builtin_lvx_xorsignwq"];
+}
+def XorSignHO : LVXBuiltin<"_Vector<8, _Float16>(_Vector<8, _Float16>, _Vector<8, _Float16>)"> {
+  let Spellings = ["__builtin_lvx_xorsignho"];
+}
+def XorSignDP : LVXBuiltin<"_Vector<2, double>(_Vector<2, double>, _Vector<2, double>)"> {
+  let Spellings = ["__builtin_lvx_xorsigndp"];
+}
+def XorSignWO : LVXBuiltin<"_Vector<8, float>(_Vector<8, float>, _Vector<8, float>)"> {
+  let Spellings = ["__builtin_lvx_xorsignwo"];
+}
+
+//===----------------------------------------------------------------------===//
+// Widening multiply
+//
+//   mulx<s><d>   widen each lane and multiply:  d = a * b
+//   maddx<s><d>  and accumulate:                d = c + a * b
+//   msbfx<s><d>  and subtract:                  d = c - a * b
+//
+// HWO is 8x16 -> 8x32 and WDQ is 4x32 -> 4x64, so the result is 256 bits and
+// the compiler issues two 128-bit instructions. The trailing string is the
+// EXTENDMUL flavour, exactly as lvx-gcc spells it: "" signed, ".u" unsigned,
+// ".su" signed times unsigned. It must be a string literal -- but NOT declared
+// `_Constant`, which marks an integer constant expression and asserts in
+// ASTContext on any other type ("Integer constant 'I' type must be an
+// integer"); codegen checks for the literal itself.
+//===----------------------------------------------------------------------===//
+
+def MulXHWO : LVXBuiltin<"_Vector<8, int>(_Vector<8, short>, _Vector<8, short>, char const*)"> {
+  let Spellings = ["__builtin_lvx_mulxhwo"];
+}
+def MulXWDQ : LVXBuiltin<"_Vector<4, long int>(_Vector<4, int>, _Vector<4, int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_mulxwdq"];
+}
+def MAddXHWO : LVXBuiltin<"_Vector<8, int>(_Vector<8, short>, _Vector<8, short>, _Vector<8, int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_maddxhwo"];
+}
+def MAddXWDQ : LVXBuiltin<"_Vector<4, long int>(_Vector<4, int>, _Vector<4, int>, _Vector<4, long int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_maddxwdq"];
+}
+def MSbfXHWO : LVXBuiltin<"_Vector<8, int>(_Vector<8, short>, _Vector<8, short>, _Vector<8, int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_msbfxhwo"];
+}
+def MSbfXWDQ : LVXBuiltin<"_Vector<4, long int>(_Vector<4, int>, _Vector<4, int>, _Vector<4, long int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_msbfxwdq"];
+}
+
+//===----------------------------------------------------------------------===//
+// Splatting load
+//
+// Load one element and broadcast it across a 256-bit quad. The trailing string
+// is the load VARIANT (""/".s"/".u"/".us"), which selects caching behaviour and
+// changes no value, so it is accepted and does not affect the IR here.
+//===----------------------------------------------------------------------===//
+
+def LoadBSO : LVXBuiltin<"_Vector<32, unsigned char>(void const*, char const*)"> {
+  let Spellings = ["__builtin_lvx_loadbso"];
+  let Attributes = [NoThrow];   // reads memory: not Const
+}
+def LoadHSO : LVXBuiltin<"_Vector<16, unsigned short>(void const*, char const*)"> {
+  let Spellings = ["__builtin_lvx_loadhso"];
+  let Attributes = [NoThrow];
+}
+def LoadWSO : LVXBuiltin<"_Vector<8, unsigned int>(void const*, char const*)"> {
+  let Spellings = ["__builtin_lvx_loadwso"];
+  let Attributes = [NoThrow];
+}
+def LoadDSO : LVXBuiltin<"_Vector<4, unsigned long int>(void const*, char const*)"> {
+  let Spellings = ["__builtin_lvx_loaddso"];
+  let Attributes = [NoThrow];
+}
