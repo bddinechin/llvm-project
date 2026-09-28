@@ -31,7 +31,8 @@ public:
   LVXTargetLowering(const TargetMachine &TM, const LVXSubtarget &STI);
 
   // LowerOperation - Provide custom lowering hooks for some operations.
-  // Routed here so far: the i128 shifts (lowerShift128).
+  // Routed here so far: the i128 shifts (lowerShift128) and the i128
+  // multiply (lowerMul128).
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
   // LVX has real fused multiply-add hardware (FFMAD/FFMAW), so llvm.fmuladd
@@ -64,6 +65,7 @@ public:
 
 private:
   SDValue lowerShift128(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerMul128(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerCopySign(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerBuildVectorPacked(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerExtractLane(SDValue Op, SelectionDAG &DAG) const;

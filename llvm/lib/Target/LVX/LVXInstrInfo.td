@@ -343,6 +343,21 @@ def : Pat<(i128 (sext GPR:$rZ)),
 def : Pat<(i128 (anyext GPR:$rZ)),
           (INSERT_SUBREG (i128 (IMPLICIT_DEF)), GPR:$rZ, sub_hi)>;
 
+// Widening multiply, 64x64 -> 128: MULXDQ, whose `widemult` modifier carries
+// the signedness -- 0 signed, 1 unsigned, 2 signed-by-unsigned (LVXModifiers.h
+// `WidemultSuffixes`).  Without these, `(__int128)a * (__int128)b` reached isel
+// as `mul i128 (sext i64), (sext i64)` and failed outright: i128 is a legal
+// type here, so the legalizer does not split the multiply into 64-bit pieces
+// the way it would on a target where i128 is illegal, and there was nothing to
+// select.  `mul` is commutative, so the .su form covers both operand orders;
+// the SIGNED source is the one printed first, which is why it is $rZ.
+def : Pat<(mul (i128 (sext GPR:$rZ)), (i128 (sext GPR:$rY))),
+          (MULXDQ_QMEWRR GPR:$rZ, GPR:$rY, 0)>;
+def : Pat<(mul (i128 (zext GPR:$rZ)), (i128 (zext GPR:$rY))),
+          (MULXDQ_QMEWRR GPR:$rZ, GPR:$rY, 1)>;
+def : Pat<(mul (i128 (sext GPR:$rZ)), (i128 (zext GPR:$rY))),
+          (MULXDQ_QMEWRR GPR:$rZ, GPR:$rY, 2)>;
+
 // Shifts: by a register, or by an immediate below 64 (the field is 6 bits).
 // A constant amount of 64 or more never reaches here -- lowerShift128 in
 // LVXISelLowering.cpp turns it into subregister reads and a 64-bit shift.

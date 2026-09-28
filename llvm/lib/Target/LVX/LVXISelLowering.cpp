@@ -274,6 +274,15 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   for (unsigned Op : {ISD::SHL, ISD::SRL, ISD::SRA})
     setOperationAction(Op, MVT::i128, Custom);
 
+  // 128-bit multiply. There is no MULQ in the ISA -- the widest multiply is
+  // MULXDQ, 64x64 into a pair -- and because i128 is a LEGAL type here the
+  // legalizer never splits the multiply into 64-bit pieces the way it does on
+  // a target where i128 is illegal. So every `mul i128` reached isel whole and
+  // failed to select, which is a crash rather than a diagnostic. lowerMul128
+  // hands the widening shapes to the MULXDQ patterns and builds the rest out
+  // of one MULXDQ and two MULDs.
+  setOperationAction(ISD::MUL, MVT::i128, Custom);
+
   // COMPD writes the comparison result zero-extended to a full double word
   // ("The boolean result extended to double word is stored into the %1"), so
   // a boolean really is 0 or 1 here. Saying so lets the generic combines use
@@ -497,6 +506,8 @@ SDValue LVXTargetLowering::LowerOperation(SDValue Op,
   case ISD::SRL:
   case ISD::SRA:
     return lowerShift128(Op, DAG);
+  case ISD::MUL:
+    return lowerMul128(Op, DAG);
   case ISD::FCOPYSIGN:
     return lowerCopySign(Op, DAG);
   case ISD::BUILD_VECTOR:
@@ -679,6 +690,56 @@ SDValue LVXTargetLowering::lowerCopySign(SDValue Op, SelectionDAG &DAG) const {
 // sub_hi is SubRegIndex<64, 0>, the lower-numbered GPR of the pair, which
 // holds the LOW 64 bits (catdq $rM = $rZ, $rY puts $rZ there). See the
 // DIVMODD comment in LVXISelDAGToDAG.cpp, which trips on the same thing.
+// A 128-bit multiply. The widening shapes -- both operands an extension of a
+// 64-bit value -- are what MULXDQ is, so those are returned untouched for the
+// patterns in LVXInstrInfo.td to select. Anything else is a genuine 128x128
+// product, and only its low 128 bits are wanted:
+//
+//   (ahi:alo) * (bhi:blo) = alo*blo                 (a full 128-bit product)
+//                         + (alo*bhi + ahi*blo) << 64
+//
+// The cross terms need only their low 64 bits, since everything they carry
+// above bit 127 is discarded, so they are plain MULDs. ahi*bhi contributes
+// only above bit 127 and is dropped entirely: three multiplies, not four.
+static bool isExtFrom64(SDValue V) {
+  unsigned Op = V.getOpcode();
+  return (Op == ISD::SIGN_EXTEND || Op == ISD::ZERO_EXTEND ||
+          Op == ISD::ANY_EXTEND) &&
+         V.getOperand(0).getValueType() == MVT::i64;
+}
+
+SDValue LVXTargetLowering::lowerMul128(SDValue Op, SelectionDAG &DAG) const {
+  SDValue A = Op.getOperand(0), B = Op.getOperand(1);
+  if (isExtFrom64(A) && isExtFrom64(B))
+    return Op; // MULXDQ, with the widemult its two extensions imply
+
+  SDLoc DL(Op);
+  // sub_hi is the LOW half and sub_lo the HIGH one: the names say which
+  // register of the pair, not which end of the value (see int128.ll).
+  SDValue Alo = DAG.getTargetExtractSubreg(sub_hi, DL, MVT::i64, A);
+  SDValue Ahi = DAG.getTargetExtractSubreg(sub_lo, DL, MVT::i64, A);
+  SDValue Blo = DAG.getTargetExtractSubreg(sub_hi, DL, MVT::i64, B);
+  SDValue Bhi = DAG.getTargetExtractSubreg(sub_lo, DL, MVT::i64, B);
+
+  // alo*blo as a full 128-bit product: an unsigned widening multiply, because
+  // both halves are magnitude bits here whatever the operands' signedness --
+  // the sign lives in the high halves, which the cross terms carry.
+  SDValue Lo128 =
+      DAG.getNode(ISD::MUL, DL, MVT::i128,
+                  DAG.getNode(ISD::ZERO_EXTEND, DL, MVT::i128, Alo),
+                  DAG.getNode(ISD::ZERO_EXTEND, DL, MVT::i128, Blo));
+
+  SDValue Cross =
+      DAG.getNode(ISD::ADD, DL, MVT::i64,
+                  DAG.getNode(ISD::MUL, DL, MVT::i64, Alo, Bhi),
+                  DAG.getNode(ISD::MUL, DL, MVT::i64, Ahi, Blo));
+
+  // Cross << 64 is a pair with a zero low half, which costs no instruction.
+  SDValue Shifted = DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i128,
+                                DAG.getConstant(0, DL, MVT::i64), Cross);
+  return DAG.getNode(ISD::ADD, DL, MVT::i128, Lo128, Shifted);
+}
+
 SDValue LVXTargetLowering::lowerShift128(SDValue Op, SelectionDAG &DAG) const {
   auto *C = dyn_cast<ConstantSDNode>(Op.getOperand(1));
   if (!C || C->getZExtValue() < 64)

@@ -371,6 +371,43 @@ static bool isNullConstant(SDValue V) {
   return C && C->isZero();
 }
 
+// Split every i128 constant before matching begins.
+//
+// The generated immediate predicates are `ImmLeaf<i64, ...>`, which TableGen
+// emits as `int64_t Imm = cast<ConstantSDNode>(N)->getSExtValue();` with no
+// width guard, and the matcher evaluates such a predicate on a constant CHILD
+// before it has checked that child's type. On a target whose widest legal
+// integer is 64 bits that is harmless; here i128 is legal, so any __int128
+// constant needing more than 64 bits -- `x & ~(unsigned __int128)0xffffffffffffffff`
+// is enough -- reached a predicate and aborted in APInt::getSExtValue with
+// "Too many bits for int64_t". Not a wrong answer: a crash, on ordinary code.
+//
+// So the constant is gone by the time matching starts. This is preprocessing
+// rather than custom LOWERING for the reason spelled out in Select() below:
+// lowering an i128 constant to a BUILD_PAIR of two i64 constants leaves
+// DAGCombiner free to fold the pair straight back into one i128 constant,
+// which lowers again, and the DAG grows without bound. No combiner runs after
+// this hook, so the split is final here.
+void LVXDAGToDAGISel::PreprocessISelDAG() {
+  SmallVector<SDNode *, 8> Constants;
+  for (SDNode &N : CurDAG->allnodes())
+    if (N.getOpcode() == ISD::Constant && N.getValueType(0) == MVT::i128)
+      Constants.push_back(&N);
+
+  for (SDNode *N : Constants) {
+    const APInt &V = cast<ConstantSDNode>(N)->getAPIntValue();
+    SDLoc DL(N);
+    // (low, high) -- the operand order Select() turns into catdq.
+    SDValue Pair = CurDAG->getNode(
+        ISD::BUILD_PAIR, DL, MVT::i128,
+        CurDAG->getConstant(V.trunc(64), DL, MVT::i64),
+        CurDAG->getConstant(V.lshr(64).trunc(64), DL, MVT::i64));
+    CurDAG->ReplaceAllUsesOfValueWith(SDValue(N, 0), Pair);
+  }
+  if (!Constants.empty())
+    CurDAG->RemoveDeadNodes();
+}
+
 void LVXDAGToDAGISel::Select(SDNode *N) {
   SDLoc DL(N);
 
