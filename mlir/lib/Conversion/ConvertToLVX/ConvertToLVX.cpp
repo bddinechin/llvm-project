@@ -2710,12 +2710,76 @@ struct FuncFuncToLVX : public OpConversionPattern<func::FuncOp> {
           op, "function signature exceeds the regular calling convention's "
               "register capacity");
 
+    // A vector argument occupies **consecutive** argument registers, with no
+    // alignment padding -- which is what lvx-gcc does, and the ABI is what gcc
+    // implements rather than anything this file may prefer:
+    //
+    //   v4sf f(v4sf a, v4sf b)          $r0r1 and $r2r3
+    //   double a, v4sf b                a in $r0, b in **$r1,$r2** -- and gcc
+    //                                   emits `copyd $r0=$r1; copyd $r1=$r2`
+    //                                   to move it into an aligned pair
+    //   double a, double b, v4sf c      c at $r2r3, already aligned, no moves
+    //
+    // So a tuple argument can arrive *misaligned*, which no tuple type can
+    // name: `PairRegister` has only even bases, and `typeFor` asserts on
+    // anything else. Each ABI slot is therefore pinned as a single register
+    // and the parts are combined in the entry block -- which is exactly what
+    // gcc's pair of `copyd`s is.
+    //
+    // Rounding the slot up to the tuple's width instead would skip a register
+    // and read the argument from the wrong place, silently: the failure the
+    // comment above `abiArgReg` exists to warn about.
+    SmallVector<unsigned> argSlots; // ABI registers each argument occupies
     SmallVector<Type> pinnedArgTypes;
-    for (unsigned i = 0; i < op.getNumArguments(); ++i)
-      pinnedArgTypes.push_back(RegisterType::get(ctx, abiArgReg(i)));
+    {
+      unsigned slot = 0;
+      for (Type ty : op.getFunctionType().getInputs()) {
+        Type converted = getTypeConverter()->convertType(ty);
+        if (!converted)
+          return rewriter.notifyMatchFailure(op, "argument has no register type");
+        unsigned width = std::max(1u, lvx::widthOf(converted));
+        if (slot + width > lvx::kNumAbiArgRegs)
+          return rewriter.notifyMatchFailure(
+              op, "function signature exceeds the regular calling "
+                  "convention's argument registers");
+        for (unsigned k = 0; k != width; ++k)
+          pinnedArgTypes.push_back(
+              RegisterType::get(ctx, abiArgReg(slot + k)));
+        argSlots.push_back(width);
+        slot += width;
+      }
+    }
+
+    // Results: the same consecutive rule, but the first result starts at slot
+    // 0, so a single tuple result is always aligned and can be pinned as one.
+    // A tuple result *after* another result could be misaligned; that needs
+    // the return to split a value into singles, which nothing emits yet, so
+    // it is refused rather than mis-pinned.
     SmallVector<Type> pinnedResultTypes;
-    for (unsigned i = 0; i < op.getNumResults(); ++i)
-      pinnedResultTypes.push_back(RegisterType::get(ctx, abiResultReg(i)));
+    {
+      unsigned slot = 0;
+      for (Type ty : op.getFunctionType().getResults()) {
+        Type converted = getTypeConverter()->convertType(ty);
+        if (!converted)
+          return rewriter.notifyMatchFailure(op, "result has no register type");
+        unsigned width = std::max(1u, lvx::widthOf(converted));
+        if (slot + width > lvx::kNumAbiResultRegs)
+          return rewriter.notifyMatchFailure(
+              op, "function signature exceeds the regular calling "
+                  "convention's result registers");
+        if (width > 1 && slot % width != 0)
+          return rewriter.notifyMatchFailure(
+              op, "a tuple result at a misaligned slot needs the return to "
+                  "split it into single registers, which is not implemented");
+        pinnedResultTypes.push_back(
+            width == 1
+                ? Type(RegisterType::get(ctx, abiResultReg(slot)))
+                : lvx::typeFor(ctx, lvx::PhysLoc{
+                      static_cast<unsigned>(abiResultReg(slot)), width}));
+        slot += width;
+      }
+    }
+
     auto newFuncType =
         rewriter.getFunctionType(pinnedArgTypes, pinnedResultTypes);
 
@@ -2739,15 +2803,37 @@ struct FuncFuncToLVX : public OpConversionPattern<func::FuncOp> {
       // arguments were just converted to plain `!lvx.reg` above, they
       // match the `lvx.mv` results' type exactly, so no further remapping
       // is needed.
-      Type virtualRegTy = RegisterType::get(ctx, std::nullopt);
       SmallVector<Location> argLocs(pinnedArgTypes.size(), op.getLoc());
       Block *abiEntry =
           rewriter.createBlock(&lvxFunc.getBody(), {}, pinnedArgTypes, argLocs);
       rewriter.setInsertionPointToStart(abiEntry);
+      // Each ABI slot is copied out of its pinned register, and the slots of
+      // one argument are then concatenated into the tuple the body expects.
+      // The copies are what make the concatenation legal: `lvx.concat` places
+      // its parts in the result's block, and a part already pinned to an ABI
+      // register cannot also be placed there. They are also exactly gcc's
+      // `copyd $r0=$r1; copyd $r1=$r2` -- the move of a misaligned incoming
+      // pair into an aligned one -- and where the argument arrives aligned
+      // already the allocator is free to coalesce them away.
+      Type regTy = RegisterType::get(ctx, std::nullopt);
       SmallVector<Value> mvArgs;
-      for (BlockArgument pinned : abiEntry->getArguments())
-        mvArgs.push_back(
-            rewriter.create<lvx::MvOp>(op.getLoc(), virtualRegTy, pinned));
+      unsigned slot = 0;
+      for (unsigned width : argSlots) {
+        SmallVector<Value> parts;
+        for (unsigned k = 0; k != width; ++k)
+          parts.push_back(rewriter.create<lvx::MvOp>(
+              op.getLoc(), regTy, abiEntry->getArgument(slot + k)));
+        if (width == 1) {
+          mvArgs.push_back(parts.front());
+        } else {
+          Type tupleTy = width == 2
+                             ? Type(lvx::PairType::get(ctx, std::nullopt))
+                             : Type(lvx::QuadType::get(ctx, std::nullopt));
+          mvArgs.push_back(
+              rewriter.create<lvx::ConcatOp>(op.getLoc(), tupleTy, parts));
+        }
+        slot += width;
+      }
 
       rewriter.inlineRegionBefore(op.getBody(), lvxFunc.getBody(),
                                   lvxFunc.getBody().end());
