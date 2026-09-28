@@ -804,15 +804,23 @@ LVXTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI_,
   // aligned pair for an __int128, a quad for a 256-bit vector. Which one
   // the assembler then wants is spelled by the register name itself
   // ($r0, $r0r1, $r0r1r2r3), so the same "%0" works for all three.
-  if (Constraint.size() == 1 && Constraint[0] == 'r') {
-    switch (VT.SimpleTy) {
-    case MVT::i128:
-      return std::make_pair(0U, &LVX::GPR128RegClass);
-    case MVT::v4i64:
+  // Decided by WIDTH, not by an enumerated list of types. Listing i128 and
+  // v4i64 alone meant every other 128-bit value -- v4i32, v16i8, v8i16,
+  // v2i64, v2f64 -- fell through to a single 64-bit GPR, and
+  // SelectionDAGBuilder then asserted "lossy conversion of vector to scalar
+  // type" while copying 128 bits into it. A `compwq` asm statement with a
+  // v4si operand was enough (validation/tests/micro/v_splat32.c).
+  if (Constraint.size() == 1 && Constraint[0] == 'r' && VT.isValid()) {
+    unsigned Bits = VT.getSizeInBits();
+    if (Bits == 128)
+      // GPR128 and GPR128V are the same registers under two names; the vector
+      // one is what holds a vector value type (see LVXRegisterInfo.td).
+      return std::make_pair(0U, VT.isVector() ? &LVX::GPR128VRegClass
+                                             : &LVX::GPR128RegClass);
+    if (Bits == 256)
       return std::make_pair(0U, &LVX::GPR256RegClass);
-    default:
+    if (Bits <= 64)
       return std::make_pair(0U, &LVX::GPRRegClass);
-    }
   }
   return TargetLowering::getRegForInlineAsmConstraint(TRI_, Constraint, VT);
 }
@@ -1035,8 +1043,14 @@ LVXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   if (IsVarArg)
     report_fatal_error("Variadic functions not yet supported on LVX");
-  if (CLI.IsTailCall)
-    report_fatal_error("Tail calls not yet supported on LVX");
+
+  // A tail call is a REQUEST, not an obligation: the middle end marks any call
+  // in tail position and the target decides. Declining is always correct --
+  // the call is lowered as an ordinary one -- so clearing the flag is what a
+  // target without tail-call lowering does. Raising a fatal error instead made
+  // clang die on two lines of C ("return callee(b, a);" at -O2), which is how
+  // this was found.
+  CLI.IsTailCall = false;
 
   MachineFunction &MF = DAG.getMachineFunction();
 

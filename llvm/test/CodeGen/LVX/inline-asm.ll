@@ -30,3 +30,26 @@ define i64 @tied(i64 %c, i64 %a) {
   %r = call i64 asm "guard.dnez $2? addd $0 = $1, 1\0A\09;;", "=r,0,r"(i64 %a, i64 %c)
   ret i64 %r
 }
+
+; A 128-bit VECTOR operand must get a register pair, like an i128 does. The
+; constraint handler decided by an enumerated list of types until 2026-09-28,
+; so only i128 and v4i64 got a wide class and every 128-bit vector silently
+; received one 64-bit GPR -- SelectionDAGBuilder then asserted "lossy
+; conversion of vector to scalar type" while copying 128 bits into it. Reached
+; by ordinary asm: a packed compare with a v4i32 operand.
+define i64 @vector_operand(<4 x i32> %v) {
+; CHECK-LABEL: vector_operand:
+; CHECK:      compwq.eq $r{{[0-9]+}} = $r{{[0-9]+r[0-9]+}}, 7
+; CHECK:      ret
+  %m = call i64 asm "compwq.eq $0 = $1, 7", "=r,r"(<4 x i32> %v)
+  ret i64 %m
+}
+
+; ... and a vector RESULT likewise, in both directions of the same statement.
+define <8 x i16> @vector_result(<16 x i8> %b) {
+; CHECK-LABEL: vector_result:
+; CHECK:      extlzbho $r{{[0-9]+r[0-9]+}} = $r{{[0-9]+r[0-9]+}}
+; CHECK:      ret
+  %h = call <8 x i16> asm "extlzbho $0 = $1", "=r,r"(<16 x i8> %b)
+  ret <8 x i16> %h
+}
