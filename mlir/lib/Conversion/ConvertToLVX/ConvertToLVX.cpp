@@ -2406,6 +2406,60 @@ struct VectorExtractToLVX : public OpConversionPattern<vector::ExtractOp> {
 /// largest aligned groups, so a quad keeps its untouched pair in one `copyq`
 /// -- and the target unit, which is the scalar itself when the element fills
 /// a unit and an `insfd` into a copy of it when it does not.
+/// `vector.from_elements %a, %b, ... : vector<NxT>`: the scalars laid into
+/// their lanes. Upstream's canonicalizer folds a run of `vector.insert` into
+/// one of these -- which is how a `vector.contract` arrives here, the Dot
+/// lowering building its result row by row.
+///
+/// A 64-bit lane *is* a unit, so the whole thing is an `lvx.concat` of the
+/// scalars and costs nothing. Narrower lanes share a unit, and each is written
+/// with `insfd` into a register that starts at zero: starting from the first
+/// scalar instead would carry whatever its upper bits hold into the lane above
+/// it, since nothing says a value narrower than a register arrives clean.
+struct VectorFromElementsToLVX
+    : public OpConversionPattern<vector::FromElementsOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::FromElementsOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = op.getType();
+    Type tupleTy = getTypeConverter()->convertType(vecTy);
+    unsigned units = tupleTy ? tupleWidth(tupleTy) : 0;
+    if (!units || vecTy.getRank() != 1)
+      return rewriter.notifyMatchFailure(op, "vector shape has no register tuple");
+    unsigned bits = vecTy.getElementTypeBitWidth();
+    if (bits != 8 && bits != 16 && bits != 32 && bits != 64)
+      return rewriter.notifyMatchFailure(op, "no lane width for this element");
+    unsigned perUnit = 64 / bits;
+    ValueRange elements = adaptor.getElements();
+    if (elements.size() != units * perUnit)
+      return rewriter.notifyMatchFailure(op, "element count is not the tuple's");
+
+    Location loc = op.getLoc();
+    Type regTy = RegisterType::get(rewriter.getContext(), std::nullopt);
+    SmallVector<Value> parts;
+    for (unsigned u = 0; u != units; ++u) {
+      if (perUnit == 1) { // a 64-bit lane is the unit
+        parts.push_back(elements[u]);
+        continue;
+      }
+      Value acc = rewriter.create<lvx::LiOp>(loc, regTy,
+                                             rewriter.getI64IntegerAttr(0));
+      for (unsigned k = 0; k != perUnit; ++k)
+        acc = rewriter.create<lvx::InsfdImmOp>(
+            loc, regTy, elements[u * perUnit + k], acc,
+            rewriter.getI64IntegerAttr(bits),
+            rewriter.getI64IntegerAttr(k * bits));
+      parts.push_back(acc);
+    }
+    if (units == 1)
+      rewriter.replaceOp(op, parts.front());
+    else
+      rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy, parts);
+    return success();
+  }
+};
+
 struct VectorInsertToLVX : public OpConversionPattern<vector::InsertOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
@@ -2975,6 +3029,7 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     VectorLoadToLVX, VectorStoreToLVX, VectorBroadcastToLVX, VectorFMAToLVX,
     VectorDeinterleaveToLVX, VectorInterleaveToLVX,
     VectorExtractToLVX, VectorInsertToLVX, VectorShuffleToLVX,
+    VectorFromElementsToLVX,
     VectorCmpIToLVX, VectorCmpFToLVX, VectorSelectToLVX,
     VectorSplatConstantToLVX,
     VectorConstantMaskToLVX, VectorCreateMaskToLVX, VectorReductionToLVX,
