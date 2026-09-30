@@ -282,3 +282,26 @@ func.func @cmpf_f32x8(%a: memref<16xf32>, %b: memref<16xf32>, %o: memref<16xf32>
   vector.maskedstore %o[%i], %m, %x : memref<16xf32>, vector<8xi1>, vector<8xf32>
   return
 }
+
+// -----
+
+// A quad vector-condition select. `blend*` has no quad form and no composite
+// (§7 group B), so it is one per half -- and since the mask arrives combined
+// low-first, the high half reads it shifted down by the half lane count.
+// `blend*` looks at only as many bits as it has lanes, so the shift is the
+// whole adjustment; nothing has to mask above it.
+// ROW: arith.select | i32x8
+// CHECK-LABEL: @select_i32x8
+// CHECK: lvx.blendwq
+// CHECK: lvx.srld_i %{{.*}}, 4
+// CHECK: lvx.blendwq
+func.func @select_i32x8(%m: vector<8xi1>, %a: memref<16xi32>,
+                        %b: memref<16xi32>, %o: memref<16xi32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<16xi32>, vector<8xi32>
+  %y = vector.load %b[%i] : memref<16xi32>, vector<8xi32>
+  // ROW-OP
+  %z = arith.select %m, %x, %y : vector<8xi1>, vector<8xi32>
+  vector.store %z, %o[%i] : memref<16xi32>, vector<8xi32>
+  return
+}

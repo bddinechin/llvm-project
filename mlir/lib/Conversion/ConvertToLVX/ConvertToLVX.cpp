@@ -1819,16 +1819,50 @@ struct VectorSelectToLVX : public OpConversionPattern<arith::SelectOp> {
     if (!laneCountOf(tupleTy, vecTy) ||
         condTy.getNumElements() != vecTy.getNumElements())
       return rewriter.notifyMatchFailure(op, "no register tuple for this shape");
-    if (tupleWidth(tupleTy) != 2)
-      return rewriter.notifyMatchFailure(
-          op, "the ISA blends a pair; a quad blend has no composite");
     Location loc = op.getLoc();
+    unsigned units = tupleWidth(tupleTy);
     Value yes = adaptor.getTrueValue(), mask = adaptor.getCondition(),
           no = adaptor.getFalseValue();
-    Value result = createBlend(rewriter, loc, tupleTy, vecTy, yes, mask, no);
-    if (!result)
-      return rewriter.notifyMatchFailure(op, "no blend for this lane width");
-    rewriter.replaceOp(op, result);
+    if (units == 2) {
+      Value result = createBlend(rewriter, loc, tupleTy, vecTy, yes, mask, no);
+      if (!result)
+        return rewriter.notifyMatchFailure(op, "no blend for this lane width");
+      rewriter.replaceOp(op, result);
+      return success();
+    }
+
+    // A quad: `blend*` has no quad form and no composite -- it reads a mask,
+    // and two halves cannot pack lanes 4-7's bits above lanes 0-3's in one
+    // register (§7's group B) -- so it is two blends on the halves.
+    //
+    // The mask the quad compare produced is the two halves' bit runs joined
+    // low-first (`combineHalfMasks`), so the low blend reads it as it stands
+    // and the high blend wants it shifted down by the half lane count. One
+    // `srld_i`, and it is the same register either way: `blend*` reads only as
+    // many bits as it has lanes and ignores what sits above them.
+    //
+    // Slicing here rather than having the compare produce two masks is the
+    // consequence of a masked *access* being indivisible: `lo`/`so` take one
+    // mask register and `MASKM` cannot distribute, so the combined form is the
+    // one a masked loop needs and the blends pay a shift for it.
+    Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
+    Type regTy = RegisterType::get(rewriter.getContext(), std::nullopt);
+    unsigned halfLanes = vecTy.getNumElements() / 2;
+    Value half[2];
+    for (unsigned k = 0; k != 2; ++k) {
+      Value halfMask =
+          k == 0 ? mask
+                 : rewriter.create<lvx::SrldImmOp>(
+                       loc, regTy, mask,
+                       rewriter.getI64IntegerAttr(halfLanes));
+      half[k] = createBlend(rewriter, loc, pairTy, vecTy,
+                            quadHalf(rewriter, loc, yes, k), halfMask,
+                            quadHalf(rewriter, loc, no, k));
+      if (!half[k])
+        return rewriter.notifyMatchFailure(op, "no blend for this lane width");
+    }
+    rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy,
+                                               ValueRange{half[0], half[1]});
     return success();
   }
 };
