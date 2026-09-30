@@ -238,3 +238,47 @@ func.func @select_scalar_f32x8(%c: i1, %a: memref<16xf32>, %b: memref<16xf32>,
   vector.store %z, %o[%i] : memref<16xf32>, vector<8xf32>
   return
 }
+
+// -----
+
+// A quad compare. `COMP*` writes its lane bits from bit 0 and clears the rest,
+// so both halves land in the same bits and must be brought together: `insfd`
+// shifts the high half up by the half lane count and merges it, one
+// instruction where a shift and an or would be two. Low half first, which is
+// the order `masks.mtd` distributes in.
+//
+// Combined rather than kept apart because a masked quad *access* cannot take
+// two masks: `lo`/`so` are single instructions, not composites, and `MASKM`
+// has no `.mtd`. The row below pairs it with a masked store for that reason.
+// ROW: arith.cmpi | i32x8
+// CHECK-LABEL: @cmpi_i32x8
+// CHECK: lvx.compwq
+// CHECK: lvx.compwq
+// CHECK: lvx.insfd
+// CHECK: lvx.extb4d
+func.func @cmpi_i32x8(%a: memref<16xi32>, %b: memref<16xi32>, %o: memref<16xi32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<16xi32>, vector<8xi32>
+  %y = vector.load %b[%i] : memref<16xi32>, vector<8xi32>
+  // ROW-OP
+  %m = arith.cmpi slt, %x, %y : vector<8xi32>
+  vector.maskedstore %o[%i], %m, %x : memref<16xi32>, vector<8xi1>, vector<8xi32>
+  return
+}
+
+// -----
+
+// ROW: arith.cmpf | f32x8
+// CHECK-LABEL: @cmpf_f32x8
+// CHECK: lvx.fcompwq
+// CHECK: lvx.fcompwq
+// CHECK: lvx.insfd
+func.func @cmpf_f32x8(%a: memref<16xf32>, %b: memref<16xf32>, %o: memref<16xf32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<16xf32>, vector<8xf32>
+  %y = vector.load %b[%i] : memref<16xf32>, vector<8xf32>
+  // ROW-OP
+  %m = arith.cmpf olt, %x, %y : vector<8xf32>
+  vector.maskedstore %o[%i], %m, %x : memref<16xf32>, vector<8xi1>, vector<8xf32>
+  return
+}

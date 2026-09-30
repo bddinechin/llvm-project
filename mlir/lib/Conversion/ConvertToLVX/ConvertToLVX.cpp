@@ -1578,6 +1578,60 @@ static unsigned laneCountOf(Type converted, VectorType vecTy) {
   return units ? vecTy.getNumElements() : 0;
 }
 
+/// `comp{bx,ho,wq,dp}` on two pairs, by lane width, or null.
+static Value createLaneCompareI(ConversionPatternRewriter &rewriter,
+                                Location loc, Type regTy, unsigned bits,
+                                IntComp pred, Value lhs, Value rhs) {
+  switch (bits) {
+  case 8:  return rewriter.create<lvx::CompbxOp>(loc, regTy, pred, lhs, rhs);
+  case 16: return rewriter.create<lvx::ComphoOp>(loc, regTy, pred, lhs, rhs);
+  case 32: return rewriter.create<lvx::CompwqOp>(loc, regTy, pred, lhs, rhs);
+  case 64: return rewriter.create<lvx::CompdpOp>(loc, regTy, pred, lhs, rhs);
+  }
+  return {};
+}
+
+/// `fcomp{ho,wq,dp}` on two pairs, by lane width, or null.
+static Value createLaneCompareF(ConversionPatternRewriter &rewriter,
+                                Location loc, Type regTy, unsigned bits,
+                                FloatComp pred, Value lhs, Value rhs) {
+  switch (bits) {
+  case 16: return rewriter.create<lvx::FcomphoOp>(loc, regTy, pred, lhs, rhs);
+  case 32: return rewriter.create<lvx::FcompwqOp>(loc, regTy, pred, lhs, rhs);
+  case 64: return rewriter.create<lvx::FcompdpOp>(loc, regTy, pred, lhs, rhs);
+  }
+  return {};
+}
+
+/// A quad's mask, from the two pair compares its halves give.
+///
+/// `COMP*` writes its lane bits starting at bit 0 and clears the rest (since
+/// 2026-09-22), so both halves land in the same bits and have to be brought
+/// together. `insfd` does it in one instruction -- it shifts its value left by
+/// `startbit` and merges it under a mask of `bitwidth` ones -- where a shift
+/// plus an or would take two. The low half is the tied operand, written
+/// through, which is why it must be the fresh compare result and nothing else.
+///
+/// The layout is low half first, which is what `masks.mtd` expects: it hands
+/// successive slices of the mask to the units in ascending order, so part 0 of
+/// a composite reads the low lanes (lane-masking design §1.2).
+///
+/// **Why combined and not two separate masks.** A quad `blend*` would rather
+/// have the two halves' masks apart, there being no quad blend. But a masked
+/// quad *access* cannot: `lo`/`so` are single instructions, not composites, so
+/// one mask register serves the whole access, and `MASKM` has no `.mtd` to
+/// distribute one -- the 32 byte enables a masked `lo` reads must come from
+/// contiguous lane bits through `extb{4,8}d`. Since a masked loop generally
+/// loads, computes and stores under one predicate, the combined form is the one
+/// that serves every consumer; a quad blend slices it back with one shift.
+static Value combineHalfMasks(ConversionPatternRewriter &rewriter, Location loc,
+                              Type regTy, unsigned halfLanes, Value lo,
+                              Value hi) {
+  return rewriter.create<lvx::InsfdImmOp>(
+      loc, regTy, hi, lo, rewriter.getI64IntegerAttr(halfLanes),
+      rewriter.getI64IntegerAttr(halfLanes));
+}
+
 struct VectorCmpIToLVX : public OpConversionPattern<arith::CmpIOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
@@ -1590,30 +1644,31 @@ struct VectorCmpIToLVX : public OpConversionPattern<arith::CmpIOp> {
     Type regTy = getTypeConverter()->convertType(op.getType());
     if (!laneCountOf(tupleTy, vecTy) || !regTy)
       return rewriter.notifyMatchFailure(op, "no register tuple, or no mask");
-    if (tupleWidth(tupleTy) != 2)
-      return rewriter.notifyMatchFailure(
-          op, "the ISA compares a pair; a quad compare has no composite");
+    unsigned units = tupleWidth(tupleTy);
     IntComp pred = mapCmpIPredicate(op.getPredicate());
     Location loc = op.getLoc();
+    unsigned bits = vecTy.getElementTypeBitWidth();
     Value lhs = adaptor.getLhs(), rhs = adaptor.getRhs();
-    Value result;
-    switch (vecTy.getElementTypeBitWidth()) {
-    case 8:
-      result = rewriter.create<lvx::CompbxOp>(loc, regTy, pred, lhs, rhs);
-      break;
-    case 16:
-      result = rewriter.create<lvx::ComphoOp>(loc, regTy, pred, lhs, rhs);
-      break;
-    case 32:
-      result = rewriter.create<lvx::CompwqOp>(loc, regTy, pred, lhs, rhs);
-      break;
-    case 64:
-      result = rewriter.create<lvx::CompdpOp>(loc, regTy, pred, lhs, rhs);
-      break;
-    default:
-      return rewriter.notifyMatchFailure(op, "no compare for this lane width");
+    if (units == 2) {
+      Value result =
+          createLaneCompareI(rewriter, loc, regTy, bits, pred, lhs, rhs);
+      if (!result)
+        return rewriter.notifyMatchFailure(op, "no compare for this lane width");
+      rewriter.replaceOp(op, result);
+      return success();
     }
-    rewriter.replaceOp(op, result);
+    // A quad: compare the halves and bring the two bit runs together.
+    Value half[2];
+    for (unsigned k = 0; k != 2; ++k) {
+      half[k] = createLaneCompareI(rewriter, loc, regTy, bits, pred,
+                                   quadHalf(rewriter, loc, lhs, k),
+                                   quadHalf(rewriter, loc, rhs, k));
+      if (!half[k])
+        return rewriter.notifyMatchFailure(op, "no compare for this lane width");
+    }
+    rewriter.replaceOp(op, combineHalfMasks(rewriter, loc, regTy,
+                                            vecTy.getNumElements() / 2,
+                                            half[0], half[1]));
     return success();
   }
 };
@@ -1630,30 +1685,34 @@ struct VectorCmpFToLVX : public OpConversionPattern<arith::CmpFOp> {
     Type regTy = getTypeConverter()->convertType(op.getType());
     if (!laneCountOf(tupleTy, vecTy) || !regTy)
       return rewriter.notifyMatchFailure(op, "no register tuple, or no mask");
-    if (tupleWidth(tupleTy) != 2)
-      return rewriter.notifyMatchFailure(
-          op, "the ISA compares a pair; a quad compare has no composite");
+
     std::optional<FloatCompMapping> mapping = mapCmpFPredicate(op.getPredicate());
     if (!mapping)
       return rewriter.notifyMatchFailure(op, "unsupported predicate");
     Location loc = op.getLoc();
     Value lhs = mapping->swapOperands ? adaptor.getRhs() : adaptor.getLhs();
     Value rhs = mapping->swapOperands ? adaptor.getLhs() : adaptor.getRhs();
-    Value result;
-    switch (vecTy.getElementTypeBitWidth()) {
-    case 16:
-      result = rewriter.create<lvx::FcomphoOp>(loc, regTy, mapping->pred, lhs, rhs);
-      break;
-    case 32:
-      result = rewriter.create<lvx::FcompwqOp>(loc, regTy, mapping->pred, lhs, rhs);
-      break;
-    case 64:
-      result = rewriter.create<lvx::FcompdpOp>(loc, regTy, mapping->pred, lhs, rhs);
-      break;
-    default:
-      return rewriter.notifyMatchFailure(op, "no compare for this lane width");
+    unsigned units = tupleWidth(tupleTy);
+    unsigned bits = vecTy.getElementTypeBitWidth();
+    if (units == 2) {
+      Value result = createLaneCompareF(rewriter, loc, regTy, bits,
+                                        mapping->pred, lhs, rhs);
+      if (!result)
+        return rewriter.notifyMatchFailure(op, "no compare for this lane width");
+      rewriter.replaceOp(op, result);
+      return success();
     }
-    rewriter.replaceOp(op, result);
+    Value half[2];
+    for (unsigned k = 0; k != 2; ++k) {
+      half[k] = createLaneCompareF(rewriter, loc, regTy, bits, mapping->pred,
+                                   quadHalf(rewriter, loc, lhs, k),
+                                   quadHalf(rewriter, loc, rhs, k));
+      if (!half[k])
+        return rewriter.notifyMatchFailure(op, "no compare for this lane width");
+    }
+    rewriter.replaceOp(op, combineHalfMasks(rewriter, loc, regTy,
+                                            vecTy.getNumElements() / 2,
+                                            half[0], half[1]));
     return success();
   }
 };
