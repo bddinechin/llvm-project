@@ -1698,6 +1698,55 @@ static bool isZeroVector(Value v) {
   return dense.getSplatValue<APInt>().isZero();
 }
 
+/// `arith.select %c, %vecA, %vecB` where `%c` is a **scalar** `i1`: the whole
+/// vector is chosen, not lane by lane, which is `CMOVEQ` -- a conditional move
+/// of a pair under a `bcucond` test on an ordinary register. One instruction.
+///
+/// This is a different op from the lane-wise select below even though both are
+/// `arith.select`: there the condition is a `vector<Nxi1>` and each lane picks
+/// for itself (`blend*`), here one scalar picks for all of them. MLIR spells
+/// both the same way and the condition's type is what separates them; until
+/// `CMOVEQ` arrived (lvx-mds 409a2c3) the scalar-condition form had no lowering
+/// at all -- the vector pattern wanted a vector condition and the scalar
+/// pattern rejects vector operands.
+///
+/// `CMOVEQ` is pair-only, with no quad form and no composite, so a quad is two
+/// of them on the halves. The false value is the tied operand, as for `blend*`,
+/// so a false value live past the select is copied by the preserving-copy pass.
+struct VectorSelectScalarCondToLVX
+    : public OpConversionPattern<arith::SelectOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arith::SelectOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = dyn_cast<VectorType>(op.getType());
+    if (!vecTy || isa<VectorType>(op.getCondition().getType()))
+      return rewriter.notifyMatchFailure(
+          op, "not a vector select under a scalar condition");
+    Type tupleTy = getTypeConverter()->convertType(vecTy);
+    unsigned units = tupleTy ? tupleWidth(tupleTy) : 0;
+    if (!units)
+      return rewriter.notifyMatchFailure(op, "vector shape has no register tuple");
+    Location loc = op.getLoc();
+    Value cond = adaptor.getCondition();
+    Value yes = adaptor.getTrueValue(), no = adaptor.getFalseValue();
+    if (units == 2) {
+      rewriter.replaceOpWithNewOp<lvx::CmoveqOp>(op, tupleTy, BcuCond::wnez,
+                                                 cond, yes, no);
+      return success();
+    }
+    Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
+    Value half[2];
+    for (unsigned k = 0; k != 2; ++k)
+      half[k] = rewriter.create<lvx::CmoveqOp>(
+          loc, pairTy, BcuCond::wnez, cond, quadHalf(rewriter, loc, yes, k),
+          quadHalf(rewriter, loc, no, k));
+    rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy,
+                                               ValueRange{half[0], half[1]});
+    return success();
+  }
+};
+
 struct VectorSelectToLVX : public OpConversionPattern<arith::SelectOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
@@ -3031,6 +3080,7 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     VectorExtractToLVX, VectorInsertToLVX, VectorShuffleToLVX,
     VectorFromElementsToLVX,
     VectorCmpIToLVX, VectorCmpFToLVX, VectorSelectToLVX,
+    VectorSelectScalarCondToLVX,
     VectorSplatConstantToLVX,
     VectorConstantMaskToLVX, VectorCreateMaskToLVX, VectorReductionToLVX,
     VSIToFPToLVX, VUIToFPToLVX, VFPToSIToLVX, VFPToUIToLVX,

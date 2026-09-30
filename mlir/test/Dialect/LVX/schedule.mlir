@@ -112,9 +112,17 @@ lvx_func.func @resources(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) {
 // (bare, one syllable), 100000 needs the 37-bit `.x` form (two syllables),
 // and the scheduler records the choice so the ISSUE count it reserved is
 // what the assembler will encode.
+//
+// Checked as "the wide one carries a format and the narrow one does not",
+// rather than against the format's number.  `Format` is a generated enum and
+// its values move with the description: the `.M` -> `.S` rename of the 55
+// packed-immediate formats (lvx-mds e36d59f) shifted every slot by one and
+// broke this test, which had pinned `format = 4`.  What the test is for is
+// that a format is chosen at all, and only for the immediate that needs one.
 // CHECK-LABEL: lvx_func.func @formats
-// CHECK: lvx.ld %arg0, 100000 : i64 {cycle = 0 : i64, format = 4 : i64}
+// CHECK: lvx.ld %arg0, 100000 : i64 {cycle = 0 : i64, format = {{[0-9]+}} : i64}
 // CHECK: lvx.ld %arg0, 8 : i64 {cycle = 0 : i64}
+// CHECK-NOT: format
 lvx_func.func @formats(%p: !lvx.reg<r0>) {
   %x = lvx.ld %p, 100000 : i64 : (!lvx.reg<r0>) -> !lvx.reg<r1>
   %y = lvx.ld %p, 8 : i64 : (!lvx.reg<r0>) -> !lvx.reg<r2>

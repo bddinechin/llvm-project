@@ -195,3 +195,46 @@ func.func @create_mask_i1x4(%a: memref<8xf32>, %b: memref<8xf32>, %c: memref<8xf
   vector.store %z, %c[%i] : memref<8xf32>, vector<4xf32>
   return
 }
+
+// -----
+
+// `arith.select` is two operations sharing one spelling, and the condition's
+// type is what separates them: a `vector<Nxi1>` condition picks per lane
+// (`blend*`, above), a scalar `i1` picks the whole vector. The scalar-condition
+// form had no lowering until CMOVEQ arrived (lvx-mds 409a2c3) -- the vector
+// pattern wanted a vector condition, the scalar pattern rejects vector
+// operands, so it fell between them.
+
+// ROW: arith.select(scalar) | f32x4
+// CHECK-LABEL: @select_scalar_f32x4
+// CHECK: lvx.cmoveq wnez
+// CHECK-NOT: lvx.blend
+func.func @select_scalar_f32x4(%c: i1, %a: memref<8xf32>, %b: memref<8xf32>,
+                               %o: memref<8xf32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<8xf32>, vector<4xf32>
+  %y = vector.load %b[%i] : memref<8xf32>, vector<4xf32>
+  // ROW-OP
+  %z = arith.select %c, %x, %y : vector<4xf32>
+  vector.store %z, %o[%i] : memref<8xf32>, vector<4xf32>
+  return
+}
+
+// -----
+
+// CMOVEQ is pair-only, with no quad form and no composite, so a quad is two of
+// them on the halves.
+// ROW: arith.select(scalar) | f32x8
+// CHECK-LABEL: @select_scalar_f32x8
+// CHECK: lvx.cmoveq wnez
+// CHECK: lvx.cmoveq wnez
+func.func @select_scalar_f32x8(%c: i1, %a: memref<16xf32>, %b: memref<16xf32>,
+                               %o: memref<16xf32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<16xf32>, vector<8xf32>
+  %y = vector.load %b[%i] : memref<16xf32>, vector<8xf32>
+  // ROW-OP
+  %z = arith.select %c, %x, %y : vector<8xf32>
+  vector.store %z, %o[%i] : memref<16xf32>, vector<8xf32>
+  return
+}
