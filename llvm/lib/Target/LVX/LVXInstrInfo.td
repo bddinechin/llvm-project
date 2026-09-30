@@ -343,6 +343,32 @@ def : Pat<(i128 (sext GPR:$rZ)),
 def : Pat<(i128 (anyext GPR:$rZ)),
           (INSERT_SUBREG (i128 (IMPLICIT_DEF)), GPR:$rZ, sub_hi)>;
 
+// Bitwise select: BSELD and BSELQ, new in the ISA on 2026-09-29 and present on
+// BOTH cores. The destination is read as well as written --
+//
+//     bseld $rW = $rZ, $rY      rW = (rZ & rY) | (rW & ~rY)
+//
+// so it is the bit-granular counterpart of BLENDDP's lane-granular select, and
+// the run-time-mask counterpart of INSFD, whose field is a pair of immediates.
+// One instruction where the same thing otherwise costs ANDD + ANDND + IORD,
+// and on lvx-1 it is the only single-instruction select there is: BLEND* is
+// lvx-2 only.
+//
+// The generated defs carry the tie ($rWsrc = $rW), so the pattern names the
+// old value of the destination as its third input.
+//
+// And the shape is the one the middle end HANDS isel, not the one the source
+// has. `(a & m) | (b & ~m)` survives InstCombine intact, but DAGCombiner folds
+// it to `b ^ ((a ^ b) & m)` -- the same value, two XORs and an AND -- so a
+// pattern written over `or`/`not` never matches and the three-instruction
+// sequence keeps coming out. (Third instance of that class this month: see
+// docs/lvx-codegen.md section 2.)
+def : Pat<(xor (and (xor GPR:$rZ, GPR:$rWsrc), GPR:$rY), GPR:$rWsrc),
+          (BSELD_DBSWRR GPR:$rWsrc, GPR:$rZ, GPR:$rY)>;
+def : Pat<(xor (and (xor GPR128:$rP, GPR128:$rMsrc), GPR128:$rO),
+               GPR128:$rMsrc),
+          (BSELQ_QBSWRR GPR128:$rMsrc, GPR128:$rP, GPR128:$rO)>;
+
 // Widening multiply, 64x64 -> 128: MULXDQ, whose `widemult` modifier carries
 // the signedness -- 0 signed, 1 unsigned, 2 signed-by-unsigned (LVXModifiers.h
 // `WidemultSuffixes`).  Without these, `(__int128)a * (__int128)b` reached isel
@@ -417,6 +443,34 @@ defm : SelectPat<i64>;
 defm : SelectPat<f64>;
 defm : SelectPat<f32>;
 defm : SelectPat<f16>;
+
+// The 128-bit select is one CMOVEQ, not two CMOVEDs over the halves. Same
+// shape as above -- the destination is the tied "else" value, the condition is
+// the 0/1 a comparison produces -- with the pair register class throughout.
+//
+// The VALUE arm is left a register deliberately. ALU_QCMWRR.M can take a
+// 32-bit immediate instead, but that word has two readings one encoding bit
+// apart: I32 SIGN-EXTENDS it across the 128-bit operand while SXW REPLICATES
+// it. They agree on 0 and -1 and on nothing else, so choosing between them
+// needs a predicate on the constant's shape, and choosing wrongly is silent.
+// A materialized constant is correct for every value; the immediate form is an
+// optimization to add with its own test (see validation/tests/micro/cmove128.c,
+// which separates the two readings on purpose).
+def : Pat<(select i64:$rZ, i128:$rO, i128:$rMsrc),
+          (CMOVEQ_QCMWRR i128:$rMsrc, i64:$rZ, i128:$rO, 5 /* .dnez */)>;
+
+// At 256 bits, two CMOVEQs over the halves on the same condition -- there is no
+// 256-bit conditional move. sub_pair_hi is the architectural LOW 128 bits and
+// sub_pair_lo the HIGH ones: the names say which register pair of the quad,
+// not which end of the value, exactly as sub_hi/sub_lo do one level down.
+def : Pat<(select i64:$rZ, v4i64:$then, v4i64:$else),
+          (REG_SEQUENCE GPR256,
+             (CMOVEQ_QCMWRR (EXTRACT_SUBREG v4i64:$else, sub_pair_hi), i64:$rZ,
+                            (EXTRACT_SUBREG v4i64:$then, sub_pair_hi),
+                            5 /* .dnez */), sub_pair_hi,
+             (CMOVEQ_QCMWRR (EXTRACT_SUBREG v4i64:$else, sub_pair_lo), i64:$rZ,
+                            (EXTRACT_SUBREG v4i64:$then, sub_pair_lo),
+                            5 /* .dnez */), sub_pair_lo)>;
 
 // ---- Control flow ---------------------------------------------------------
 //

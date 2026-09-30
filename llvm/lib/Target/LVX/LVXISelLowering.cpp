@@ -318,6 +318,13 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // routing them through SETCC would cost an extra instruction on every
   // conditional branch.
   setOperationAction(ISD::SELECT_CC, MVT::i64, Expand);
+  // i128 likewise: CMOVEQ is a conditional move, not a compare-and-move, so
+  // the comparison has to be a separate node. Without this a `select` on an
+  // __int128 reached isel as SELECT_CC and failed ("Cannot select: i128 =
+  // select_cc"), which validation/tests/micro/cmove128.c found.
+  setOperationAction(ISD::SELECT_CC, MVT::i128, Expand);
+  // and at 256 bits, where the select becomes two CMOVEQs over the halves.
+  setOperationAction(ISD::SELECT_CC, MVT::v4i64, Expand);
 
   // A switch's jump table. LVX has no dedicated table-branch instruction, so
   // BR_JT is expanded into the generic sequence -- scale the index, add the

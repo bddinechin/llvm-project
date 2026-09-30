@@ -389,9 +389,17 @@ static bool isNullConstant(SDValue V) {
 // which lowers again, and the DAG grows without bound. No combiner runs after
 // this hook, so the split is final here.
 void LVXDAGToDAGISel::PreprocessISelDAG() {
+  // Only the constants that would actually crash: a predicate reading one with
+  // getSExtValue() asserts when it needs more than 64 bits to represent, and
+  // not before. Leaving the narrow ones -- 0, 1, -1 and anything else that
+  // fits -- as constants matters, because patterns want to see them: `not x`
+  // is `xor x, -1`, and the BSELQ bit-select pattern is written in terms of it.
+  // Those still reach the materialization in Select() below, as they always
+  // did.
   SmallVector<SDNode *, 8> Constants;
   for (SDNode &N : CurDAG->allnodes())
-    if (N.getOpcode() == ISD::Constant && N.getValueType(0) == MVT::i128)
+    if (N.getOpcode() == ISD::Constant && N.getValueType(0) == MVT::i128 &&
+        cast<ConstantSDNode>(&N)->getAPIntValue().getSignificantBits() > 64)
       Constants.push_back(&N);
 
   for (SDNode *N : Constants) {
