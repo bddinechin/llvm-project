@@ -1051,6 +1051,43 @@ struct LVXAllocateRegistersPass
     // active: indices into `items`, kept sorted by increasing `end`.
     SmallVector<unsigned> active;
 
+    // Every fixed item's range, per physical register. A fixed item cannot be
+    // moved -- it *is* a named ABI register -- so a free register that some
+    // later fixed range needs is not free for an item that outlives that
+    // range's start. `pickFree` only knows what is in use *now*, so without
+    // this the scan happily parks a virtual on `$r0` and then reports
+    // "register r0 is already in use by an overlapping live range" when the
+    // fixed item arrives, which is a refusal to allocate rather than a real
+    // conflict.
+    //
+    // It is reachable from ordinary code: a call passing a vector pins
+    // $r0,$r1,$r2 at the call, and the values being marshalled into them are
+    // live across each other's writes. Three different shapes of that hit it
+    // while the vector ABI was being fixed.
+    SmallVector<SmallVector<std::pair<unsigned, unsigned>, 2>>
+        fixedRanges(kRegisterIdBound);
+    for (const AllocItem &item : items)
+      if (item.isFixed())
+        for (unsigned u = item.fixed->base; u != item.fixed->end(); ++u)
+          fixedRanges[u].push_back({item.start, item.end});
+
+    // Registers an item of range [start, end) must not take: those a fixed
+    // range claims while this item is still live. The boundary is the same one
+    // `expireOldIntervals` uses for a fixed item -- an item whose last use is
+    // the very op defining the fixed value does not contend, it dies being
+    // read there -- so the tests are strict.
+    auto blockedByFixed = [&](unsigned start, unsigned end,
+                              bool out[kRegisterIdBound]) {
+      std::fill(out, out + kRegisterIdBound, false);
+      for (unsigned u = 0; u != kRegisterIdBound; ++u) {
+        for (auto [fs, fe] : fixedRanges[u])
+          if (end > fs && start < fe) {
+            out[u] = true;
+            break;
+          }
+      }
+    };
+
     // `includeBoundary`: whether an active item ending *exactly* at `start`
     // should also be expired. Fig. 1's own rule (`end < start`, strict) is
     // what we want for ordinary items -- it's what forces e.g. an op's
@@ -1104,8 +1141,14 @@ struct LVXAllocateRegistersPass
         continue;
       }
 
+      // In use now, plus what a fixed range will need before this item dies.
+      bool unavailable[kRegisterIdBound];
+      blockedByFixed(item.start, item.end, unavailable);
+      for (unsigned u = 0; u != kRegisterIdBound; ++u)
+        unavailable[u] = unavailable[u] || inUse[u];
+
       if (std::optional<unsigned> base = pickFree(
-              item.width, item.crossesCall, this->maxRegisters, inUse)) {
+              item.width, item.crossesCall, this->maxRegisters, unavailable)) {
         item.assigned = *base;
         markInUse(inUse, item.loc(), true);
         insertActive(idx);

@@ -47,16 +47,6 @@ using mlir::lvx::Register;
 static constexpr unsigned kMaxAbiArgRegs = lvx::kNumAbiArgRegs;
 static constexpr unsigned kMaxAbiResultRegs = lvx::kNumAbiResultRegs;
 
-// The n-th argument/result register. These used to be `static_cast<Register>(n)`
-// -- correct only because `Convention-lvx_v1-regular` happens to start both
-// sets at $r0 and run them contiguously. Nothing in the ABI promises that, and
-// a description that reordered or renumbered either set would have left every
-// call site here compiling and silently passing arguments in the wrong
-// registers, which is precisely the failure a generated table removes.
-static lvx::Register abiArgReg(unsigned n) {
-  assert(n < lvx::kNumAbiArgRegs && "argument index beyond the ABI's capacity");
-  return lvx::kAbiArgRegs[n];
-}
 /// A scalar pattern must not fire on a vector-typed op: it would pick a
 /// mnemonic by "element width" and, on the way, ask a VectorType for its bit
 /// width -- an assertion, not a diagnostic. A vector op either has its own
@@ -71,9 +61,89 @@ static LogicalResult rejectVectors(Operation *op,
   return success();
 }
 
-static lvx::Register abiResultReg(unsigned n) {
-  assert(n < lvx::kNumAbiResultRegs && "result index beyond the ABI's capacity");
-  return lvx::kAbiResultRegs[n];
+/// How many ABI registers each of `converted` occupies, and the pinned single
+/// register of every slot they cover.
+///
+/// The slot register comes from `kAbiArgRegs`/`kAbiResultRegs`, the generated
+/// tables, never from `static_cast<Register>(slot)` -- which would be correct
+/// only because `Convention-lvx_v1-regular` happens to start both sets at
+/// `$r0` and run them contiguously. Nothing in the ABI promises that, and a
+/// description that reordered or renumbered either set would leave this file
+/// compiling while silently using the wrong registers.
+///
+/// **Every ABI slot is one single register**, on all four sides of a call --
+/// a function's arguments and results, and a call's operands and results --
+/// and a value wider than one register is split across consecutive slots with
+/// no alignment padding. That is lvx-gcc's ABI, not a preference here (see the
+/// comment in `FuncFuncToLVX`), and a tuple cannot *name* a misaligned base
+/// anyway: `PairRegister` has only even bases. Splitting is what gcc's
+/// `copyd $r0=$r1; copyd $r1=$r2` is doing when a `v4sf` arrives at `$r1,$r2`.
+///
+/// This replaced four separate, disagreeing computations. `FuncFuncToLVX`
+/// pinned argument slots correctly but pinned a *result* as one wide tuple;
+/// `ReturnToLVX` and both halves of `CallToLVX` pinned by operand *index*,
+/// one single register each regardless of width. So any function returning a
+/// vector, and any call passing or receiving one, produced
+/// `lvx.mv (!lvx.pair) -> !lvx.reg<rN>` and failed the move's own verifier
+/// ("source and result must be the same width"). Only a function's own entry
+/// block was right. One helper, so they cannot drift again.
+static FailureOr<SmallVector<Type>>
+abiSlotTypes(MLIRContext *ctx, TypeRange converted, ArrayRef<Register> regs,
+             SmallVectorImpl<unsigned> *widths = nullptr) {
+  SmallVector<Type> slots;
+  for (Type ty : converted) {
+    unsigned width = std::max(1u, lvx::widthOf(ty));
+    if (slots.size() + width > regs.size())
+      return failure(); // beyond the convention's registers for this role
+    for (unsigned k = 0; k != width; ++k)
+      slots.push_back(RegisterType::get(ctx, regs[slots.size()]));
+    if (widths)
+      widths->push_back(width);
+  }
+  return slots;
+}
+
+/// `mv` each register of `v` into its pinned ABI slot, appending them to
+/// `into`. A tuple is read out a register at a time with `lvx.lane`, which
+/// emits no instruction -- the allocator coalesces a lane into its source --
+/// so the only cost is the copies, and those are the ABI's.
+static void pinValueIntoSlots(ConversionPatternRewriter &rewriter, Location loc,
+                              Value v, ArrayRef<Type> slots,
+                              SmallVectorImpl<Value> &into) {
+  if (slots.size() == 1) {
+    into.push_back(rewriter.create<lvx::MvOp>(loc, slots.front(), v));
+    return;
+  }
+  // Every lane first, then every move. A lane view is coalesced into its
+  // source, so the source and all its lanes are **one** allocation item as
+  // wide as the tuple, living until the last of them dies; reading the source
+  // out completely before the first pinned write keeps that item from
+  // spanning the writes, which is what the allocator's interference sees.
+  Type regTy = RegisterType::get(rewriter.getContext(), std::nullopt);
+  SmallVector<Value> parts;
+  for (unsigned k = 0, e = slots.size(); k != e; ++k)
+    parts.push_back(rewriter.create<lvx::LaneOp>(loc, regTy, v, k));
+  for (auto [slot, part] : llvm::zip_equal(slots, parts))
+    into.push_back(rewriter.create<lvx::MvOp>(loc, slot, part));
+}
+
+/// The inverse: copy `slots` out of their pinned registers and rebuild one
+/// value `width` registers wide. The copies are what make the `lvx.concat`
+/// legal -- it places its parts in the result's block, and a part still
+/// pinned to an ABI register cannot also be placed there.
+static Value unpinValueFromSlots(ConversionPatternRewriter &rewriter,
+                                 Location loc, ValueRange slots) {
+  MLIRContext *ctx = rewriter.getContext();
+  Type regTy = RegisterType::get(ctx, std::nullopt);
+  SmallVector<Value> parts;
+  for (Value slot : slots)
+    parts.push_back(rewriter.create<lvx::MvOp>(loc, regTy, slot));
+  if (parts.size() == 1)
+    return parts.front();
+  Type tupleTy = parts.size() == 2
+                     ? Type(lvx::PairType::get(ctx, std::nullopt))
+                     : Type(lvx::QuadType::get(ctx, std::nullopt));
+  return rewriter.create<lvx::ConcatOp>(loc, tupleTy, parts);
 }
 
 namespace {
@@ -3018,56 +3088,38 @@ struct FuncFuncToLVX : public OpConversionPattern<func::FuncOp> {
     // Rounding the slot up to the tuple's width instead would skip a register
     // and read the argument from the wrong place, silently: the failure the
     // comment above `abiArgReg` exists to warn about.
+    SmallVector<Type> convertedArgs;
+    for (Type ty : op.getFunctionType().getInputs()) {
+      Type converted = getTypeConverter()->convertType(ty);
+      if (!converted)
+        return rewriter.notifyMatchFailure(op, "argument has no register type");
+      convertedArgs.push_back(converted);
+    }
     SmallVector<unsigned> argSlots; // ABI registers each argument occupies
-    SmallVector<Type> pinnedArgTypes;
-    {
-      unsigned slot = 0;
-      for (Type ty : op.getFunctionType().getInputs()) {
-        Type converted = getTypeConverter()->convertType(ty);
-        if (!converted)
-          return rewriter.notifyMatchFailure(op, "argument has no register type");
-        unsigned width = std::max(1u, lvx::widthOf(converted));
-        if (slot + width > lvx::kNumAbiArgRegs)
-          return rewriter.notifyMatchFailure(
-              op, "function signature exceeds the regular calling "
-                  "convention's argument registers");
-        for (unsigned k = 0; k != width; ++k)
-          pinnedArgTypes.push_back(
-              RegisterType::get(ctx, abiArgReg(slot + k)));
-        argSlots.push_back(width);
-        slot += width;
-      }
-    }
+    FailureOr<SmallVector<Type>> pinnedArgs =
+        abiSlotTypes(ctx, convertedArgs, lvx::kAbiArgRegs, &argSlots);
+    if (failed(pinnedArgs))
+      return rewriter.notifyMatchFailure(
+          op, "function signature exceeds the regular calling convention's "
+              "argument registers");
+    SmallVector<Type> pinnedArgTypes = std::move(*pinnedArgs);
 
-    // Results: the same consecutive rule, but the first result starts at slot
-    // 0, so a single tuple result is always aligned and can be pinned as one.
-    // A tuple result *after* another result could be misaligned; that needs
-    // the return to split a value into singles, which nothing emits yet, so
-    // it is refused rather than mis-pinned.
-    SmallVector<Type> pinnedResultTypes;
-    {
-      unsigned slot = 0;
-      for (Type ty : op.getFunctionType().getResults()) {
-        Type converted = getTypeConverter()->convertType(ty);
-        if (!converted)
-          return rewriter.notifyMatchFailure(op, "result has no register type");
-        unsigned width = std::max(1u, lvx::widthOf(converted));
-        if (slot + width > lvx::kNumAbiResultRegs)
-          return rewriter.notifyMatchFailure(
-              op, "function signature exceeds the regular calling "
-                  "convention's result registers");
-        if (width > 1 && slot % width != 0)
-          return rewriter.notifyMatchFailure(
-              op, "a tuple result at a misaligned slot needs the return to "
-                  "split it into single registers, which is not implemented");
-        pinnedResultTypes.push_back(
-            width == 1
-                ? Type(RegisterType::get(ctx, abiResultReg(slot)))
-                : lvx::typeFor(ctx, lvx::PhysLoc{
-                      static_cast<unsigned>(abiResultReg(slot)), width}));
-        slot += width;
-      }
+    // Results: the same rule and the same helper, so the registers declared
+    // here and the ones `ReturnToLVX` moves into cannot disagree.
+    SmallVector<Type> convertedResults;
+    for (Type ty : op.getFunctionType().getResults()) {
+      Type converted = getTypeConverter()->convertType(ty);
+      if (!converted)
+        return rewriter.notifyMatchFailure(op, "result has no register type");
+      convertedResults.push_back(converted);
     }
+    FailureOr<SmallVector<Type>> pinnedResults =
+        abiSlotTypes(ctx, convertedResults, lvx::kAbiResultRegs);
+    if (failed(pinnedResults))
+      return rewriter.notifyMatchFailure(
+          op, "function signature exceeds the regular calling convention's "
+              "result registers");
+    SmallVector<Type> pinnedResultTypes = std::move(*pinnedResults);
 
     auto newFuncType =
         rewriter.getFunctionType(pinnedArgTypes, pinnedResultTypes);
@@ -3157,23 +3209,53 @@ struct CallToLVX : public OpConversionPattern<func::CallOp> {
           op, "call exceeds the regular calling convention's register "
               "capacity");
 
+    // Both sides by the same slot rule as the callee's own signature, so what
+    // the caller writes is what the callee reads. Pinning by operand index
+    // was the bug: a `vector<4xi32>` operand is two slots, and moving it into
+    // one failed `lvx.mv`'s width check.
+    SmallVector<unsigned> argWidths;
+    FailureOr<SmallVector<Type>> argSlotTypes = abiSlotTypes(
+        ctx, adaptor.getOperands().getTypes(), lvx::kAbiArgRegs, &argWidths);
+    if (failed(argSlotTypes))
+      return rewriter.notifyMatchFailure(
+          op, "call exceeds the convention's argument registers");
     SmallVector<Value> pinnedOperands;
-    for (auto [idx, operand] : llvm::enumerate(adaptor.getOperands())) {
-      Type pinnedTy = RegisterType::get(ctx, abiArgReg(idx));
-      pinnedOperands.push_back(
-          rewriter.create<lvx::MvOp>(loc, pinnedTy, operand));
+    {
+      unsigned slot = 0;
+      for (auto [width, operand] :
+           llvm::zip_equal(argWidths, adaptor.getOperands())) {
+        pinValueIntoSlots(rewriter, loc, operand,
+                          ArrayRef<Type>(*argSlotTypes).slice(slot, width),
+                          pinnedOperands);
+        slot += width;
+      }
     }
-    SmallVector<Type> pinnedResultTypes;
-    for (unsigned i = 0; i < op.getNumResults(); ++i)
-      pinnedResultTypes.push_back(RegisterType::get(ctx, abiResultReg(i)));
-    auto call = rewriter.create<lvx_func::CallOp>(
-        loc, op.getCallee(), pinnedResultTypes, pinnedOperands);
 
-    Type virtualRegTy = RegisterType::get(ctx, std::nullopt);
+    SmallVector<Type> convertedResults;
+    for (Type ty : op.getResultTypes()) {
+      Type converted = getTypeConverter()->convertType(ty);
+      if (!converted)
+        return rewriter.notifyMatchFailure(op, "result has no register type");
+      convertedResults.push_back(converted);
+    }
+    SmallVector<unsigned> resultWidths;
+    FailureOr<SmallVector<Type>> pinnedResultTypes = abiSlotTypes(
+        ctx, convertedResults, lvx::kAbiResultRegs, &resultWidths);
+    if (failed(pinnedResultTypes))
+      return rewriter.notifyMatchFailure(
+          op, "call exceeds the convention's result registers");
+
+    auto call = rewriter.create<lvx_func::CallOp>(
+        loc, op.getCallee(), *pinnedResultTypes, pinnedOperands);
+
+    // One value per *original* result, rebuilt from its slots.
     SmallVector<Value> mvResults;
-    for (Value result : call.getResults())
-      mvResults.push_back(
-          rewriter.create<lvx::MvOp>(loc, virtualRegTy, result));
+    unsigned slot = 0;
+    for (unsigned width : resultWidths) {
+      mvResults.push_back(unpinValueFromSlots(
+          rewriter, loc, call.getResults().slice(slot, width)));
+      slot += width;
+    }
     rewriter.replaceOp(op, mvResults);
     return success();
   }
@@ -3188,11 +3270,24 @@ struct ReturnToLVX : public OpConversionPattern<func::ReturnOp> {
   matchAndRewrite(func::ReturnOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     MLIRContext *ctx = getContext();
+    // The operands are already converted, so their types are exactly what the
+    // function's pinned results were computed from -- the same helper, hence
+    // the same registers. A value wider than one register is split across its
+    // slots; pinning by result *index* instead was the bug.
+    SmallVector<unsigned> widths;
+    FailureOr<SmallVector<Type>> slots = abiSlotTypes(
+        ctx, adaptor.getOperands().getTypes(), lvx::kAbiResultRegs, &widths);
+    if (failed(slots))
+      return rewriter.notifyMatchFailure(
+          op, "returned values do not fit the convention's result registers");
     SmallVector<Value> pinnedOperands;
-    for (auto [idx, operand] : llvm::enumerate(adaptor.getOperands())) {
-      Type pinnedTy = RegisterType::get(ctx, abiResultReg(idx));
-      pinnedOperands.push_back(
-          rewriter.create<lvx::MvOp>(op.getLoc(), pinnedTy, operand));
+    unsigned slot = 0;
+    for (auto [width, operand] :
+         llvm::zip_equal(widths, adaptor.getOperands())) {
+      pinValueIntoSlots(rewriter, op.getLoc(), operand,
+                        ArrayRef<Type>(*slots).slice(slot, width),
+                        pinnedOperands);
+      slot += width;
     }
     rewriter.replaceOpWithNewOp<lvx_func::ReturnOp>(op, pinnedOperands);
     return success();
