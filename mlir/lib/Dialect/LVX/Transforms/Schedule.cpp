@@ -75,7 +75,19 @@ constexpr StringLiteral kCycleAttr = "cycle";
 /// generated tables. A pseudo that prints nothing has none; a pseudo that
 /// prints a real instruction (`lvx.li` prints `maked`, `lvx.mv` a copy at
 /// its width) is that instruction.
+/// The instruction `op` really is. An `lvx.guarded` is a prefix wrapped round
+/// one instruction: what it reserves, reads, writes and prints is that
+/// instruction's, and the prefix is accounted separately by `prefixOf` so two
+/// guarded ops sharing a condition share one syllable.
+static Operation *instructionOf(Operation *op) {
+  if (auto guarded = dyn_cast<GuardedOp>(op))
+    return guarded.guardedOp();
+  return op;
+}
+
 static std::optional<StringRef> printedMnemonic(Operation *op) {
+  if (auto guarded = dyn_cast<GuardedOp>(op))
+    return printedMnemonic(guarded.guardedOp());
   if (isa<LiOp>(op))
     return StringRef("maked");
   if (auto mv = dyn_cast<MvOp>(op)) {
@@ -208,6 +220,13 @@ static std::optional<PrefixKey> prefixOf(Operation *op) {
     return PrefixKey{ml.getMask(), "maskm.mt"};
   if (auto ms = dyn_cast<lvx::MaskedStoreOp>(op))
     return PrefixKey{ms.getMask(), "maskm.mt"};
+  // The condition *and* the sense: `guard.wnez $r5?` and `guard.weqz $r5?`
+  // are two prefixes, which is what makes an if-converted diamond's two arms
+  // cost two syllables in a bundle holding both and one in a bundle holding
+  // either.
+  if (auto guarded = dyn_cast<GuardedOp>(op))
+    return PrefixKey{guarded.getCondition(),
+                     stringifyBcuCond(guarded.getExecpred())};
   return std::nullopt;
 }
 
@@ -263,10 +282,11 @@ private:
       Node n;
       n.op = &op;
       if (std::optional<StringRef> mnemonic = printedMnemonic(&op)) {
-        if (failed(chooseFormat(&op, *mnemonic)))
+        Operation *insn = instructionOf(&op);
+        if (failed(chooseFormat(insn, *mnemonic)))
           return failure();
         std::optional<Format> format;
-        if (auto f = op.getAttrOfType<FormatAttr>("format"))
+        if (auto f = insn->getAttrOfType<FormatAttr>("format"))
           format = f.getValue();
         n.reservation = reservationOf(*mnemonic, format);
         n.timing = timingOf(*mnemonic);
@@ -291,7 +311,10 @@ private:
     };
 
     for (auto [i, n] : llvm::enumerate(nodes)) {
-      Operation *op = n.op;
+      // The guarded instruction's own operands and results are the reads and
+      // writes; the wrapper holds only the condition, which the prefix reads
+      // and which the edge below adds.
+      Operation *op = instructionOf(n.op);
 
       // Reads, in operand order: the units of each pinned operand.
       for (auto [k, operand] : llvm::enumerate(op->getOperands())) {
@@ -307,6 +330,23 @@ private:
           readersSince[u].push_back({(unsigned)i, r});
         }
       }
+      // The prefix's own read: an `lvx.guarded` holds the condition register,
+      // not the instruction, so the loop above (which walks the instruction's
+      // operands, and uses their index to find their read cycle) never sees
+      // it. Without this edge the guarded op could be placed before the
+      // compare that produced its condition. Cycle 1, which is what
+      // `LVXLatency.inc` gives `guard`.
+      if (auto guarded = dyn_cast<GuardedOp>(n.op)) {
+        if (std::optional<PhysLoc> loc =
+                unitsOf(throughLanes(guarded.getCondition())))
+          for (unsigned u = loc->base; u != loc->end(); ++u) {
+            if (auto w = lastWriter.find(u); w != lastWriter.end())
+              addEdge(w->second.node, i,
+                      std::max(1u, w->second.cycle > 1 ? w->second.cycle - 1 : 0));
+            readersSince[u].push_back({(unsigned)i, 1});
+          }
+      }
+
       // Writes: the units of each pinned result. A lane or concat op
       // writes nothing (its result IS its source's register, or its parts'
       // registers) and a reg_live_in names an incoming value: all are

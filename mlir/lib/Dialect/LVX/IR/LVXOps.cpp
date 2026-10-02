@@ -121,3 +121,28 @@ LogicalResult RegLiveInOp::verify() {
     return emitOpError("result must be a pinned physical register");
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// GuardedOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult GuardedOp::verify() {
+  Block &body = getBody().front();
+  // Exactly one op, so the guard names one instruction and the scheduler can
+  // treat it as one node with one prefix. A whole arm in one region would
+  // have to share a bundle; see the op's description.
+  if (body.getOperations().size() != 1)
+    return emitOpError("body must hold exactly one operation, not ")
+           << body.getOperations().size();
+  Operation *guarded = &body.front();
+  // A result would have to cross the region boundary, which needs a yield
+  // and an allocator tie. Anything worth guarding *and* producing a value is
+  // better speculated -- that costs no syllable at all.
+  if (guarded->getNumResults() != 0)
+    return guarded->emitOpError("cannot be guarded: it has a result, and "
+                                "lvx.guarded yields nothing");
+  if (guarded->getNumRegions() != 0)
+    return guarded->emitOpError("cannot be guarded: a guard prefixes one "
+                                "instruction, not a region");
+  return success();
+}

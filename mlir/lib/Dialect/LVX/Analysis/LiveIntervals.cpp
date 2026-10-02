@@ -29,6 +29,11 @@ void LVXLiveIntervals::numberBlock(Block *block, unsigned &counter) {
     opNumber[&op] = counter++;
     if (auto forOp = dyn_cast<lvx_scf::ForOp>(op))
       numberBlock(forOp.getBody(), counter);
+    // A guarded op's instruction reads real registers, so it needs a number
+    // of its own -- without it the values it uses would look dead here and
+    // the allocator would reuse their registers underneath it.
+    if (auto guarded = dyn_cast<GuardedOp>(op))
+      numberBlock(&guarded.getBody().front(), counter);
   }
 }
 

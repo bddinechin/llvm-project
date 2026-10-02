@@ -207,6 +207,60 @@ def LVX_MaskedStoreOp : LVX_MaskedAccessOp<"masked_store",
     }]>];
 }
 
+//===----------------------------------------------------------------------===//
+// Guarded execution: the `guard` BCU prefix and the one instruction it
+// predicates (if-conversion; lvx-mlir/docs/IfConversion.md).
+//===----------------------------------------------------------------------===//
+
+def LVX_GuardedOp : LVX_Op<"guarded",
+    [SingleBlock, NoTerminator, NoRegionArguments, RecursiveMemoryEffects]> {
+  let summary = "a `guard`-prefixed instruction (pseudo: prefix + one op)";
+  let description = [{
+    One instruction predicated on a condition register: the BCU prefix
+    `guard.<execpred> $rN?` suppresses it when the condition does not hold.
+    This is if-conversion's product -- the branch is gone and both arms are
+    in the same basic block, each op guarded on the same register with
+    `wnez` for the then-arm and `weqz` for the else-arm, so the two arms
+    cost no extra compare and no inversion.
+
+    **Exactly one operation, and it has no results.** A region rather than an
+    operand because the guarded op can be *any* instruction and the ops are
+    generated from the machine description, which has nowhere to put an extra
+    operand; a region attaches the guard from outside without touching them.
+    One op per `lvx.guarded` rather than a whole arm, so the scheduler stays
+    free to place them in different bundles: the prefix is shared *per
+    bundle*, and `-lvx-schedule`'s `PrefixKey` recovers the sharing from the
+    condition register, which is the rule lvx-gcc's `lvx_sched_dfa_new_cycle`
+    implements with `rtx_equal_p`. A guarded op therefore costs a share of
+    one BCU syllable, not one each.
+
+    The no-results restriction is what keeps the region from needing a yield
+    and the allocator from needing to tie a result across it. It is not as
+    narrow as it sounds: an op with a result and no side effects is better
+    *speculated* than guarded -- it costs no syllable at all -- which is
+    what `-lvx-if-convert` does with everything free, exactly as lvx-gcc's
+    CE3 does. What is left to guard is the side-effecting remainder, and a
+    store is the case that matters.
+
+`condition` is the register the prefix tests and `execpred` the
+    `BcuCond` it tests it with -- the same pair `lvx_cf.cond_br` carries,
+    because this op is what an if-converted `cond_br` becomes. Both arms of a
+    diamond therefore read one register: the else-arm takes the complementary
+    condition code, which the ISA always has (the encoding pairs them
+    adjacently), so it costs no compare and no inversion.
+  }];
+  let arguments = (ins LVX_BcuCondAttr:$execpred, LVX_RegType:$condition);
+  let regions = (region SizedRegion<1>:$body);
+  let assemblyFormat = [{
+    $execpred $condition attr-dict `:` qualified(type($condition)) $body
+  }];
+  let hasVerifier = 1;
+  let extraClassDeclaration = [{
+    /// The single operation this guard predicates.
+    ::mlir::Operation *guardedOp() { return &getBody().front().front(); }
+  }];
+}
+
 def LVX_SpOp : LVX_Op<"sp", [Pure]> {
   let summary = "materialize the current stack-pointer value (pseudo)";
   let description = [{

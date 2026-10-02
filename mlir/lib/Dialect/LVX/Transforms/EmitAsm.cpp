@@ -505,6 +505,22 @@ private:
     return success();
   }
 
+  /// `guard.<cond> $rN?` followed, on the same line, by the one instruction
+  /// it predicates -- lvx-gcc's `lvx_output_guard_prefix` idiom
+  /// (`guard.wnez $r9? lwz ...`). The prefix takes a BCU syllable of its own,
+  /// which the bundler reserved and may be sharing with another guarded op on
+  /// the same condition; gas derives its `activate` mask from the bundle, so
+  /// nothing is printed for that here. The tab the instruction's own emission
+  /// starts with separates the two.
+  LogicalResult emitGuarded(lvx::GuardedOp op) {
+    FailureOr<std::string> rc = reg(op.getCondition());
+    if (failed(rc))
+      return failure();
+    os << "\tguard." << stringifyBcuCond(op.getExecpred()) << " " << *rc
+       << "?";
+    return emitOp(op.guardedOp());
+  }
+
   LogicalResult emitOp(Operation *op) {
     return llvm::TypeSwitch<Operation *, LogicalResult>(op)
         // Pseudo-ops.
@@ -579,6 +595,7 @@ private:
         .Case([&](SoOp op) { return emitStore(op, "so", op.getValue(), op.getBase(), op.getOffset()); })
         .Case([&](lvx::MaskedLoadOp op) { return emitMaskedLoad(op); })
         .Case([&](lvx::MaskedStoreOp op) { return emitMaskedStore(op); })
+        .Case([&](lvx::GuardedOp op) { return emitGuarded(op); })
         // Unary float ops carrying a rounding-mode suffix.
         .Case([&](FsqrtdOp op) { return emitUnaryMode(op, "fsqrtd", op.getFloatmode()); })
         .Case([&](FsqrtwOp op) { return emitUnaryMode(op, "fsqrtw", op.getFloatmode()); })

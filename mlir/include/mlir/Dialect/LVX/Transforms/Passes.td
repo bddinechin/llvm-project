@@ -71,6 +71,71 @@ def LVXSCFToCFPass
   }];
 }
 
+def LVXIfConvertPass
+    : Pass<"lvx-if-convert", "::mlir::lvx_func::FuncOp"> {
+  let summary = "Replace a small scf.if with `guard`-predicated instructions";
+  let description = [{
+    If-conversion for the `GUARD` BCU prefix, the same transformation
+    lvx-gcc does in CE2/CE3 (see `lvx_ifcvt_*` in `lvx.cc`). A branch
+    around a short arm becomes straight-line code in which each remaining
+    instruction carries `guard.<cond> $rN?`, so the arm's work can be
+    bundled with the code around it instead of costing a taken branch.
+
+    An **optimization, not an enabling pass**: what it declines is left as
+    `scf.if` for `-convert-scf-to-cf` to turn into an ordinary branch
+    diamond, which `-convert-to-lvx` already lowers. That is why this is a
+    separate pass and not a pattern inside `-convert-to-lvx`, whose
+    `applyFullConversion` cannot let a pattern decline on cost grounds
+    without failing the whole conversion.
+
+    It runs **after** `-convert-to-lvx`, on the branch form, which is where
+    lvx-gcc's CE3 runs too. The structured form looks easier -- `scf.if`'s
+    arms are explicit regions and no diamond has to be recognized -- and is
+    wrong, because a store's address arithmetic does not exist yet: the
+    conversion materializes `lvx.li`/`muld`/`addd` where the store is, so an
+    arm holding one store would become a guard over four ops, three of them
+    pure and needlessly predicated. After the lowering those three are
+    ordinary speculation candidates.
+
+    Two decisions, lvx-gcc's:
+
+    1. **Speculate what is free.** An op with no memory effects that is
+       safe to speculate runs unconditionally, outside the guard, costing
+       no prefix syllable at all. This is CE3's rule ("a non-memory,
+       non-trapping insn whose destination is dead after the block"), and
+       it is why the `lvx.guarded` body can be restricted to result-less
+       ops: what has a result and is worth having is hoisted, not guarded.
+    2. **Convert only what is short enough.** `max-guarded` bounds the ops
+       left to guard across both arms, the analogue of GCC's
+       `MAX_CONDITIONAL_EXECUTE`: past that, the branch is cheaper than
+       predicating every syllable of a long arm.
+
+    Declines, each leaving the branch alone: a value crossing an edge or a
+    join taking arguments (that is a phi, so a select, which is one
+    instruction and better), an already-guarded op, a call (**a BCU
+    instruction cannot be guarded** -- the prefix is itself a BCU syllable),
+    or an op that is neither free to speculate nor result-less.
+
+    **Run `-cse` after it.** Speculating hoists each arm's ops into the
+    common block, and two arms very often compute the same address, so the
+    hoist creates duplicates that no earlier `-cse` can see.
+
+    It only ever sees arms that genuinely differ: `-lvx-combine`'s region
+    simplification merges two blocks holding the same sequence of ops first,
+    promoting every operand they differ in to a block argument. That is the
+    right division of labour -- one block plus phis is the select shape, and
+    a select is one instruction -- and it means the `max-guarded` budget is
+    never spent on a symmetric diamond.
+  }];
+  let options = [
+    Option<"maxGuarded", "max-guarded", "unsigned", /*default=*/"4",
+           "Most instructions left to guard, across both arms, before the "
+           "branch is kept instead">,
+  ];
+  let dependentDialects = ["::mlir::lvx::LVXDialect",
+                           "lvx_cf::LVXCFDialect"];
+}
+
 def LVXLowerVectorTransfersPass
     : Pass<"lvx-lower-vector-transfers", "::mlir::func::FuncOp"> {
   let summary = "Hoist loop-carried vector transfers into iter_args, then lower the rest to load/store/broadcast";

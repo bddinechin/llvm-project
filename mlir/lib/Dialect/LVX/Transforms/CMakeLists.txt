@@ -2,6 +2,7 @@ add_mlir_dialect_library(MLIRLVXTransforms
   Combine.cpp
   LowerVectorTransfers.cpp
   RegisterAllocation.cpp
+  IfConvert.cpp
   SCFToCF.cpp
   Schedule.cpp
   EmitAsm.cpp
