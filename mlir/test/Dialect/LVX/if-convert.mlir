@@ -1,11 +1,14 @@
 // If-conversion runs on the branch form, after -convert-to-lvx: a store's
 // address arithmetic does not exist before the lowering, so converting
-// earlier would guard three pure ops along with the store. See
-// lvx-mlir/docs/IfConversion.md.
-// RUN: mlir-opt %s -convert-scf-to-cf -convert-to-lvx -lvx-combine -cse \
-// RUN:   -lvx-if-convert -split-input-file | FileCheck %s
-// RUN: mlir-opt %s -convert-scf-to-cf -convert-to-lvx -lvx-combine -cse \
-// RUN:   -lvx-if-convert=max-guarded=1 -split-input-file \
+// earlier would guard three pure ops along with the store. `IfToLVX` makes
+// the diamond, so no -convert-scf-to-cf is needed (and it would cost loop
+// kernels their LOOPDO). The trailing -cse is not optional: speculating
+// hoists each arm's ops into the common block and two arms usually compute
+// the same address. See lvx-mlir/docs/IfConversion.md.
+// RUN: mlir-opt %s -convert-to-lvx -lvx-combine -cse -lvx-if-convert -cse \
+// RUN:   -split-input-file | FileCheck %s
+// RUN: mlir-opt %s -convert-to-lvx -lvx-combine -cse \
+// RUN:   -lvx-if-convert=max-guarded=1 -cse -split-input-file \
 // RUN:   | FileCheck %s --check-prefix=ONE
 
 // A store under a branch becomes a guarded store: the branch is gone and the
@@ -94,23 +97,27 @@ func.func @speculate_free(%a: memref<4xi32>, %b: memref<4xi32>, %c: i1) {
 // arms were merged into one block with an argument (`trueDest == falseDest`)
 // or kept apart (the join takes arguments), both are declines.
 //
-// An `i32` rather than a vector: returning a `vector<4xi32>` fails to
-// legalize for an unrelated reason -- the result side of the ABI pins one
-// register for a pair -- and this test is not about that.
-// CHECK-LABEL: @has_result
+// Written as a `cf` diamond rather than an `scf.if`, because a
+// result-carrying `scf.if` no longer reaches this pass at all -- `IfToLVX`
+// declines it and says to use `arith.select`
+// (test/Conversion/ConvertToLVX/if-lowering-limits.mlir). The shape still has
+// to be declined here: hand-written `cf`, or an `scf.if` some other front end
+// lowered, can still present a join with arguments.
+// CHECK-LABEL: @phi_join
 // CHECK: lvx_cf.cond_br
 // CHECK-NOT: lvx.guarded
-// ONE-LABEL: @has_result
+// ONE-LABEL: @phi_join
 // ONE: lvx_cf.cond_br
-func.func @has_result(%a: memref<4xi32>, %c: i1) -> i32 {
+func.func @phi_join(%a: memref<4xi32>, %c: i1) -> i32 {
   %i = arith.constant 0 : index
   %x = memref.load %a[%i] : memref<4xi32>
-  %r = scf.if %c -> i32 {
-    scf.yield %x : i32
-  } else {
-    %z = arith.constant 0 : i32
-    scf.yield %z : i32
-  }
+  cf.cond_br %c, ^then, ^else
+^then:
+  cf.br ^join(%x : i32)
+^else:
+  %z = arith.constant 0 : i32
+  cf.br ^join(%z : i32)
+^join(%r: i32):
   return %r : i32
 }
 

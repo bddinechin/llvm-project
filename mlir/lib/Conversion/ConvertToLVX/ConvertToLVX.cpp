@@ -2883,7 +2883,100 @@ struct YieldToLVX : public OpConversionPattern<scf::YieldOp> {
   LogicalResult
   matchAndRewrite(scf::YieldOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // An `scf.if`'s yield is not a yield in the result: `IfToLVX` turns it
+    // into the branch to the continuation block and erases it. Leaving this
+    // pattern to fire first would replace it with an `lvx_scf.yield` that
+    // `IfToLVX` would then have to recognize as well, for no gain.
+    if (isa<scf::IfOp>(op->getParentOp()))
+      return rewriter.notifyMatchFailure(op, "an scf.if's yield is a branch");
     rewriter.replaceOpWithNewOp<lvx_scf::YieldOp>(op, adaptor.getResults());
+    return success();
+  }
+};
+
+// `scf.if` becomes an `lvx_cf` branch diamond, the standard lowering (upstream
+// `IfLowering`, rewritten onto `lvx_cf` and the type converter). It lives here
+// rather than being left to `-convert-scf-to-cf` because that pass lowers
+// `scf.for` too, which would cost every loop kernel the `LOOPDO` path that
+// `-lvx-scf-to-cf` gives it.
+//
+// This is the *lowering*; turning the diamond back into predicated
+// straight-line code is `-lvx-if-convert`, which runs after this pass. The
+// split is deliberate: a lowering is mandatory and takes no decision, while
+// if-conversion is a cost model that has to be able to decline -- and a
+// pattern that declines inside `applyFullConversion` fails the conversion.
+struct IfToLVX : public OpConversionPattern<scf::IfOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(scf::IfOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+
+    // A diamond cannot live inside a loop body: `lvx_scf.for` is a
+    // single-block region by construction, because that is what lets the
+    // allocator coalesce the loop-carried values, and it survives until
+    // `-lvx-scf-to-cf` lowers it after allocation. Splitting its body into
+    // blocks here fails its verifier ("expects region #0 to have 0 or 1
+    // blocks"), so say so instead of producing that.
+    //
+    // The fix is an `lvx_scf.if` -- a structured conditional that survives
+    // alongside `lvx_scf.for`, which `-lvx-if-convert` rewrites into
+    // `lvx.guarded` ops (with the speculation it already does, the address
+    // arithmetic existing by then) and `-lvx-scf-to-cf` lowers to branches
+    // after allocation for whatever is left. See
+    // lvx-mlir/docs/IfConversion.md, "Reachability".
+    // A result is a phi at the join, which on LVX is a *select* and not a
+    // branch at all: `arith.select` is one `cmoved` or `blend*`, and
+    // `-canonicalize` already turns a result-carrying `scf.if` with pure arms
+    // into one. `-lvx-if-convert` declines these too, for the same reason, so
+    // lowering them here would buy nothing the select path does not.
+    if (op.getNumResults() != 0)
+      return op.emitError(
+          "an scf.if with results is not lowered: a value crossing the join "
+          "is a select, so run -canonicalize to turn it into arith.select "
+          "(which lowers to cmoved/blend*)");
+    if (op->getParentOfType<scf::ForOp>() ||
+        op->getParentOfType<lvx_scf::ForOp>())
+      return op.emitError(
+          "an scf.if inside a loop is not lowered yet: a branch diamond "
+          "cannot live in lvx_scf.for's single-block body, and the "
+          "structured lvx_scf.if that would carry it does not exist (see "
+          "lvx-mlir/docs/IfConversion.md, \"Reachability\")");
+
+    // The block holding the `scf.if` splits in two: the condition stays, and
+    // what followed becomes the continuation.
+    Block *condBlock = rewriter.getInsertionBlock();
+    Block *remainingOps =
+        rewriter.splitBlock(condBlock, rewriter.getInsertionPoint());
+
+    Block *continueBlock = remainingOps;
+
+    // Each arm's yield becomes the branch to the continuation. It carries no
+    // operands, which is what the result-less restriction above buys: the
+    // yield's operands here would be the *unconverted* values -- a conversion
+    // pattern cannot get the converted ones for ops in a region it is
+    // inlining, and passing the originals leaves an unresolved
+    // `!lvx.reg`-to-`i32` materialization alive past the conversion.
+    auto inlineArm = [&](Region &region) -> Block * {
+      Block *entry = &region.front();
+      Operation *term = region.back().getTerminator();
+      rewriter.setInsertionPointToEnd(&region.back());
+      rewriter.create<lvx_cf::BranchOp>(loc, continueBlock, ValueRange{});
+      rewriter.eraseOp(term);
+      rewriter.inlineRegionBefore(region, continueBlock);
+      return entry;
+    };
+    Block *thenBlock = inlineArm(op.getThenRegion());
+    Block *elseBlock = op.getElseRegion().empty() ? continueBlock
+                                                  : inlineArm(op.getElseRegion());
+
+    // `wnez`: the condition is a 0/1-valued register, as `CondBrToLVX` says.
+    rewriter.setInsertionPointToEnd(condBlock);
+    rewriter.create<lvx_cf::CondBranchOp>(loc, adaptor.getCondition(),
+                                          BcuCond::wnez, thenBlock,
+                                          ValueRange{}, elseBlock,
+                                          ValueRange{});
+    rewriter.replaceOp(op, continueBlock->getArguments());
     return success();
   }
 };
@@ -3194,7 +3287,7 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     SqrtToLVX, RoundEvenToLVX, MathTruncToLVX, FloorToLVX,
     CeilToLVX, RoundToLVX,
     // Control flow
-    BrToLVX, CondBrToLVX, ForToLVX, YieldToLVX,
+    BrToLVX, CondBrToLVX, ForToLVX, IfToLVX, YieldToLVX,
     // Functions
     FuncFuncToLVX, CallToLVX, ReturnToLVX
   >(typeConverter, ctx);
