@@ -5,13 +5,18 @@
 // the fixed-interval boundary fix (see lvx-mlir/docs/RegisterAllocation.md,
 // "Bail-out semantics"): %3 must not spuriously conflict with %4's r0 just
 // because it's still nominally "active" at that exact instruction.
+//
+// The copy into the pinned return register is then *absent* from the output:
+// %3 was placed in r0, so it was `copyd $r0 = $r0` and the identity sweep at
+// the end of allocation deleted it. Its removability is the proof the
+// boundary fix worked -- a spurious conflict would have put %3 elsewhere and
+// left a real copy behind.
 // CHECK-LABEL: lvx_func.func @straight
 // CHECK-NEXT: %0 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r2>
 // CHECK-NEXT: %1 = lvx.mv %arg1 : (!lvx.reg<r1>) -> !lvx.reg<r0>
 // CHECK-NEXT: %2 = lvx.addd %0, %1 : (!lvx.reg<r2>, !lvx.reg<r0>) -> !lvx.reg<r1>
 // CHECK-NEXT: %3 = lvx.muld %2, %0 : (!lvx.reg<r1>, !lvx.reg<r2>) -> !lvx.reg<r0>
-// CHECK-NEXT: %4 = lvx.mv %3 : (!lvx.reg<r0>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_func.return %4 : !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %3 : !lvx.reg<r0>
 lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg
@@ -29,8 +34,7 @@ lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // CHECK-NEXT: lvx_cf.cond_br wnez %1 : !lvx.reg<r0>, ^bb1, ^bb2
 // CHECK: ^bb2:
 // CHECK-NEXT: %2 = lvx.addd %0, %0 : (!lvx.reg<r2>, !lvx.reg<r2>) -> !lvx.reg<r0>
-// CHECK-NEXT: %3 = lvx.mv %2 : (!lvx.reg<r0>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_func.return %3 : !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %2 : !lvx.reg<r0>
 lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %ov = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %c = lvx.mv %cond : (!lvx.reg<r1>) -> !lvx.reg
@@ -181,8 +185,7 @@ lvx_func.func @caller(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: %3 = lvx.mv %2 : (!lvx.reg<r1>) -> !lvx.reg<r2>
 // CHECK-NEXT: %4 = lvx.ffmad %0, %1, %3 : (!lvx.reg<r3>, !lvx.reg<r0>, !lvx.reg<r2>) -> !lvx.reg<r2>
 // CHECK-NEXT: %5 = lvx.addd %4, %2 : (!lvx.reg<r2>, !lvx.reg<r1>) -> !lvx.reg<r0>
-// CHECK-NEXT: %6 = lvx.mv %5 : (!lvx.reg<r0>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_func.return %6 : !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %5 : !lvx.reg<r0>
 lvx_func.func @ffma_preserve(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %acc: !lvx.reg<r2>) -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg

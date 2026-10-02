@@ -21,10 +21,11 @@
 // CHECK-NEXT: %7 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
 // CHECK-NEXT: %8 = lvx.ld %2, 8 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r62>
 // CHECK-NEXT: %9 = lvx.muld %8, %7 : (!lvx.reg<r62>, !lvx.reg<r61>) -> !lvx.reg<r0>
-// CHECK-NEXT: %10 = lvx.mv %9 : (!lvx.reg<r0>) -> !lvx.reg<r0>
-// CHECK-NEXT: %11 = lvx.li 16 : i64 : !lvx.reg<r61>
-// CHECK-NEXT: %12 = lvx.addd %2, %11 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
-// CHECK-NEXT: lvx_func.return %10 : !lvx.reg<r0>
+// CHECK-NEXT: %10 = lvx.li 16 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %11 = lvx.addd %2, %10 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
+// The `mv` into the pinned return register is gone: %9 was placed in r0, so
+// the copy was `copyd $r0 = $r0` and the identity sweep removed it.
+// CHECK-NEXT: lvx_func.return %9 : !lvx.reg<r0>
 lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg

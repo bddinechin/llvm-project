@@ -1257,6 +1257,45 @@ struct LVXAllocateRegistersPass
       }
     }
 
+    // Drop every `lvx.mv` that allocation turned into a copy of a register
+    // into itself -- `copyd $r0 = $r0`, or `catdq $r0r1 = $r0, $r1`.
+    //
+    // They are not a mistake upstream: the ABI copy-in/copy-out, the
+    // loop-carried channel moves and the tied-accumulator preserving copies
+    // are all emitted before anyone knows which registers they will join, and
+    // most of them do end up joining two different ones. The identity cases
+    // are what coalescing *succeeded* at, and nothing was deleting them.
+    //
+    // This has to happen here, before `-lvx-schedule`: an identity copy left
+    // in place occupies a TINY slot in some bundle, which is the resource that
+    // actually binds a bundle on this machine (docs/VectorCoverage.md §4), so
+    // leaving it for the emitter to skip would still cost the slot. And it
+    // cannot happen in `-lvx-combine`, which runs *before* allocation -- at
+    // that point a copy's source is an unassigned `!lvx.reg` and no copy is
+    // identity yet.
+    //
+    // Before the callee-saved scan below, deliberately: removing the last
+    // reader of a callee-saved register means one fewer frame slot and one
+    // fewer save/restore pair.
+    //
+    // An identity copy among the *preserving* copies would be a different
+    // matter -- those exist so a tied operand does not clobber a value with
+    // another reader, so one assigned its source's register would already be
+    // a miscompile, upstream of this. Deleting it changes nothing about that.
+    {
+      SmallVector<MvOp> identityCopies;
+      func.walk([&](MvOp mv) {
+        std::optional<PhysLoc> dst = pinnedLoc(mv.getResult().getType());
+        std::optional<PhysLoc> src = pinnedLoc(mv.getSource().getType());
+        if (dst && src && *dst == *src)
+          identityCopies.push_back(mv);
+      });
+      for (MvOp mv : identityCopies) {
+        mv.getResult().replaceAllUsesWith(mv.getSource());
+        mv.erase();
+      }
+    }
+
     // A function that itself executes a call clobbers its own $ra before
     // its own `ret` gets to use it (lvx-mlir/docs/RegisterAllocation.md,
     // "Return-address save/restore") -- reserve one more frame slot and

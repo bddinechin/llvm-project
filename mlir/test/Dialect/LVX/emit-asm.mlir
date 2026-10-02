@@ -28,8 +28,11 @@
 // CHECK-NEXT: ;;
 // CHECK-NEXT: muld $r0 = $r1, $r2
 // CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r0 = $r0
-// CHECK-NEXT: ;;
+// The ABI copy-out into the pinned return register is *not* here: the value
+// was placed in $r0 already, so it was `copyd $r0 = $r0` and the identity
+// sweep at the end of allocation removed it. That matters for more than code
+// size -- an identity copy left in place still occupies a TINY slot, the
+// resource that binds a bundle on this machine.
 // CHECK-NEXT: ret
 // CHECK-NEXT: ;;
 lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
@@ -94,8 +97,11 @@ lvx_func.func @subtract(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // CHECK-NEXT: [[BB1]]:
 // CHECK-NEXT: addd $r0 = $r2, $r2
 // CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r0 = $r0
-// CHECK-NEXT: ;;
+// The ABI copy-out into the pinned return register is *not* here: the value
+// was placed in $r0 already, so it was `copyd $r0 = $r0` and the identity
+// sweep at the end of allocation removed it. That matters for more than code
+// size -- an identity copy left in place still occupies a TINY slot, the
+// resource that binds a bundle on this machine.
 // CHECK-NEXT: ret
 // CHECK-NEXT: ;;
 lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
@@ -192,8 +198,11 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: ;;
 // CHECK-NEXT: addd $r0 = $r4, $r5
 // CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r0 = $r0
-// CHECK-NEXT: ;;
+// The ABI copy-out into the pinned return register is *not* here: the value
+// was placed in $r0 already, so it was `copyd $r0 = $r0` and the identity
+// sweep at the end of allocation removed it. That matters for more than code
+// size -- an identity copy left in place still occupies a TINY slot, the
+// resource that binds a bundle on this machine.
 // CHECK-NEXT: ret
 // CHECK-NEXT: ;;
 lvx_func.func @divmod(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
