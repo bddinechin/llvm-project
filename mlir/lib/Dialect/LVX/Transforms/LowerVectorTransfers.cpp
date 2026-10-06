@@ -18,6 +18,8 @@
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
+
 #include "mlir/Dialect/Linalg/Transforms/Hoisting.h"
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
 #include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
@@ -34,6 +36,91 @@ namespace lvx {
 using namespace mlir;
 
 namespace {
+
+/// A masked `vector.reduction`: put the reduction's *identity* in the lanes
+/// the mask clears, then reduce unmasked.
+///
+/// Upstream has no lowering for this. `-lower-vector-mask` covers only the
+/// side-effecting maskable ops (transfer_read/write/gather), and the one
+/// consumer of a masked reduction anywhere is `ConvertVectorToLLVM`, which
+/// maps it to `llvm.intr.vp.reduce.*` -- a route this back end does not take.
+/// So it needs one here, and it is cheap: one `blend*` ahead of the reduction
+/// tree Phase 4 already builds.
+///
+/// It matters because this is what a *reduction* loop looks like after
+/// vectorization when the trip count does not divide the vector length --
+/// a dot product over a dynamic extent arrives as exactly this.
+///
+/// The identity values come from `arith::getIdentityValueAttr`, through a
+/// mapping of `CombiningKind` onto `AtomicRMWKind`, rather than being
+/// tabulated again here: the distinctions that are easy to get wrong -- the
+/// 754-2008 `minnum` family against the 754-2019 `minimum` one, and the
+/// finite-value variant -- are upstream's and stay there.
+///
+/// One caveat, inherent to padding with an identity rather than to this
+/// implementation: for `add` on floats the identity is `+0.0`, so a reduction
+/// whose active lanes sum to `-0.0` yields `+0.0`. Every pad-with-identity
+/// scheme has it, linalg's own `SplitReduction` included.
+static std::optional<arith::AtomicRMWKind>
+atomicKindOf(vector::CombiningKind kind, bool isFloat) {
+  using CK = vector::CombiningKind;
+  using RK = arith::AtomicRMWKind;
+  switch (kind) {
+  case CK::ADD:     return isFloat ? RK::addf : RK::addi;
+  case CK::MUL:     return isFloat ? RK::mulf : RK::muli;
+  case CK::AND:     return RK::andi;
+  case CK::OR:      return RK::ori;
+  case CK::XOR:     return RK::xori;
+  case CK::MINSI:   return RK::mins;
+  case CK::MAXSI:   return RK::maxs;
+  case CK::MINUI:   return RK::minu;
+  case CK::MAXUI:   return RK::maxu;
+  case CK::MINIMUMF: return RK::minimumf;
+  case CK::MAXIMUMF: return RK::maximumf;
+  case CK::MINNUMF:  return RK::minnumf;
+  case CK::MAXNUMF:  return RK::maxnumf;
+  }
+  return std::nullopt;
+}
+
+struct MaskedReductionToSelect : public OpRewritePattern<vector::MaskOp> {
+  using OpRewritePattern::OpRewritePattern;
+  LogicalResult matchAndRewrite(vector::MaskOp maskOp,
+                                PatternRewriter &rewriter) const override {
+    if (maskOp.hasPassthru())
+      return rewriter.notifyMatchFailure(maskOp, "passthru on a reduction");
+    auto red = dyn_cast_or_null<vector::ReductionOp>(maskOp.getMaskableOp());
+    if (!red)
+      return rewriter.notifyMatchFailure(maskOp, "not a masked reduction");
+
+    auto vecTy = cast<VectorType>(red.getVector().getType());
+    Type elemTy = vecTy.getElementType();
+    std::optional<arith::AtomicRMWKind> rmw =
+        atomicKindOf(red.getKind(), isa<FloatType>(elemTy));
+    if (!rmw)
+      return rewriter.notifyMatchFailure(maskOp, "no identity for this kind");
+    TypedAttr identity = arith::getIdentityValueAttr(
+        *rmw, elemTy, rewriter, red.getLoc(), /*useOnlyFiniteValue=*/false);
+    if (!identity)
+      return rewriter.notifyMatchFailure(maskOp, "no identity value");
+
+    Location loc = maskOp.getLoc();
+    Value pad = rewriter.create<arith::ConstantOp>(
+        loc, vecTy, DenseElementsAttr::get(vecTy, identity));
+    Value selected = rewriter.create<arith::SelectOp>(
+        loc, maskOp.getMask(), red.getVector(), pad);
+    // The accumulator, if any, is outside the mask's reach and carries over
+    // untouched: it is not a lane.
+    arith::FastMathFlags fmf = red.getFastmath();
+    if (Value acc = red.getAcc())
+      rewriter.replaceOpWithNewOp<vector::ReductionOp>(
+          maskOp, red.getKind(), selected, acc, fmf);
+    else
+      rewriter.replaceOpWithNewOp<vector::ReductionOp>(
+          maskOp, red.getKind(), selected, fmf);
+    return success();
+  }
+};
 
 /// `vector.load %m[...] : vector<T>` (0-d, what a transfer_read of a scalar
 /// broadcast operand reduces to) -> `memref.load` + `vector.broadcast` to
@@ -172,6 +259,37 @@ struct LVXLowerVectorTransfersPass
                       lvxNativeShape));
       vector::populateCastAwayVectorLeadingOneDimPatterns(shapes);
       if (failed(applyPatternsGreedily(func, std::move(shapes))))
+        return signalPassFailure();
+    }
+
+    // 1d. `vector.mask`, the region wrapper, becomes a mask *operand* on the
+    // op it wraps -- which is the form this back end already takes:
+    // `lvx.masked_load`/`masked_store` carry their mask as an operand, and a
+    // masked `vector.transfer_read`/`write` is what the stage below turns
+    // into `vector.maskedload`/`maskedstore`.
+    //
+    // This is the shape that matters for vectorized code: `linalg`
+    // vectorization expresses a conditional as `vector.mask` and never as a
+    // branch (docs/IfConversion.md, "Reachability"), so a loop whose trip
+    // count does not divide the vector length arrives here wrapped.
+    //
+    // After the unrolling above, deliberately. The unrolling patterns
+    // understand masked ops and re-wrap each piece they produce, so splitting
+    // an oversized masked transfer has to happen while the wrapper is still
+    // there; unwrapping first would leave the pieces unmasked. Before the
+    // transfer lowering, equally deliberately: that stage reads the mask as
+    // an operand and has nothing to say about a region.
+    //
+    // Upstream's `-lower-vector-mask` is these same two populates, so running
+    // it separately is equivalent -- it lives here so the bridge is one pass.
+    {
+      RewritePatternSet masks(&getContext());
+      vector::populateVectorMaskLoweringPatternsForSideEffectingOps(masks);
+      vector::MaskOp::getCanonicalizationPatterns(masks, &getContext());
+      // Upstream's set stops at the side-effecting ops; a masked reduction
+      // needs the identity in its cleared lanes, which is ours.
+      masks.add<MaskedReductionToSelect>(&getContext());
+      if (failed(applyPatternsGreedily(func, std::move(masks))))
         return signalPassFailure();
     }
 

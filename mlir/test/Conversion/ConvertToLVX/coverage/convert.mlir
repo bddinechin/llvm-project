@@ -1,4 +1,6 @@
-// RUN: mlir-opt %s -split-input-file -convert-to-lvx | FileCheck %s
+// RUN: mlir-opt %s -split-input-file \
+// RUN:   --pass-pipeline='builtin.module(func.func(lvx-lower-vector-transfers),convert-to-lvx,any(lvx-combine),cse)' \
+// RUN:   | FileCheck %s
 
 // Conversion rows of docs/VectorCoverage.md (Phase 5). Three shapes, chosen
 // by how many bits a lane gains or loses: same width is one instruction on a

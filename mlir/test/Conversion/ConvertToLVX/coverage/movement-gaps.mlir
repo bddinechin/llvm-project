@@ -1,4 +1,5 @@
-// RUN: mlir-opt %s -split-input-file -verify-diagnostics -convert-to-lvx -o /dev/null
+// RUN: mlir-opt %s -split-input-file -verify-diagnostics \
+// RUN:   --pass-pipeline='builtin.module(func.func(lvx-lower-vector-transfers),convert-to-lvx,any(lvx-combine),cse)' -o /dev/null
 
 // Class-D data-movement rows: no lowering today. Each `expected-error`
 // pins the gap -- when a pattern or an instruction arrives, this test fails

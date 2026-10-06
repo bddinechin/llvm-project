@@ -21,5 +21,6 @@ add_mlir_conversion_library(MLIRConvertToLVX
   MLIRMemRefDialect
   MLIRSCFDialect
   MLIRTransformUtils
+  MLIRUBDialect
   MLIRVectorDialect
 )

@@ -1,4 +1,5 @@
-// RUN: mlir-opt %s -split-input-file -verify-diagnostics -convert-to-lvx -o /dev/null
+// RUN: mlir-opt %s -split-input-file -verify-diagnostics \
+// RUN:   --pass-pipeline='builtin.module(func.func(lvx-lower-vector-transfers),convert-to-lvx,any(lvx-combine),cse)' -o /dev/null
 
 // Class-D memory rows: no lowering with today's ISA. Each row's
 // `expected-error` is what pins the gap -- when the instruction arrives,

@@ -1,4 +1,6 @@
-// RUN: mlir-opt %s -split-input-file -convert-to-lvx | FileCheck %s
+// RUN: mlir-opt %s -split-input-file \
+// RUN:   --pass-pipeline='builtin.module(func.func(lvx-lower-vector-transfers),convert-to-lvx,any(lvx-combine),cse)' \
+// RUN:   | FileCheck %s
 
 // Mask rows of docs/VectorCoverage.md (Phase 2): a `vector<Nxi1>` is a
 // register holding one bit per lane, `comp*q`/`fcomp*q` write it and
@@ -303,5 +305,78 @@ func.func @select_i32x8(%m: vector<8xi1>, %a: memref<16xi32>,
   // ROW-OP
   %z = arith.select %m, %x, %y : vector<8xi1>, vector<8xi32>
   vector.store %z, %o[%i] : memref<16xi32>, vector<8xi32>
+  return
+}
+
+// -----
+
+// `vector.mask` is a region wrapper, not a computation: the bridge
+// (`-lvx-lower-vector-transfers`) unwraps it into a mask *operand* on the op
+// it holds, which is the form this back end already takes. So a masked
+// transfer_read costs what `vector.maskedload` costs -- the `maskm`-prefixed
+// access plus the `extb4d` that widens the lane mask to the byte mask the LSU
+// needs -- and nothing for the wrapper.
+//
+// This is the shape vectorized code actually arrives in: `linalg`
+// vectorization expresses a non-divisible trip count as `vector.mask` and
+// never as a branch (docs/IfConversion.md, "Reachability").
+// ROW: vector.mask(load) | f32x4
+// CHECK-LABEL: @mask_load_f32x4
+// CHECK: lvx.extb4d
+// CHECK: lvx.masked_load
+func.func @mask_load_f32x4(%a: memref<8xf32>, %c: memref<8xf32>, %n: index) {
+  %i = arith.constant 0 : index
+  %p = arith.constant 0.0 : f32
+  %m = vector.create_mask %n : vector<4xi1>
+  // ROW-OP
+  %x = vector.mask %m {
+    vector.transfer_read %a[%i], %p {in_bounds = [true]}
+      : memref<8xf32>, vector<4xf32>
+  } : vector<4xi1> -> vector<4xf32>
+  vector.store %x, %c[%i] : memref<8xf32>, vector<4xf32>
+  return
+}
+
+// -----
+
+// The write side, same unwrapping.
+// ROW: vector.mask(store) | f32x4
+// CHECK-LABEL: @mask_store_f32x4
+// CHECK: lvx.masked_store
+func.func @mask_store_f32x4(%a: memref<8xf32>, %c: memref<8xf32>, %n: index) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<8xf32>, vector<4xf32>
+  %m = vector.create_mask %n : vector<4xi1>
+  // ROW-OP
+  vector.mask %m {
+    vector.transfer_write %x, %c[%i] {in_bounds = [true]}
+      : vector<4xf32>, memref<8xf32>
+  } : vector<4xi1>
+  return
+}
+
+// -----
+
+// A masked *reduction* has no upstream lowering at all -- `-lower-vector-mask`
+// stops at the side-effecting ops, and the only consumer anywhere is
+// `ConvertVectorToLLVM`'s `llvm.intr.vp.reduce.*`. The bridge lowers it by
+// putting the reduction's identity in the lanes the mask clears and reducing
+// unmasked, so the cost is one `blend*` ahead of Phase 4's tree. The identity
+// comes from `arith::getIdentityValueAttr`, so the distinctions that are easy
+// to get wrong (`minnum` against `minimum`) stay upstream's.
+// ROW: vector.mask(reduction) | i32x4
+// CHECK-LABEL: @mask_reduction_i32x4
+// CHECK: lvx.blendwq
+// CHECK: lvx.evenwq
+// CHECK: lvx.addwq
+func.func @mask_reduction_i32x4(%a: memref<8xi32>, %c: memref<8xi32>, %n: index) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<8xi32>, vector<4xi32>
+  %m = vector.create_mask %n : vector<4xi1>
+  // ROW-OP
+  %r = vector.mask %m {
+    vector.reduction <add>, %x : vector<4xi32> into i32
+  } : vector<4xi1> -> i32
+  memref.store %r, %c[%i] : memref<8xi32>
   return
 }

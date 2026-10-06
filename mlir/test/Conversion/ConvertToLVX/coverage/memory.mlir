@@ -1,4 +1,6 @@
-// RUN: mlir-opt %s -split-input-file -convert-to-lvx | FileCheck %s
+// RUN: mlir-opt %s -split-input-file \
+// RUN:   --pass-pipeline='builtin.module(func.func(lvx-lower-vector-transfers),convert-to-lvx,any(lvx-combine),cse)' \
+// RUN:   | FileCheck %s
 
 // Memory rows of docs/VectorCoverage.md (Phase 6), and the broadcasts that
 // are loads (Phase 3). See README.md for the row format.

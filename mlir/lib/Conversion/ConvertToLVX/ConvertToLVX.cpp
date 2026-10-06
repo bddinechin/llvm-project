@@ -23,6 +23,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -1008,6 +1009,30 @@ static Value createSplat(ConversionPatternRewriter &rewriter, Location loc,
 /// `pass_thru` is the zero vector consumes the constant rather than the
 /// value, so the constant is left dead -- and `applyFullConversion` legalizes
 /// dead ops too.
+// `ub.poison` is "any value will do", so zero is a legal refinement of it and
+// the cheapest one to name. Rather than materialize it here, hand the op to
+// the zero-constant patterns above -- `arith.constant` is illegal in this
+// conversion, so the framework lowers the replacement in turn, and poison
+// then costs exactly what a zero constant costs (one `maked`, plus a splat
+// for a pair) with no second code path to keep in step.
+//
+// It matters out of proportion to its size: `-canonicalize` introduces
+// `ub.poison` for a dead `vector.transfer_read` padding value, which is why
+// examples/build-kernel.sh's bridging step had to leave canonicalization out.
+struct PoisonToLVX : public OpConversionPattern<ub::PoisonOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ub::PoisonOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto zero = rewriter.getZeroAttr(op.getType());
+    if (!zero)
+      return rewriter.notifyMatchFailure(op, "no zero attribute for this type");
+    rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, op.getType(),
+                                                   cast<TypedAttr>(zero));
+    return success();
+  }
+};
+
 struct VectorSplatConstantToLVX : public OpConversionPattern<arith::ConstantOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
@@ -3313,6 +3338,10 @@ struct ConvertToLVXPass
                              scf::SCFDialect, func::FuncDialect,
                              memref::MemRefDialect, index::IndexDialect,
                              vector::VectorDialect>();
+    // `ub.poison` is the one `ub` op that appears here (canonicalization
+    // leaves it where a padding value died), so mark it rather than the
+    // dialect.
+    target.addIllegalOp<ub::PoisonOp>();
     // Only math.fma is lowered; the rest of `math` (transcendentals etc.)
     // has no LVX opcode, so leave the dialect legal and mark just this op.
     target.addIllegalOp<math::CountLeadingZerosOp,
@@ -3352,7 +3381,7 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     // Compare
     CmpIToLVX, CmpFToLVX,
     // Constant / select
-    ConstantToLVX, IndexConstantToLVX, SelectToLVX,
+    ConstantToLVX, IndexConstantToLVX, SelectToLVX, PoisonToLVX,
     // Memory
     MemRefLoadToLVX, MemRefStoreToLVX, FmaToLVX,
     // Vectors

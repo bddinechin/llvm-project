@@ -1,4 +1,5 @@
-// RUN: mlir-opt %s -split-input-file -verify-diagnostics -convert-to-lvx -o /dev/null
+// RUN: mlir-opt %s -split-input-file -verify-diagnostics \
+// RUN:   --pass-pipeline='builtin.module(func.func(lvx-lower-vector-transfers),convert-to-lvx,any(lvx-combine),cse)' -o /dev/null
 
 // Elementwise rows with no lowering: class D. Each `expected-error` pins the
 // gap, so when the ISA or a pattern fills it this test fails until the row

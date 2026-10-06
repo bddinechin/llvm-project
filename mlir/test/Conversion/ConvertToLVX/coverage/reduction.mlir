@@ -1,4 +1,6 @@
-// RUN: mlir-opt %s -split-input-file -convert-to-lvx | FileCheck %s
+// RUN: mlir-opt %s -split-input-file \
+// RUN:   --pass-pipeline='builtin.module(func.func(lvx-lower-vector-transfers),convert-to-lvx,any(lvx-combine),cse)' \
+// RUN:   | FileCheck %s
 
 // Reduction rows of docs/VectorCoverage.md (Phase 4). The ISA has no
 // horizontal instruction, so each row is the tree described in
