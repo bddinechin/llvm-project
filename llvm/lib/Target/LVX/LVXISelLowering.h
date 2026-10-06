@@ -68,6 +68,25 @@ private:
   SDValue lowerMul128(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerVectorExtend(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerVASTART(SDValue Op, SelectionDAG &DAG) const;
+
+public:
+  // A vector of 64 bits or less has no legal type here -- the legal vector
+  // types start at 128 bits -- so for argument and return purposes it travels
+  // as the one i64 GPR it fits in, which the generic code then bitcasts into
+  // place. Without saying so, a `float __attribute__((vector_size(8)))`
+  // parameter made SelectionDAGBuilder assemble the value from parts whose
+  // size did not match the register it had been assigned ("Part type sizes
+  // don't match!"). GCC answers the same question with
+  // lvx_vector_mode_supported_p, which claims V8QI/V4HI/V2SI/V2SF/V4HF and
+  // widens their ARITHMETIC onto the 128-bit unit; passing them in a GPR is
+  // the matching choice.
+  MVT getRegisterTypeForCallingConv(LLVMContext &Context, CallingConv::ID CC,
+                                    EVT VT) const override;
+  unsigned getNumRegistersForCallingConv(LLVMContext &Context,
+                                         CallingConv::ID CC,
+                                         EVT VT) const override;
+
+private:
   SDValue lowerCopySign(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerBuildVectorPacked(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerExtractLane(SDValue Op, SelectionDAG &DAG) const;

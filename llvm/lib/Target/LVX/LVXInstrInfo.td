@@ -402,6 +402,11 @@ def : Pat<(srl GPR128:$rP, uimm6imm:$imm), (SRLQ_QSWRI GPR128:$rP, uimm6imm:$imm
 // signext parameter or return value needs, and what the type legalizer asks
 // for as sext_inreg. (The immediate was a stop bit, n-1, until the ISA's
 // stopbit -> bitwidth rename of 2026-09.)
+// i1 is a BOOLEAN being spread to all-ones or zero, which is what a compare
+// result becomes when used as a mask. One bit, sign-extended, is exactly a
+// 1-wide field extract -- and it is reachable only where a packed FP compare
+// produces one, so an lvx_v2 build was the first to need it.
+def : Pat<(sext_inreg GPR:$rZ, i1),  (EXTFSD_BFWR GPR:$rZ,  1, 0)>;
 def : Pat<(sext_inreg GPR:$rZ, i8),  (EXTFSD_BFWR GPR:$rZ,  8, 0)>;
 def : Pat<(sext_inreg GPR:$rZ, i16), (EXTFSD_BFWR GPR:$rZ, 16, 0)>;
 def : Pat<(sext_inreg GPR:$rZ, i32), (EXTFSD_BFWR GPR:$rZ, 32, 0)>;

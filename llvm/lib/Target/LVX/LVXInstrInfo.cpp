@@ -222,15 +222,27 @@ void LVXInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
   if (MI != MBB.end())
     DL = MI->getDebugLoc();
 
+// A spill or reload is chosen by the value's SIZE, not by the identity of its
+// register class: GPR128 and GPR128V are the same registers under two names
+// (the vector one holds the vector value types), so comparing class pointers
+// left every 128-bit VECTOR spill falling through to the unreachable. Nothing
+// on lvx-1 could reach it -- there are no packed instructions there, so no
+// vector value ever needs spilling -- which is why an lvx_v2 build was the
+// first thing to hit it.
   unsigned Opc;
-  if (RC == &LVX::GPRRegClass)
+  switch (RegisterInfo.getSpillSize(*RC)) {
+  case 8:
     Opc = LVX::SD_SSBO;
-  else if (RC == &LVX::GPR128RegClass)
+    break;
+  case 16:
     Opc = LVX::SQ_SQBO;
-  else if (RC == &LVX::GPR256RegClass)
+    break;
+  case 32:
     Opc = LVX::SO_SOBO;
-  else
-    llvm_unreachable("Unsupported register class in LVX storeRegToStackSlot");
+    break;
+  default:
+    llvm_unreachable("Unsupported register class size in storeRegToStackSlot");
+  }
 
   BuildMI(MBB, MI, DL, get(Opc))
       .addImm(0) // off
@@ -249,15 +261,21 @@ void LVXInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
   if (MI != MBB.end())
     DL = MI->getDebugLoc();
 
+  // By size, for the same reason as the store above.
   unsigned Opc;
-  if (RC == &LVX::GPRRegClass)
+  switch (RegisterInfo.getSpillSize(*RC)) {
+  case 8:
     Opc = LVX::LD_LSBO;
-  else if (RC == &LVX::GPR128RegClass)
+    break;
+  case 16:
     Opc = LVX::LQ_LQBO;
-  else if (RC == &LVX::GPR256RegClass)
+    break;
+  case 32:
     Opc = LVX::LO_LOBO;
-  else
-    llvm_unreachable("Unsupported register class in LVX loadRegFromStackSlot");
+    break;
+  default:
+    llvm_unreachable("Unsupported register class size in loadRegFromStackSlot");
+  }
 
   BuildMI(MBB, MI, DL, get(Opc), DestReg)
       .addImm(0) // off

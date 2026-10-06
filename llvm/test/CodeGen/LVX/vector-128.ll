@@ -10,13 +10,18 @@
 ; to a 128-byte frame with sq/sq/lo/lo ... so/lq around the two adds it
 ; needed. Fifteen instructions for two.
 
+; The instruction depends on which description is installed, and lit cannot see
+; that: an lvx_v1 build has no packed add and emits two `addd` over the halves,
+; an lvx_v2 build emits one `adddp`. What the test is really about holds either
+; way and is what the checks say -- the value stays in the register PAIR, with
+; no frame and no spill round trip, which is what making the type legal bought
+; (it cost fifteen instructions and a 128-byte frame before).
 define <2 x i64> @add(<2 x i64> %a, <2 x i64> %b) {
 ; CHECK-LABEL: add:
 ; CHECK-NOT:   addd $r12 = $r12
 ; CHECK-NOT:   sq
 ; CHECK-NOT:   lq
-; CHECK-DAG:   addd
-; CHECK-DAG:   addd
+; CHECK:       {{addd|adddp}}
 ; CHECK:       ret
   %r = add <2 x i64> %a, %b
   ret <2 x i64> %r

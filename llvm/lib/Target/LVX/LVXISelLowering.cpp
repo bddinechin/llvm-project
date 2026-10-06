@@ -195,7 +195,19 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
           ISD::INSERT_VECTOR_ELT, ISD::VECTOR_SHUFFLE, ISD::SCALAR_TO_VECTOR,
           ISD::CONCAT_VECTORS, ISD::EXTRACT_SUBVECTOR, ISD::INSERT_SUBVECTOR,
           ISD::FADD, ISD::FSUB, ISD::FMUL, ISD::FDIV, ISD::FNEG, ISD::FABS,
-          ISD::FSQRT, ISD::FMA})
+          ISD::FSQRT, ISD::FMA,
+          // The bit-counting and rotate families. The ISA has packed forms of
+          // all of them on lvx-2 (CBS*, CLZ*, CLS*, CTZ*, ROL*, ROR*), but the
+          // generator emits no pattern for them yet, and an operation left at
+          // its default on a LEGAL type is Legal -- so each was a "Cannot
+          // select" waiting for the first vector that reached it. `ctpop` on
+          // v8i16 was the one a rotate test hit. Expand gives the generic
+          // lowering on both cores, and the moment LVXLaneSIMD.inc carries any
+          // of them this loop's Expand is overridden for that core, exactly as
+          // it already is for ADD and the rest.
+          ISD::CTPOP, ISD::CTLZ, ISD::CTTZ, ISD::CTLZ_ZERO_POISON,
+          ISD::CTTZ_ZERO_POISON, ISD::ROTL, ISD::ROTR, ISD::BSWAP,
+          ISD::BITREVERSE})
       setOperationAction(Op, VT, Expand);
 
     // A lane read at a constant index is a subregister read, selected in
@@ -724,6 +736,28 @@ SDValue LVXTargetLowering::lowerCopySign(SDValue Op, SelectionDAG &DAG) const {
 // sub_hi is SubRegIndex<64, 0>, the lower-numbered GPR of the pair, which
 // holds the LOW 64 bits (catdq $rM = $rZ, $rY puts $rZ there). See the
 // DIVMODD comment in LVXISelDAGToDAG.cpp, which trips on the same thing.
+// A sub-128-bit vector is passed and returned as the i64 it fits in; see the
+// comment on the declaration. Anything else follows the default.
+static bool isSmallVector(EVT VT) {
+  return VT.isVector() && VT.isSimple() && VT.getSizeInBits() <= 64;
+}
+
+MVT LVXTargetLowering::getRegisterTypeForCallingConv(LLVMContext &Context,
+                                                     CallingConv::ID CC,
+                                                     EVT VT) const {
+  if (isSmallVector(VT))
+    return MVT::i64;
+  return TargetLowering::getRegisterTypeForCallingConv(Context, CC, VT);
+}
+
+unsigned LVXTargetLowering::getNumRegistersForCallingConv(LLVMContext &Context,
+                                                          CallingConv::ID CC,
+                                                          EVT VT) const {
+  if (isSmallVector(VT))
+    return 1;
+  return TargetLowering::getNumRegistersForCallingConv(Context, CC, VT);
+}
+
 // va_start: store the address of the save area into the va_list object the
 // caller handed us. The area was laid out by LowerFormalArguments above, so
 // there is nothing to compute here.
@@ -1226,6 +1260,22 @@ LVXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     // i64 pieces CC_LVX_Custom assigned it -- the inverse of the
     // BUILD_PAIR/BUILD_VECTOR reassembly LowerFormalArguments performs
     // on the incoming side.
+    // A 128-bit vector travels as the i128 it shares its registers with, and a
+    // 256-bit one as v4i64 -- the same reinterpretation CC_LVX already performs
+    // with CCBitConvertToType, applied here to the VALUE so the split below
+    // sees the shape the convention assigned it. Without this every packed
+    // vector argument reached the unreachable below; only an lvx_v2 build can
+    // get here, because on lvx-1 nothing produces a whole vector value to pass.
+    if (ValVT.isVector() && ValVT != MVT::v4i64) {
+      if (ValVT.getSizeInBits() == 128) {
+        Val = DAG.getNode(ISD::BITCAST, DL, MVT::i128, Val);
+        ValVT = MVT::i128;
+      } else if (ValVT.getSizeInBits() == 256) {
+        Val = DAG.getNode(ISD::BITCAST, DL, MVT::v4i64, Val);
+        ValVT = MVT::v4i64;
+      }
+    }
+
     SmallVector<SDValue, 4> Pieces;
     if (ValVT == MVT::i64 || ValVT == MVT::f64) {
       Pieces.push_back(ValVT == MVT::i64
