@@ -254,6 +254,17 @@ struct IntBinaryToLVX : public OpConversionPattern<SourceOp> {
 };
 
 using AddIToLVX = IntBinaryToLVX<arith::AddIOp, lvx::AdddOp, lvx::AddwOp>;
+
+// Scalar integer min/max, which had no lowering until the `vector.reduction`
+// accumulator fold needed it: a `minsi` reduction folds its accumulator with
+// `arith.minsi`, and that failing to legalize is how the gap surfaced. (The
+// float four already existed, below, with the NaN-split note that matters
+// for them.) Lane-wise min/max was always there -- `VMinSIToLVX` and company
+// -- so this was a scalar-only hole.
+using MinSIToLVX = IntBinaryToLVX<arith::MinSIOp, lvx::MindOp, lvx::MinwOp>;
+using MaxSIToLVX = IntBinaryToLVX<arith::MaxSIOp, lvx::MaxdOp, lvx::MaxwOp>;
+using MinUIToLVX = IntBinaryToLVX<arith::MinUIOp, lvx::MinudOp, lvx::MinuwOp>;
+using MaxUIToLVX = IntBinaryToLVX<arith::MaxUIOp, lvx::MaxudOp, lvx::MaxuwOp>;
 using SubIToLVX = IntBinaryToLVX<arith::SubIOp, lvx::SbfdOp, lvx::SbfwOp>;
 using MulIToLVX = IntBinaryToLVX<arith::MulIOp, lvx::MuldOp, lvx::MulwOp>;
 using AndIToLVX = IntBinaryToLVX<arith::AndIOp, lvx::AnddOp, lvx::AndwOp>;
@@ -328,6 +339,7 @@ using AddFToLVX = FloatBinaryToLVX<arith::AddFOp, lvx::FadddOp, lvx::FaddwOp>;
 using SubFToLVX = FloatBinaryToLVX<arith::SubFOp, lvx::FsbfdOp, lvx::FsbfwOp>;
 using MulFToLVX = FloatBinaryToLVX<arith::MulFOp, lvx::FmuldOp, lvx::FmulwOp>;
 using DivFToLVX = FloatBinaryToLVX<arith::DivFOp, lvx::FdivdOp, lvx::FdivwOp>;
+
 
 // `math.fma a, b, c` is `a*b + c` -- the same operand order as real
 // `FFMAD`/`FFMAW`, whose `c` is the accumulator. Note the real instruction
@@ -2487,6 +2499,21 @@ struct VectorReductionToLVX : public OpConversionPattern<vector::ReductionOp> {
   LogicalResult
   matchAndRewrite(vector::ReductionOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // An accumulator must already be folded out. This used to be *ignored*,
+    // and because nothing refused it the op legalized cleanly and the
+    // accumulator simply vanished -- a wrong answer with no diagnostic, which
+    // is the one outcome worth refusing loudly. `-lvx-lower-vector-transfers`
+    // rewrites it into a scalar op over the tree's result
+    // (`ReductionAccumulatorToArith`); folding it here instead would mean
+    // choosing the scalar mnemonic in this file, and for `min`/`max` on lanes
+    // narrower than a register that is not the 64-bit op -- the reduced
+    // register's upper bits hold a copy of the answer, not a sign extension.
+    if (adaptor.getAcc())
+      return op.emitError(
+          "a vector.reduction accumulator is not lowered here: run "
+          "-lvx-lower-vector-transfers first, which folds it into a scalar "
+          "op over the reduction's result");
+
     VectorType vecTy = op.getSourceVectorType();
     Type tupleTy = getTypeConverter()->convertType(vecTy);
     unsigned units = tupleTy ? tupleWidth(tupleTy) : 0;
@@ -3382,6 +3409,7 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     CmpIToLVX, CmpFToLVX,
     // Constant / select
     ConstantToLVX, IndexConstantToLVX, SelectToLVX, PoisonToLVX,
+    MinSIToLVX, MaxSIToLVX, MinUIToLVX, MaxUIToLVX,
     // Memory
     MemRefLoadToLVX, MemRefStoreToLVX, FmaToLVX,
     // Vectors

@@ -249,3 +249,53 @@ func.func @reduction_and_i8x16(%a: memref<32xi8>, %c: memref<32xi8>) {
   memref.store %s, %c[%i] : memref<32xi8>
   return
 }
+
+// -----
+
+// The *accumulator* form, which used to legalize while silently dropping the
+// accumulator. It is folded in the bridge into a scalar op over the tree's
+// result -- `addw` at i32 lanes, the width-correct one.
+// ROW: vector.reduction<add>(acc) | i32x4
+// CHECK-LABEL: @reduction_add_acc_i32x4
+// CHECK: lvx.addwq
+// CHECK: lvx.addw
+func.func @reduction_add_acc_i32x4(%a: memref<4xi32>, %c: memref<4xi32>,
+                                   %acc: i32) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<4xi32>, vector<4xi32>
+  // ROW-OP
+  %s = vector.reduction <add>, %x, %acc : vector<4xi32> into i32
+  memref.store %s, %c[%i] : memref<4xi32>
+  return
+}
+
+// -----
+
+// `vector.contract` at integer lanes: a dot product, whose init *is* the
+// accumulator, which is why it did not lower until that was fixed. The bridge
+// decomposes it with the `Dot` strategy into extract/reduction/insert, so what
+// is measured is the reduction tree plus the accumulator fold.
+//
+// The float form is deliberately absent: a float reduction without `reassoc`
+// is the sequential chain rather than a tree (§4), and `vector.contract` does
+// not carry the flag.
+// ROW: vector.contract | i32x4
+// CHECK-LABEL: @contract_i32x4
+// CHECK: lvx.mulwq
+// CHECK: lvx.addwq
+// CHECK: lvx.addw
+#cd = affine_map<(d0) -> (d0)>
+#cs = affine_map<(d0) -> ()>
+func.func @contract_i32x4(%a: memref<4xi32>, %b: memref<4xi32>,
+                          %c: memref<4xi32>, %acc: i32) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<4xi32>, vector<4xi32>
+  %y = vector.load %b[%i] : memref<4xi32>, vector<4xi32>
+  // ROW-OP
+  %r = vector.contract {indexing_maps = [#cd, #cd, #cs],
+                        iterator_types = ["reduction"],
+                        kind = #vector.kind<add>} %x, %y, %acc
+       : vector<4xi32>, vector<4xi32> into i32
+  memref.store %r, %c[%i] : memref<4xi32>
+  return
+}

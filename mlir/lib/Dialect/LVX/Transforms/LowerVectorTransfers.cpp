@@ -83,6 +83,43 @@ atomicKindOf(vector::CombiningKind kind, bool isFloat) {
   return std::nullopt;
 }
 
+/// `vector.reduction <k>, %v, %acc` becomes `<k>(reduction(%v), %acc)`: the
+/// tree over the lanes, then one scalar op folding the accumulator in.
+///
+/// This fixes a **silently wrong answer**, not a missing feature.
+/// `VectorReductionToLVX` never read the accumulator operand, and because
+/// nothing refused it either, a reduction carrying one legalized cleanly and
+/// dropped it -- the stored result was the bare tree. `-convert-to-lvx` now
+/// refuses an accumulator outright so it cannot happen again, and this is
+/// what removes it beforehand.
+///
+/// The fold is built with `vector::makeArithReduction`, so the scalar op per
+/// combining kind, and its 64-against-32-bit choice, come from the existing
+/// `arith` lowering rather than from a second table here. Doing it in the
+/// vector dialect is the whole point: a fold inside the conversion would have
+/// to pick the mnemonic itself, and for `min`/`max` on lanes narrower than a
+/// register that is not simply the 64-bit op -- the reduced register's upper
+/// bits hold a copy of the answer, not a sign extension.
+struct ReductionAccumulatorToArith
+    : public OpRewritePattern<vector::ReductionOp> {
+  using OpRewritePattern::OpRewritePattern;
+  LogicalResult matchAndRewrite(vector::ReductionOp op,
+                                PatternRewriter &rewriter) const override {
+    Value acc = op.getAcc();
+    if (!acc)
+      return rewriter.notifyMatchFailure(op, "no accumulator");
+    Location loc = op.getLoc();
+    // The same kind and fastmath, minus the accumulator; the replacement has
+    // none, so this pattern does not re-fire on it.
+    Value tree = rewriter.create<vector::ReductionOp>(
+        loc, op.getKind(), op.getVector(), op.getFastmath());
+    Value folded = vector::makeArithReduction(rewriter, loc, op.getKind(),
+                                              tree, acc, op.getFastmathAttr());
+    rewriter.replaceOp(op, folded);
+    return success();
+  }
+};
+
 struct MaskedReductionToSelect : public OpRewritePattern<vector::MaskOp> {
   using OpRewritePattern::OpRewritePattern;
   LogicalResult matchAndRewrite(vector::MaskOp maskOp,
@@ -289,6 +326,10 @@ struct LVXLowerVectorTransfersPass
       // Upstream's set stops at the side-effecting ops; a masked reduction
       // needs the identity in its cleared lanes, which is ours.
       masks.add<MaskedReductionToSelect>(&getContext());
+      // And the accumulator the conversion refuses -- after the mask pattern,
+      // which preserves it, and in the same application so either order of
+      // discovery converges.
+      masks.add<ReductionAccumulatorToArith>(&getContext());
       if (failed(applyPatternsGreedily(func, std::move(masks))))
         return signalPassFailure();
     }
