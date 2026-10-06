@@ -153,6 +153,21 @@ static LogicalResult chooseFormat(Operation *op, StringRef mnemonic) {
   if (!imm || op->hasAttr("format"))
     return success();
   auto valueAttr = dyn_cast_or_null<TypedAttr>(op->getAttr(imm->attribute));
+  // `lvx.li` is a hand-written pseudo and keeps its immediate in `value`,
+  // while the table is written for the real `maked` and calls it `signed16`.
+  // Every other op that prints an immediate agrees with the table by name --
+  // the generated `*_i` ops carry `signed10` and the memory ops `offset`, the
+  // masked-access pseudos included -- so this is the one exception.
+  //
+  // It mattered: without it `chooseFormat` found nothing, returned success
+  // with no `format`, and the bare form stood, so a 64-bit `maked` was billed
+  // as one syllable instead of the three its `.Y` form takes. Four of them in
+  // a bundle then overflowed ISSUE and gas refused the output -- "resource
+  // ISSUE over-used in bundle: 9 used, 8 available". Latent until non-splat
+  // vector constants started emitting large immediates in quantity.
+  if (!valueAttr)
+    if (auto li = dyn_cast<LiOp>(op))
+      valueAttr = dyn_cast_or_null<TypedAttr>(li.getValueAttr());
   if (!valueAttr)
     return success(); // not this op's shape (a register form); bare stands
   APInt value;
