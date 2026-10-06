@@ -67,6 +67,7 @@ private:
   SDValue lowerShift128(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerMul128(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerVectorExtend(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerVASTART(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerCopySign(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerBuildVectorPacked(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerExtractLane(SDValue Op, SelectionDAG &DAG) const;

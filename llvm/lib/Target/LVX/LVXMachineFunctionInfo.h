@@ -31,6 +31,11 @@ class LVXMachineFunctionInfo : public MachineFunctionInfo {
   // the stack size, and keeps every other object clear of it.
   int FrameMarkerFI = -1;
 
+  // The frame index of the first vararg slot, and the bytes of argument
+  // registers spilled for it (0 when the named parameters used them all).
+  int VarArgsFrameIndex = -1;
+  unsigned VarArgsSaveSize = 0;
+
 public:
   LVXMachineFunctionInfo(const Function &F, const TargetSubtargetInfo *STI) {}
 
@@ -44,6 +49,17 @@ public:
   bool hasFrameMarker() const { return FrameMarkerFI != -1; }
   int getFrameMarkerFI() const { return FrameMarkerFI; }
   void setFrameMarkerFI(int FI) { FrameMarkerFI = FI; }
+
+  // Varargs. The ABI passes the first twelve 8-byte slots in R0-R11 and the
+  // rest on the stack, so a variadic callee spills the argument registers its
+  // named parameters did not consume into a save area placed so that it ends
+  // exactly where the incoming stack arguments begin. va_list is then a single
+  // pointer walking upward across both, which is what lvx-gcc builds too
+  // (lvx_expand_builtin_saveregs).
+  int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
+  void setVarArgsFrameIndex(int FI) { VarArgsFrameIndex = FI; }
+  unsigned getVarArgsSaveSize() const { return VarArgsSaveSize; }
+  void setVarArgsSaveSize(unsigned Size) { VarArgsSaveSize = Size; }
 };
 
 } // end namespace llvm

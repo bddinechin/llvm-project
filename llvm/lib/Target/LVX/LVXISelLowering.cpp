@@ -5,6 +5,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "LVXISelLowering.h"
+#include "LVXMachineFunctionInfo.h"
 #include "LVXSubtarget.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -318,6 +319,14 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // routing them through SETCC would cost an extra instruction on every
   // conditional branch.
   setOperationAction(ISD::SELECT_CC, MVT::i64, Expand);
+
+  // Varargs. va_list is one pointer, so VASTART is a single store of the save
+  // area's address and everything else is the generic pointer arithmetic:
+  // VAARG expanded loads and bumps, VACOPY is a pointer copy, VAEND nothing.
+  setOperationAction(ISD::VASTART, MVT::Other, Custom);
+  setOperationAction(ISD::VAARG, MVT::Other, Expand);
+  setOperationAction(ISD::VACOPY, MVT::Other, Expand);
+  setOperationAction(ISD::VAEND, MVT::Other, Expand);
   // i128 likewise: CMOVEQ is a conditional move, not a compare-and-move, so
   // the comparison has to be a separate node. Without this a `select` on an
   // __int128 reached isel as SELECT_CC and failed ("Cannot select: i128 =
@@ -525,6 +534,8 @@ SDValue LVXTargetLowering::LowerOperation(SDValue Op,
   case ISD::SRL:
   case ISD::SRA:
     return lowerShift128(Op, DAG);
+  case ISD::VASTART:
+    return lowerVASTART(Op, DAG);
   case ISD::MUL:
     return lowerMul128(Op, DAG);
   case ISD::SIGN_EXTEND:
@@ -713,6 +724,22 @@ SDValue LVXTargetLowering::lowerCopySign(SDValue Op, SelectionDAG &DAG) const {
 // sub_hi is SubRegIndex<64, 0>, the lower-numbered GPR of the pair, which
 // holds the LOW 64 bits (catdq $rM = $rZ, $rY puts $rZ there). See the
 // DIVMODD comment in LVXISelDAGToDAG.cpp, which trips on the same thing.
+// va_start: store the address of the save area into the va_list object the
+// caller handed us. The area was laid out by LowerFormalArguments above, so
+// there is nothing to compute here.
+SDValue LVXTargetLowering::lowerVASTART(SDValue Op, SelectionDAG &DAG) const {
+  MachineFunction &MF = DAG.getMachineFunction();
+  auto *FuncInfo = MF.getInfo<LVXMachineFunctionInfo>();
+  SDLoc DL(Op);
+  SDValue Addr =
+      DAG.getFrameIndex(FuncInfo->getVarArgsFrameIndex(),
+                        getPointerTy(DAG.getDataLayout()));
+  // Operand 1 is the chain's va_list pointer, operand 2 the SrcValue.
+  const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
+  return DAG.getStore(Op.getOperand(0), DL, Addr, Op.getOperand(1),
+                      MachinePointerInfo(SV));
+}
+
 // Widen a vector one lane at a time: read each source lane into a GPR, extend
 // it there, and build the result. The extraction is done at i64 -- the only
 // width a GPR has -- so the lane's own width is re-imposed with
@@ -954,8 +981,6 @@ SDValue LVXTargetLowering::LowerFormalArguments(
     SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
     const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &DL,
     SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals) const {
-  if (IsVarArg)
-    report_fatal_error("Variadic functions not yet supported on LVX");
 
   MachineFunction &MF = DAG.getMachineFunction();
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
@@ -1037,6 +1062,68 @@ SDValue LVXTargetLowering::LowerFormalArguments(
     InVals.push_back(ArgValue);
   }
 
+  // ---- The vararg save area ----
+  //
+  // The ABI passes twelve 8-byte slots in R0-R11 before going to the stack, so
+  // a variadic callee has to spill whichever of those registers its named
+  // parameters did not consume: va_arg cannot read a register. The area is
+  // placed at NEGATIVE offsets from the incoming-argument boundary, which puts
+  // it directly below the incoming stack arguments, so the spilled registers
+  // and any stack-passed anonymous arguments form ONE upward-growing block and
+  // va_list is a single pointer. lvx-gcc builds the same layout from the other
+  // direction (lvx_expand_builtin_saveregs writes the registers at the arg
+  // pointer); measured against its output for `f(long,long,...)`, which spills
+  // R2-R11 and points va_list at the first of them.
+  if (IsVarArg) {
+    static const MCPhysReg ArgRegs[] = {LVX::R0, LVX::R1, LVX::R2,  LVX::R3,
+                                        LVX::R4, LVX::R5, LVX::R6,  LVX::R7,
+                                        LVX::R8, LVX::R9, LVX::R10, LVX::R11};
+    constexpr unsigned SlotSize = 8;
+    MachineFrameInfo &MFI = MF.getFrameInfo();
+    MachineRegisterInfo &RegInfo = MF.getRegInfo();
+    auto *FuncInfo = MF.getInfo<LVXMachineFunctionInfo>();
+
+    // The first register no named parameter took. CC_LVX_Custom allocates from
+    // a single slot counter shared by i64/f64/i128/v4i64, and marks each
+    // register it hands out as allocated, so asking CCState is correct for
+    // every argument shape -- including an i128 that consumed two of them.
+    unsigned FirstUnused = 0;
+    while (FirstUnused < std::size(ArgRegs) &&
+           CCInfo.isAllocated(ArgRegs[FirstUnused]))
+      ++FirstUnused;
+
+    int VaArgOffset;
+    unsigned SaveSize;
+    if (FirstUnused == std::size(ArgRegs)) {
+      // Every argument register went to a named parameter, so the first
+      // anonymous argument is already on the caller's stack and there is
+      // nothing to spill: va_list starts at the incoming-argument boundary.
+      SaveSize = 0;
+      VaArgOffset = CCInfo.getStackSize();
+    } else {
+      SaveSize = (std::size(ArgRegs) - FirstUnused) * SlotSize;
+      VaArgOffset = -(int)SaveSize;
+    }
+
+    int FI = MFI.CreateFixedObject(SlotSize, VaArgOffset, true);
+    FuncInfo->setVarArgsFrameIndex(FI);
+    FuncInfo->setVarArgsSaveSize(SaveSize);
+
+    SmallVector<SDValue, 12> Stores;
+    for (unsigned I = FirstUnused; I != std::size(ArgRegs);
+         ++I, VaArgOffset += SlotSize) {
+      Register VReg = RegInfo.createVirtualRegister(&LVX::GPRRegClass);
+      RegInfo.addLiveIn(ArgRegs[I], VReg);
+      SDValue Value = DAG.getCopyFromReg(Chain, DL, VReg, MVT::i64);
+      int SlotFI = MFI.CreateFixedObject(SlotSize, VaArgOffset, true);
+      SDValue Addr = DAG.getFrameIndex(SlotFI, getPointerTy(DAG.getDataLayout()));
+      Stores.push_back(DAG.getStore(Chain, DL, Value, Addr,
+                                    MachinePointerInfo::getFixedStack(MF, SlotFI)));
+    }
+    if (!Stores.empty())
+      Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Stores);
+  }
+
   return Chain;
 }
 
@@ -1045,8 +1132,8 @@ SDValue LVXTargetLowering::LowerReturn(
     const SmallVectorImpl<ISD::OutputArg> &Outs,
     const SmallVectorImpl<SDValue> &OutVals, const SDLoc &DL,
     SelectionDAG &DAG) const {
-  if (IsVarArg)
-    report_fatal_error("Variadic functions not yet supported on LVX");
+  // Varargs change nothing about the RETURN convention: the result still
+  // occupies slots 0-3 whether or not the callee was variadic.
 
   MachineFunction &MF = DAG.getMachineFunction();
 
@@ -1094,8 +1181,10 @@ LVXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   CallingConv::ID CallConv = CLI.CallConv;
   bool IsVarArg = CLI.IsVarArg;
 
-  if (IsVarArg)
-    report_fatal_error("Variadic functions not yet supported on LVX");
+  // Nothing to do on the CALLER side: the anonymous arguments are placed by
+  // exactly the same rule as the named ones -- twelve 8-byte slots in R0-R11,
+  // the rest on the stack -- which CC_LVX_Custom already implements. Only the
+  // callee has work to do, in LowerFormalArguments below.
 
   // A tail call is a REQUEST, not an obligation: the middle end marks any call
   // in tail position and the target decides. Declining is always correct --
