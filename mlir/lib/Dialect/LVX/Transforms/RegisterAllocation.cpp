@@ -505,6 +505,34 @@ static void insertFmaAccumulatorPreservingCopies(lvx_func::FuncOp func) {
   }
 }
 
+/// Give every repeated `lvx.concat` part its own copy.
+///
+/// A part is placed at its offset in the result, so one value cannot be two
+/// parts. The conversion does not emit that shape -- it copies each part for
+/// exactly this reason -- but `-cse` creates it: two identical `lvx.mv`
+/// copies, distinct on purpose so each could be placed, are a textbook common
+/// subexpression. `concat %20, %20` then asks for one register at two offsets,
+/// and since items are *unified* rather than tested for interference the
+/// symptom is a three-unit group and an unreachable, not a diagnostic.
+///
+/// Re-splitting here rather than teaching `-cse` to leave them alone: the
+/// copies really are equal as values, and the constraint is about placement,
+/// which only this pass knows about.
+static void splitRepeatedConcatParts(lvx_func::FuncOp func) {
+  SmallVector<ConcatOp> concats;
+  func.walk([&](ConcatOp op) { concats.push_back(op); });
+  for (ConcatOp concat : concats) {
+    DenseSet<Value> seen;
+    for (auto [i, part] : llvm::enumerate(concat.getParts())) {
+      if (seen.insert(part).second)
+        continue;
+      OpBuilder builder(concat);
+      auto copy = builder.create<MvOp>(concat.getLoc(), part.getType(), part);
+      concat.setOperand(i, copy);
+    }
+  }
+}
+
 static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
                                               const LVXLiveIntervals &live,
                                               bool &conflictingFixedGroup,
@@ -1026,6 +1054,7 @@ struct LVXAllocateRegistersPass
       return;
 
     insertLoopCarriedPreservingCopies(func);
+    splitRepeatedConcatParts(func);
     insertFmaAccumulatorPreservingCopies(func);
 
     LVXLiveIntervals live(func);

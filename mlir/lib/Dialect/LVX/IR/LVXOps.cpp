@@ -78,6 +78,19 @@ unsigned ConcatOp::offsetOf(unsigned i) {
 
 LogicalResult ConcatOp::verify() {
   unsigned resultWidth = widthOf(getResult().getType());
+  // One value appearing as two parts is *not* checked here, deliberately,
+  // though it cannot be realised in registers: a part is placed at its offset
+  // in the result, so the same value would have to sit at two offsets at
+  // once. It is not a verifier invariant because `-cse` legitimately creates
+  // it -- the conversion emits two identical `lvx.mv` copies, distinct on
+  // purpose so each can be placed, and they are a textbook common
+  // subexpression. Rejecting it here fails `-cse` itself, before anything can
+  // repair it. The invariant is weaker and holds where it has to:
+  // `splitRepeatedConcatParts` in `-lvx-allocate-registers` re-splits them
+  // before registers are assigned. Without that the allocator unifies the
+  // parts instead of testing them for interference, and the symptom is a
+  // group as wide as the span -- "a block is 1, 2 or 4 units wide" from an
+  // unreachable, with no diagnostic.
   unsigned offset = 0;
   for (auto [i, part] : llvm::enumerate(getParts())) {
     unsigned width = widthOf(part.getType());

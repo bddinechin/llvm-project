@@ -1075,6 +1075,69 @@ struct VectorSplatConstantToLVX : public OpConversionPattern<arith::ConstantOp> 
   }
 };
 
+// A vector constant that is *not* a splat. There is nothing to compute: a
+// constant is its bytes, so each 64-bit register word is one `li` and the
+// units are joined by an `lvx.concat`, which emits nothing. Two instructions
+// for a 128-bit constant, four for a 256-bit one.
+//
+// Until this existed, any non-uniform constant vector failed to legalize --
+// a shuffle's index vector, a lookup table, a mask that is not all-ones.
+// `dense<7>` lowered and `dense<[0,1,2,3]>` did not, which is a surprising
+// place for a hole. `vector.step` is this pattern too, via its folder.
+//
+// Reading `getRawData()` rather than the elements one at a time is what makes
+// it element-type-agnostic: the bytes are already in the layout the register
+// wants, so f32 and i8 need no separate case. Two exclusions:
+//   - a splat, which `VectorSplatConstantToLVX` does in two instructions for
+//     any width and one `li` for the value, so it stays cheaper;
+//   - `i1`, where the raw data is bit-packed rather than one byte per lane --
+//     masks have their own path (`vector.constant_mask`) and a byte-wise read
+//     of them would be silently wrong.
+struct VectorDenseConstantToLVX : public OpConversionPattern<arith::ConstantOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arith::ConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = dyn_cast<VectorType>(op.getType());
+    if (!vecTy)
+      return rewriter.notifyMatchFailure(op, "the scalar pattern handles this");
+    auto dense = dyn_cast<DenseElementsAttr>(op.getValue());
+    if (!dense)
+      return rewriter.notifyMatchFailure(op, "not a dense constant");
+    if (dense.isSplat())
+      return rewriter.notifyMatchFailure(op, "the splat pattern is cheaper");
+    if (vecTy.getElementType().isInteger(1))
+      return rewriter.notifyMatchFailure(
+          op, "an i1 constant is bit-packed; masks have their own path");
+    Type tupleTy = getTypeConverter()->convertType(vecTy);
+    unsigned units = tupleTy ? tupleWidth(tupleTy) : 0;
+    if (!units)
+      return rewriter.notifyMatchFailure(op, "vector shape has no register tuple");
+    ArrayRef<char> raw = dense.getRawData();
+    if (raw.size() != units * 8)
+      return rewriter.notifyMatchFailure(
+          op, "raw data is not one byte per byte of the tuple");
+
+    Location loc = op.getLoc();
+    Type regTy = RegisterType::get(rewriter.getContext(), std::nullopt);
+    SmallVector<Value> parts;
+    for (unsigned u = 0; u != units; ++u) {
+      // Little-endian, which is the architecture's and the raw data's.
+      uint64_t word = 0;
+      for (unsigned b = 0; b != 8; ++b)
+        word |= static_cast<uint64_t>(static_cast<uint8_t>(raw[u * 8 + b]))
+                << (8 * b);
+      parts.push_back(rewriter.create<lvx::LiOp>(
+          loc, regTy, rewriter.getI64IntegerAttr(static_cast<int64_t>(word))));
+    }
+    if (units == 1)
+      rewriter.replaceOp(op, parts.front());
+    else
+      rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy, parts);
+    return success();
+  }
+};
+
 // `vector.broadcast %s : T to vector<NxT>` of a scalar: `splat{b,h,w,d}q`
 // by element width, which fills a pair; of a `memref.load` to a quad,
 // `l{b,h,w,d}so` from the load's address (splatLoadOf). (Any other quad
@@ -2778,6 +2841,122 @@ struct VectorInsertToLVX : public OpConversionPattern<vector::InsertOp> {
   }
 };
 
+/// `vector.extract_strided_slice` and `vector.insert_strided_slice`, 1-D and
+/// unit-stride, where the slice falls on **register boundaries**. Then there
+/// is nothing to permute: the slice is a run of whole units, so an extract is
+/// an `lvx.lane` (no instruction) and an insert is the destination's units
+/// with the source's substituted.
+///
+/// Upstream converts both to `vector.shuffle`, and that route was tried first
+/// and is wrong for the insert: it widens the source with a *padding* shuffle
+/// whose upper lanes are lane 0 repeated, and that shape has no instruction
+/// here, so an otherwise-free aligned insert came out class D. The vector
+/// dialect has no spelling for "these units, then those", which is exactly
+/// what `lvx.concat` is, so this belongs on this side of the conversion.
+///
+/// A slice that is *not* register-aligned stays class D, and rightly: it is a
+/// general lane permute, the gap §7 already lists.
+static bool sliceIsUnitAligned(unsigned offsetElems, unsigned sizeElems,
+                               unsigned elemBits) {
+  return (offsetElems * elemBits) % 64 == 0 && (sizeElems * elemBits) % 64 == 0;
+}
+
+struct VectorExtractStridedSliceToLVX
+    : public OpConversionPattern<vector::ExtractStridedSliceOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::ExtractStridedSliceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    VectorType srcTy = op.getSourceVectorType();
+    if (srcTy.getRank() != 1)
+      return rewriter.notifyMatchFailure(op, "only a 1-D slice");
+    SmallVector<int64_t> offsets, sizes, strides;
+    for (Attribute a : op.getOffsets()) offsets.push_back(cast<IntegerAttr>(a).getInt());
+    for (Attribute a : op.getSizes()) sizes.push_back(cast<IntegerAttr>(a).getInt());
+    for (Attribute a : op.getStrides()) strides.push_back(cast<IntegerAttr>(a).getInt());
+    if (offsets.size() != 1 || strides[0] != 1)
+      return rewriter.notifyMatchFailure(op, "only one unit-stride dimension");
+    unsigned bits = srcTy.getElementTypeBitWidth();
+    if (!sliceIsUnitAligned(offsets[0], sizes[0], bits))
+      return rewriter.notifyMatchFailure(
+          op, "a slice off register boundaries is a general lane permute");
+    unsigned unit = (offsets[0] * bits) / 64;
+    unsigned width = (sizes[0] * bits) / 64;
+    Type resTy = getTypeConverter()->convertType(op.getType());
+    if (!resTy || tupleWidth(resTy) != width)
+      return rewriter.notifyMatchFailure(op, "result shape has no register tuple");
+    rewriter.replaceOp(op, laneOf(rewriter, op.getLoc(), adaptor.getSource(),
+                                  unit, width));
+    return success();
+  }
+};
+
+struct VectorInsertStridedSliceToLVX
+    : public OpConversionPattern<vector::InsertStridedSliceOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(vector::InsertStridedSliceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    VectorType dstTy = op.getDestVectorType();
+    VectorType srcTy = op.getSourceVectorType();
+    if (dstTy.getRank() != 1 || srcTy.getRank() != 1)
+      return rewriter.notifyMatchFailure(op, "only a 1-D slice");
+    SmallVector<int64_t> offsets, strides;
+    for (Attribute a : op.getOffsets()) offsets.push_back(cast<IntegerAttr>(a).getInt());
+    for (Attribute a : op.getStrides()) strides.push_back(cast<IntegerAttr>(a).getInt());
+    if (offsets.size() != 1 || strides[0] != 1)
+      return rewriter.notifyMatchFailure(op, "only one unit-stride dimension");
+    unsigned bits = dstTy.getElementTypeBitWidth();
+    unsigned n = srcTy.getNumElements();
+    if (!sliceIsUnitAligned(offsets[0], n, bits))
+      return rewriter.notifyMatchFailure(
+          op, "a slice off register boundaries is a general lane permute");
+    Type tupleTy = getTypeConverter()->convertType(dstTy);
+    unsigned units = tupleTy ? tupleWidth(tupleTy) : 0;
+    unsigned first = (offsets[0] * bits) / 64;
+    unsigned width = (n * bits) / 64;
+    if (!units || first + width > units)
+      return rewriter.notifyMatchFailure(op, "shape has no register tuple");
+
+    Location loc = op.getLoc();
+    Value dst = adaptor.getDest();
+    SmallVector<Value> parts;
+    for (unsigned unit = 0; unit != units;) {
+      if (unit == first) {
+        // The slice itself -- through a *copy*. `lvx.concat` places its parts
+        // in the result's block, so a part that is already placed elsewhere
+        // would have to live at two offsets at once: inserting the high pair
+        // of a quad into its own low half asks `lvx.lane %q[2]` to sit at
+        // offset 0 as well, and the allocator's group then comes out three
+        // units wide ("a block is 1, 2 or 4 units wide"). The copy is the
+        // same precaution `vector.insert` takes for `insfd`'s
+        // destination-read operand, and the allocator coalesces it away
+        // whenever the source was not placed.
+        parts.push_back(rewriter.create<lvx::MvOp>(
+            loc, adaptor.getValueToStore().getType(),
+            adaptor.getValueToStore()));
+        unit += width;
+        continue;
+      }
+      // The untouched units, in the largest aligned runs -- the same rule
+      // `vector.insert` uses, so a quad's spare pair is one `copyq`.
+      unsigned run = 1;
+      while (run < units && unit % (2 * run) == 0 && unit + 2 * run <= units &&
+             (first >= unit + 2 * run || first + width <= unit))
+        run *= 2;
+      if (unit + run > first && unit < first + width)
+        run = 1;
+      parts.push_back(copyOfUnits(rewriter, loc, dst, unit, run, units));
+      unit += run;
+    }
+    if (parts.size() == 1)
+      rewriter.replaceOp(op, parts.front());
+    else
+      rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy, parts);
+    return success();
+  }
+};
+
 /// `vector.shuffle` with a constant mask, in the four shapes the ISA has an
 /// answer for. `even`/`odd` first, because they are one instruction where
 /// the register-level reading of the same mask would be two copies.
@@ -3419,7 +3598,8 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     VectorFromElementsToLVX,
     VectorCmpIToLVX, VectorCmpFToLVX, VectorSelectToLVX,
     VectorSelectScalarCondToLVX,
-    VectorSplatConstantToLVX,
+    VectorSplatConstantToLVX, VectorDenseConstantToLVX,
+    VectorExtractStridedSliceToLVX, VectorInsertStridedSliceToLVX,
     VectorConstantMaskToLVX, VectorCreateMaskToLVX, VectorReductionToLVX,
     VSIToFPToLVX, VUIToFPToLVX, VFPToSIToLVX, VFPToUIToLVX,
     VTruncIToLVX, VTruncFToLVX, VExtSIToLVX, VExtUIToLVX, VExtFToLVX,

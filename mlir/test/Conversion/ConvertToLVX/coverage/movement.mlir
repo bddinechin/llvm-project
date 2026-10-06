@@ -326,3 +326,85 @@ func.func @bitcast_f32x4(%a: memref<8xf32>, %c: memref<4xi32>) {
   vector.store %z, %c[%i] : memref<4xi32>, vector<4xi32>
   return
 }
+
+// -----
+
+// A vector constant that is not a splat is its raw bytes: one `li` per 64-bit
+// register word, joined by a free `lvx.concat`. `dense<7>` lowered long before
+// this and `dense<[...]>` did not, so any shuffle index vector, lookup table or
+// non-uniform mask fell in the hole.
+// ROW: arith.constant(dense) | i32x4
+// CHECK-LABEL: @dense_constant_i32x4
+// CHECK: lvx.li
+// CHECK: lvx.li
+func.func @dense_constant_i32x4(%c: memref<8xi32>) {
+  %i = arith.constant 0 : index
+  // ROW-OP
+  %k = arith.constant dense<[16909060, 286397204, 555885348, 825373492]> : vector<4xi32>
+  vector.store %k, %c[%i] : memref<8xi32>, vector<4xi32>
+  return
+}
+
+// -----
+
+// `vector.step` lowers -- the pattern in `-lvx-lower-vector-transfers` says
+// it is the constant `[0, 1, ... N-1]`, which nothing upstream folds it to
+// (its only canonicalization is `StepCompareFolder`). The element type is
+// `index`, so four lanes are a quad: four `li`.
+//
+// **Deliberately not a `// ROW:`**, because no cost is attributable to the op.
+// Written with the `arith.index_cast` that any real use needs, the cast folds
+// the constant and the folded result carries the *cast's* location, so every
+// `li` is attributed to that line and the step measures as free -- which it
+// is not. Written without the cast, `vector.store` of a `vector<4xindex>` has
+// no lowering of its own and the row comes out class D -- which is also not
+// true of the step. Its cost is the `arith.constant(dense)` row above; this
+// chunk exists to pin that it lowers at all.
+// CHECK-LABEL: @step_lowers
+// CHECK: lvx.li
+// CHECK: lvx.li
+func.func @step_lowers(%c: memref<8xi64>) {
+  %i = arith.constant 0 : index
+  %s = vector.step : vector<4xindex>
+  %t = arith.index_cast %s : vector<4xindex> to vector<4xi64>
+  vector.store %t, %c[%i] : memref<8xi64>, vector<4xi64>
+  return
+}
+
+
+// -----
+
+// An `extract_strided_slice` on register boundaries is a run of whole units,
+// so it is a lane view and costs nothing. The *high* pair is taken, which is
+// the half that moves if the unit offset is dropped.
+// ROW: vector.extract_strided_slice | i32x8
+// CHECK-LABEL: @extract_strided_slice_i32x8
+// CHECK: lvx.lane %{{.*}}[2]
+func.func @extract_strided_slice_i32x8(%a: memref<8xi32>, %c: memref<8xi32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<8xi32>, vector<8xi32>
+  // ROW-OP
+  %s = vector.extract_strided_slice %x {offsets = [4], sizes = [4], strides = [1]}
+       : vector<8xi32> to vector<4xi32>
+  vector.store %s, %c[%i] : memref<8xi32>, vector<4xi32>
+  return
+}
+
+// -----
+
+// The insert side: the destination's units with the source's substituted. The
+// source goes through a copy because `lvx.concat` *places* its parts, so a
+// part already placed elsewhere would have to sit at two offsets at once.
+// ROW: vector.insert_strided_slice | i32x4
+// CHECK-LABEL: @insert_strided_slice_i32x4
+// CHECK: lvx.concat
+func.func @insert_strided_slice_i32x4(%a: memref<8xi32>, %c: memref<8xi32>) {
+  %i = arith.constant 0 : index
+  %q = vector.load %a[%i] : memref<8xi32>, vector<8xi32>
+  %p = vector.load %a[%i] : memref<8xi32>, vector<4xi32>
+  // ROW-OP
+  %s = vector.insert_strided_slice %p, %q {offsets = [4], strides = [1]}
+       : vector<4xi32> into vector<8xi32>
+  vector.store %s, %c[%i] : memref<8xi32>, vector<8xi32>
+  return
+}

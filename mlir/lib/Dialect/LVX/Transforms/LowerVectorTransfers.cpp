@@ -37,6 +37,60 @@ using namespace mlir;
 
 namespace {
 
+/// `vector.step` is the constant `[0, 1, ... N-1]`, and nothing upstream folds
+/// it to one -- its only canonicalization is `StepCompareFolder`. So say it
+/// here, and the non-splat constant lowering takes it from there: one `li` per
+/// register word.
+struct StepToConstant : public OpRewritePattern<vector::StepOp> {
+  using OpRewritePattern::OpRewritePattern;
+  LogicalResult matchAndRewrite(vector::StepOp op,
+                                PatternRewriter &rewriter) const override {
+    auto vecTy = op.getType();
+    if (vecTy.isScalable())
+      return rewriter.notifyMatchFailure(op, "a scalable step is not a constant");
+    unsigned n = vecTy.getNumElements();
+    // `vector.step`'s element type is `index`, which is neither integer nor
+    // float -- `getElementTypeBitWidth()` asserts on it rather than returning
+    // anything, which is how this was found. LVX is LP64, so index is 64 bits.
+    Type elemTy = vecTy.getElementType();
+    unsigned bits = isa<IndexType>(elemTy) ? 64u : 0u;
+    if (!bits) {
+      if (!elemTy.isIntOrIndex())
+        return rewriter.notifyMatchFailure(op, "not an integer or index step");
+      bits = elemTy.getIntOrFloatBitWidth();
+    }
+    SmallVector<APInt> values;
+    values.reserve(n);
+    for (unsigned i = 0; i != n; ++i)
+      values.push_back(APInt(bits, i));
+    rewriter.replaceOpWithNewOp<arith::ConstantOp>(
+        op, vecTy, DenseElementsAttr::get(vecTy, values));
+    return success();
+  }
+};
+
+/// `vector.to_elements` is one `vector.extract` per lane. Upstream only
+/// unrolls the 2-D-and-up form (`populateVectorToElementsUnrollPatterns`), so
+/// the 1-D case -- the only one this back end has a register for -- needs
+/// saying. Every `vector.extract` at a static lane already lowers, and at a
+/// 64-bit lane it is a free lane view.
+struct ToElementsToExtracts : public OpRewritePattern<vector::ToElementsOp> {
+  using OpRewritePattern::OpRewritePattern;
+  LogicalResult matchAndRewrite(vector::ToElementsOp op,
+                                PatternRewriter &rewriter) const override {
+    VectorType vecTy = op.getSource().getType();
+    if (vecTy.getRank() != 1)
+      return rewriter.notifyMatchFailure(op, "upstream unrolls the n-D form");
+    SmallVector<Value> elems;
+    elems.reserve(vecTy.getNumElements());
+    for (int64_t i = 0, e = vecTy.getNumElements(); i != e; ++i)
+      elems.push_back(rewriter.create<vector::ExtractOp>(
+          op.getLoc(), op.getSource(), ArrayRef<int64_t>{i}));
+    rewriter.replaceOp(op, elems);
+    return success();
+  }
+};
+
 /// A masked `vector.reduction`: put the reduction's *identity* in the lanes
 /// the mask clears, then reduce unmasked.
 ///
@@ -330,6 +384,9 @@ struct LVXLowerVectorTransfersPass
       // which preserves it, and in the same application so either order of
       // discovery converges.
       masks.add<ReductionAccumulatorToArith>(&getContext());
+      // Two ops whose whole lowering is "say what they already are": a step
+      // is a constant, and `to_elements` is one extract per lane.
+      masks.add<StepToConstant, ToElementsToExtracts>(&getContext());
       if (failed(applyPatternsGreedily(func, std::move(masks))))
         return signalPassFailure();
     }
