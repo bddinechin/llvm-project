@@ -1681,6 +1681,114 @@ struct VectorShiftToLVX : public OpConversionPattern<SourceOp> {
   }
 };
 
+/// `arith.divsi x, 2^k` -- signed division by a constant power of two -- is
+/// **one `srs*`**, "shift right symmetric": the ISA biases a negative value by
+/// `2^k - 1` before shifting it right, which is exactly division rounding
+/// *toward zero*. A plain `sra*` is the wrong answer, rounding toward minus
+/// infinity, and that is the whole reason this instruction exists.
+///
+/// Without this a power-of-two divide went to the general divider -- and not
+/// only in vector code: scalar `arith.divsi x, 4` lowered to `lvx.divmodw`,
+/// a full division where one `srsw` does it. The vector forms failed to
+/// legalize outright, even though `SRS` exists at every width
+/// (`srs{w,d}` scalar, `srs{bx,ho,wq,dp}` packed).
+///
+/// The *general* vector divide stays class D and is not a gap (§5): no
+/// yardstick has an integer vector divider either. What this adds is the
+/// strength reduction the ISA already provides an instruction for.
+///
+/// The shift amount goes in a register and `-lvx-combine` folds it into the
+/// immediate form, which is what the ordinary shift patterns do -- the same
+/// route, so the same folding and the same testing apply.
+static std::optional<unsigned> powerOfTwoDivisor(Value rhs) {
+  Attribute value;
+  if (auto cst = rhs.getDefiningOp<arith::ConstantOp>())
+    value = cst.getValue();
+  if (!value)
+    return std::nullopt;
+  APInt k;
+  if (auto i = dyn_cast<IntegerAttr>(value))
+    k = i.getValue();
+  else if (auto d = dyn_cast<DenseIntElementsAttr>(value)) {
+    if (!d.isSplat())
+      return std::nullopt;
+    k = d.getSplatValue<APInt>();
+  } else
+    return std::nullopt;
+  // Positive powers of two only. A divisor of 1 is the identity and folds
+  // elsewhere; a *negative* power of two needs a negate as well, which is a
+  // second instruction and not what this pattern is for.
+  if (k.sle(1) || !k.isPowerOf2())
+    return std::nullopt;
+  return k.logBase2();
+}
+
+struct DivSIByPowerOfTwoToLVX : public OpConversionPattern<arith::DivSIOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arith::DivSIOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    std::optional<unsigned> shift = powerOfTwoDivisor(op.getRhs());
+    if (!shift)
+      return rewriter.notifyMatchFailure(
+          op, "only a constant positive power of two is a shift");
+    Location loc = op.getLoc();
+    Type regTy = RegisterType::get(rewriter.getContext(), std::nullopt);
+    // The shift amount materialises the *divisor constant*, so it carries the
+    // constant's location rather than the division's. That is where it
+    // belongs -- it is loop-invariant and would be hoisted out of any real
+    // loop -- and it is what the ordinary shift patterns end up with, their
+    // amount coming from a constant on its own line. Attributing it here
+    // instead made `arith.divsi(pow2)` measure two ops where `arith.shli` at
+    // the same shape measures one, for identical emitted code (§6 attributes
+    // a row's cost by source location).
+    Value amount = rewriter.create<lvx::LiOp>(
+        op.getRhs().getLoc(), regTy, rewriter.getI64IntegerAttr(*shift));
+
+    auto vecTy = dyn_cast<VectorType>(op.getType());
+    if (!vecTy) {
+      unsigned width = getScalarBitWidth(op.getType());
+      Type resTy = getTypeConverter()->convertType(op.getType());
+      Value r = createIntBinary<lvx::SrsdOp, lvx::SrswOp>(
+          rewriter, loc, width, resTy, adaptor.getLhs(), amount);
+      if (!r)
+        return rewriter.notifyMatchFailure(op, "no srs for this width");
+      rewriter.replaceOp(op, r);
+      return success();
+    }
+
+    Type tupleTy = getTypeConverter()->convertType(vecTy);
+    unsigned units = tupleTy ? tupleWidth(tupleTy) : 0;
+    if (!units)
+      return rewriter.notifyMatchFailure(op, "vector shape has no register tuple");
+    unsigned bits = vecTy.getElementTypeBitWidth();
+    Value value = adaptor.getLhs();
+    if (units == 2) {
+      Value r = byWidthBinary<lvx::SrsbxOp, lvx::SrshoOp, lvx::SrswqOp,
+                              lvx::SrsdpOp>(bits, rewriter, loc, tupleTy, value,
+                                            amount);
+      if (!r)
+        return rewriter.notifyMatchFailure(op, "no srs for this lane width");
+      rewriter.replaceOp(op, r);
+      return success();
+    }
+    // A quad: the two halves, as the shifts do -- `srs*` has no composite.
+    Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
+    Value half[2];
+    for (unsigned k = 0; k != 2; ++k) {
+      half[k] = byWidthBinary<lvx::SrsbxOp, lvx::SrshoOp, lvx::SrswqOp,
+                              lvx::SrsdpOp>(bits, rewriter, loc, pairTy,
+                                            quadHalf(rewriter, loc, value, k),
+                                            amount);
+      if (!half[k])
+        return rewriter.notifyMatchFailure(op, "no srs for this lane width");
+    }
+    rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy,
+                                               ValueRange{half[0], half[1]});
+    return success();
+  }
+};
+
 // The tables. One line per source op: the pair ops by element width, then
 // the quad composites. `NoLaneOp` is a shape the ISA has not got.
 //
@@ -3637,6 +3745,7 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     // Constant / select
     ConstantToLVX, IndexConstantToLVX, SelectToLVX, PoisonToLVX,
     MinSIToLVX, MaxSIToLVX, MinUIToLVX, MaxUIToLVX,
+    DivSIByPowerOfTwoToLVX,
     // Memory
     MemRefLoadToLVX, MemRefStoreToLVX, FmaToLVX,
     // Vectors

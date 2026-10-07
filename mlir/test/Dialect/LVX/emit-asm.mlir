@@ -146,9 +146,10 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // CHECK-NEXT: ;;
 // CHECK-NEXT: maked $r4 = 0
 // CHECK-NEXT: ;;
+// The induction-variable copy-in is absent: both values landed in r0, so it
+// was `copyd $r0 = $r0` and -lvx-scf-to-cf's identity sweep removed it --
+// which also removes the bundle it was alone in.
 // CHECK-NEXT: sbfd $r61 = $r0, $r2
-// CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r0 = $r0
 // CHECK-NEXT: ;;
 // CHECK-NEXT: loopdo $r61, [[EXIT:\.LBB[0-9]+]]
 // CHECK-NEXT: ;;
@@ -361,10 +362,9 @@ lvx_func.func @ffma(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %c: !lvx.reg<r2>,
 // path -- see scf-to-cf.mlir) still assembles correctly with ordinary
 // branches, exercising the fallthrough-elision rule on the entry edge too
 // (entry falls straight into the header with no printed `goto`).
+// The copy-in is absent here too, and for the same reason.
 // CHECK-LABEL: loop_step2:
-// CHECK: copyd $r0 = $r0
-// CHECK-NEXT: ;;
-// CHECK-NEXT: {{\.LBB[0-9]+}}:
+// CHECK: {{\.LBB[0-9]+}}:
 // CHECK-NEXT: compd.lt $r61 =
 lvx_func.func @loop_step2(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %ov = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg

@@ -21,6 +21,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
+#include "mlir/Dialect/LVX/Transforms/IdentityCopies.h"
 #include "mlir/Dialect/LVX/Transforms/ScratchRegisters.h"
 #include "mlir/Dialect/LVX/IR/LVXConvention.h"
 #include "mlir/Dialect/LVX/IR/LVXTiedOperands.h"
@@ -1311,19 +1312,7 @@ struct LVXAllocateRegistersPass
     // matter -- those exist so a tied operand does not clobber a value with
     // another reader, so one assigned its source's register would already be
     // a miscompile, upstream of this. Deleting it changes nothing about that.
-    {
-      SmallVector<MvOp> identityCopies;
-      func.walk([&](MvOp mv) {
-        std::optional<PhysLoc> dst = pinnedLoc(mv.getResult().getType());
-        std::optional<PhysLoc> src = pinnedLoc(mv.getSource().getType());
-        if (dst && src && *dst == *src)
-          identityCopies.push_back(mv);
-      });
-      for (MvOp mv : identityCopies) {
-        mv.getResult().replaceAllUsesWith(mv.getSource());
-        mv.erase();
-      }
-    }
+    eraseIdentityCopies(func);
 
     // A function that itself executes a call clobbers its own $ra before
     // its own `ret` gets to use it (lvx-mlir/docs/RegisterAllocation.md,
@@ -1387,3 +1376,23 @@ struct LVXAllocateRegistersPass
 };
 
 } // namespace
+
+namespace mlir {
+namespace lvx {
+
+void eraseIdentityCopies(lvx_func::FuncOp func) {
+  SmallVector<MvOp> identityCopies;
+  func.walk([&](MvOp mv) {
+    std::optional<PhysLoc> dst = pinnedLoc(mv.getResult().getType());
+    std::optional<PhysLoc> src = pinnedLoc(mv.getSource().getType());
+    if (dst && src && *dst == *src)
+      identityCopies.push_back(mv);
+  });
+  for (MvOp mv : identityCopies) {
+    mv.getResult().replaceAllUsesWith(mv.getSource());
+    mv.erase();
+  }
+}
+
+} // namespace lvx
+} // namespace mlir

@@ -20,6 +20,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
+#include "mlir/Dialect/LVX/Transforms/IdentityCopies.h"
 #include "mlir/Dialect/LVX/Transforms/ScratchRegisters.h"
 
 #include "mlir/Dialect/LVXCF/IR/LVXCF.h"
@@ -222,6 +223,14 @@ struct LVXSCFToCFPass
         [&](lvx_scf::ForOp op) { forOps.push_back(op); });
     for (lvx_scf::ForOp forOp : forOps)
       lowerFor(forOp);
+
+    // This pass creates copies of its own -- a loop's induction-variable
+    // channel move among them -- and some land on the register they came
+    // from. The allocator's sweep has already run by then, so without this
+    // one a `copyd $r2 = $r2` goes straight into the bundler and takes a
+    // TINY slot. Found by comparing a vectorized loop against lvx-gcc's
+    // output for the same source.
+    eraseIdentityCopies(func);
   }
 };
 

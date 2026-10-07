@@ -2398,3 +2398,56 @@ func.func @vector_fma_f64x4(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<6
   vector.store %r, %c[%i] : memref<64xf64>, vector<4xf64>
   return
 }
+
+// -----
+
+// Signed division by a constant power of two is one `srs*`, "shift right
+// symmetric": the ISA biases a negative value by `2^k - 1` before shifting so
+// the result rounds *toward zero*, which is what C and `arith.divsi` mean. A
+// plain `sra*` would round toward minus infinity -- the difference shows only
+// on negative dividends, which is why `examples/vdiv.mlir` executes it.
+//
+// The `arith.divsi` rows above, with a *variable* divisor, stay class D and
+// are not a gap (§5). These are the strength-reduced form.
+// ROW: arith.divsi(pow2) | i32x4
+// CHECK-LABEL: @arith_divsi_pow2_i32x4
+// CHECK: lvx.srswq
+func.func @arith_divsi_pow2_i32x4(%a: memref<64xi32>, %c: memref<64xi32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi32>, vector<4xi32>
+  %k = arith.constant dense<4> : vector<4xi32>
+  // ROW-OP
+  %z = arith.divsi %x, %k : vector<4xi32>
+  vector.store %z, %c[%i] : memref<64xi32>, vector<4xi32>
+  return
+}
+
+// -----
+
+// ROW: arith.divsi(pow2) | i8x16
+// CHECK-LABEL: @arith_divsi_pow2_i8x16
+// CHECK: lvx.srsbx
+func.func @arith_divsi_pow2_i8x16(%a: memref<64xi8>, %c: memref<64xi8>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi8>, vector<16xi8>
+  %k = arith.constant dense<8> : vector<16xi8>
+  // ROW-OP
+  %z = arith.divsi %x, %k : vector<16xi8>
+  vector.store %z, %c[%i] : memref<64xi8>, vector<16xi8>
+  return
+}
+
+// -----
+
+// ROW: arith.divsi(pow2) | i64x2
+// CHECK-LABEL: @arith_divsi_pow2_i64x2
+// CHECK: lvx.srsdp
+func.func @arith_divsi_pow2_i64x2(%a: memref<64xi64>, %c: memref<64xi64>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi64>, vector<2xi64>
+  %k = arith.constant dense<2> : vector<2xi64>
+  // ROW-OP
+  %z = arith.divsi %x, %k : vector<2xi64>
+  vector.store %z, %c[%i] : memref<64xi64>, vector<2xi64>
+  return
+}
