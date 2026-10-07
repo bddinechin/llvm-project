@@ -91,23 +91,23 @@ def FMaxND : LVXBuiltin<"double(double, double)"> {
 //                 vector family's, so only the vector builtins exist
 //===----------------------------------------------------------------------===//
 
-def CopySignH : LVXBuiltin<"_Float16(_Float16, _Float16)"> {
-  let Spellings = ["__builtin_lvx_copysignh"];
+def FSignCH : LVXBuiltin<"_Float16(_Float16, _Float16)"> {
+  let Spellings = ["__builtin_lvx_fsignch"];
 }
-def CopySignNH : LVXBuiltin<"_Float16(_Float16, _Float16)"> {
-  let Spellings = ["__builtin_lvx_copysignnh"];
+def FSignNH : LVXBuiltin<"_Float16(_Float16, _Float16)"> {
+  let Spellings = ["__builtin_lvx_fsignnh"];
 }
-def CopySignW : LVXBuiltin<"float(float, float)"> {
-  let Spellings = ["__builtin_lvx_copysignw"];
+def FSignCW : LVXBuiltin<"float(float, float)"> {
+  let Spellings = ["__builtin_lvx_fsigncw"];
 }
-def CopySignNW : LVXBuiltin<"float(float, float)"> {
-  let Spellings = ["__builtin_lvx_copysignnw"];
+def FSignNW : LVXBuiltin<"float(float, float)"> {
+  let Spellings = ["__builtin_lvx_fsignnw"];
 }
-def CopySignD : LVXBuiltin<"double(double, double)"> {
-  let Spellings = ["__builtin_lvx_copysignd"];
+def FSignCD : LVXBuiltin<"double(double, double)"> {
+  let Spellings = ["__builtin_lvx_fsigncd"];
 }
-def CopySignND : LVXBuiltin<"double(double, double)"> {
-  let Spellings = ["__builtin_lvx_copysignnd"];
+def FSignND : LVXBuiltin<"double(double, double)"> {
+  let Spellings = ["__builtin_lvx_fsignnd"];
 }
 
 //===----------------------------------------------------------------------===//
@@ -122,38 +122,38 @@ def CopySignND : LVXBuiltin<"double(double, double)"> {
 // finite value but not on a NaN, whose sign the multiply does not carry.
 //===----------------------------------------------------------------------===//
 
-def CopySignWQ : LVXBuiltin<"_Vector<4, float>(_Vector<4, float>, _Vector<4, float>)"> {
-  let Spellings = ["__builtin_lvx_copysignwq"];
+def FSignCWQ : LVXBuiltin<"_Vector<4, float>(_Vector<4, float>, _Vector<4, float>)"> {
+  let Spellings = ["__builtin_lvx_fsigncwq"];
 }
-def CopySignNWQ : LVXBuiltin<"_Vector<4, float>(_Vector<4, float>, _Vector<4, float>)"> {
-  let Spellings = ["__builtin_lvx_copysignnwq"];
+def FSignNWQ : LVXBuiltin<"_Vector<4, float>(_Vector<4, float>, _Vector<4, float>)"> {
+  let Spellings = ["__builtin_lvx_fsignnwq"];
 }
-def CopySignHO : LVXBuiltin<"_Vector<8, _Float16>(_Vector<8, _Float16>, _Vector<8, _Float16>)"> {
-  let Spellings = ["__builtin_lvx_copysignho"];
+def FSignCHO : LVXBuiltin<"_Vector<8, _Float16>(_Vector<8, _Float16>, _Vector<8, _Float16>)"> {
+  let Spellings = ["__builtin_lvx_fsigncho"];
 }
-def CopySignDP : LVXBuiltin<"_Vector<2, double>(_Vector<2, double>, _Vector<2, double>)"> {
-  let Spellings = ["__builtin_lvx_copysigndp"];
+def FSignCDP : LVXBuiltin<"_Vector<2, double>(_Vector<2, double>, _Vector<2, double>)"> {
+  let Spellings = ["__builtin_lvx_fsigncdp"];
 }
-def CopySignWO : LVXBuiltin<"_Vector<8, float>(_Vector<8, float>, _Vector<8, float>)"> {
-  let Spellings = ["__builtin_lvx_copysignwo"];
+def FSignCWO : LVXBuiltin<"_Vector<8, float>(_Vector<8, float>, _Vector<8, float>)"> {
+  let Spellings = ["__builtin_lvx_fsigncwo"];
 }
-def CopySignDQ : LVXBuiltin<"_Vector<4, double>(_Vector<4, double>, _Vector<4, double>)"> {
-  let Spellings = ["__builtin_lvx_copysigndq"];
+def FSignCDQ : LVXBuiltin<"_Vector<4, double>(_Vector<4, double>, _Vector<4, double>)"> {
+  let Spellings = ["__builtin_lvx_fsigncdq"];
 }
-def CopySignNDQ : LVXBuiltin<"_Vector<4, double>(_Vector<4, double>, _Vector<4, double>)"> {
-  let Spellings = ["__builtin_lvx_copysignndq"];
+def FSignNDQ : LVXBuiltin<"_Vector<4, double>(_Vector<4, double>, _Vector<4, double>)"> {
+  let Spellings = ["__builtin_lvx_fsignndq"];
 }
-def XorSignWQ : LVXBuiltin<"_Vector<4, float>(_Vector<4, float>, _Vector<4, float>)"> {
-  let Spellings = ["__builtin_lvx_xorsignwq"];
+def FSignMWQ : LVXBuiltin<"_Vector<4, float>(_Vector<4, float>, _Vector<4, float>)"> {
+  let Spellings = ["__builtin_lvx_fsignmwq"];
 }
-def XorSignHO : LVXBuiltin<"_Vector<8, _Float16>(_Vector<8, _Float16>, _Vector<8, _Float16>)"> {
-  let Spellings = ["__builtin_lvx_xorsignho"];
+def FSignMHO : LVXBuiltin<"_Vector<8, _Float16>(_Vector<8, _Float16>, _Vector<8, _Float16>)"> {
+  let Spellings = ["__builtin_lvx_fsignmho"];
 }
-def XorSignDP : LVXBuiltin<"_Vector<2, double>(_Vector<2, double>, _Vector<2, double>)"> {
-  let Spellings = ["__builtin_lvx_xorsigndp"];
+def FSignMDP : LVXBuiltin<"_Vector<2, double>(_Vector<2, double>, _Vector<2, double>)"> {
+  let Spellings = ["__builtin_lvx_fsignmdp"];
 }
-def XorSignWO : LVXBuiltin<"_Vector<8, float>(_Vector<8, float>, _Vector<8, float>)"> {
-  let Spellings = ["__builtin_lvx_xorsignwo"];
+def FSignMWO : LVXBuiltin<"_Vector<8, float>(_Vector<8, float>, _Vector<8, float>)"> {
+  let Spellings = ["__builtin_lvx_fsignmwo"];
 }
 
 //===----------------------------------------------------------------------===//

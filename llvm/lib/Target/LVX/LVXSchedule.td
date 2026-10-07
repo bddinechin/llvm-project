@@ -25,21 +25,34 @@
 //
 // Two things to know before editing.
 //
-// THE SLOT GROUPS ARE NESTED, NOT DISJOINT.  A LITE op occupies a TINY slot as
-// well; a FULL op occupies both; and so does every LSU op.  The class name
-// states the deepest group the instruction reaches, so the groups in a name
-// are unioned, never summed.  BCU2_TINY_LSU is what pins this: it names TINY
-// and LSU and occupies ONE tiny slot.
+// THE SLOT GROUPS ARE NESTED, NOT DISJOINT.  The four TINY slots ARE ALU0,
+// ALU1, LSU0 and LSU1, so a LITE op occupies a TINY slot as well, a FULL op
+// occupies both, and so does every LSU op.  The class name states the deepest
+// group the instruction reaches, so the groups in a name are unioned, never
+// summed.  BCU2_TINY_LSU is what pins this: it names TINY and LSU and occupies
+// ONE tiny slot.
 //
-// ISSUE SLOTS ARE NOT MODELLED HERE.  BE/GCC spends one `issue' unit per
-// syllable (eight per bundle, the 32-byte LVX_SCHED2_BUNDLE_SIZE), and a _X or
-// _Y class costs two or three because the immediate extension is one or two
-// extra syllables.  In LLVM that count is already in the instruction: it is
-// getInstSizeInBytes()/4, since the _X and _Y formats are LVXInst64 and
-// LVXInst96.  The generator checks that identity on every format class rather
-// than restating it, and LVXBundler caps a bundle at 32 bytes.  Leaving the
-// eight issue units out also keeps the unit count at 26, inside the 32 a
-// FuncUnit bitmask holds.
+// That containment is also how ALL says "alone in this bundle" without a word
+// budget to spend: saturating the four TINY slots blocks everything that
+// reaches a slot, and COMP, BCU, EXT and MISC are what is reachable without
+// one, so those five groups complete it.  Claiming one unit of EVERY group
+// instead would NOT be solo -- tiny alone has four.
+//
+// THE WORD BUDGET IS NOT MODELLED HERE.  BE/GCC spends one IMMX unit per
+// IMMEDIATE EXTENSION syllable -- eight per bundle, so a plain class costs
+// none, a `.X' one and a `.Y' two.  In LLVM the whole syllable count is already
+// in the instruction: it is getInstSizeInBytes()/4, since the _X and _Y formats
+// are LVXInst64 and LVXInst96.  The generator checks that identity on every
+// format class rather than restating it, and LVXBundler caps a bundle at 32
+// bytes, which is the same eight syllables.
+//
+// BE/GCC reached IMMX from an earlier ISSUE/IWORD that counted every syllable,
+// and it had to: genautomata affords a flat eight-unit count but not the
+// eighteen that ten execution units with two extensions each would need -- that
+// one was killed at 100% CPU after 1813 seconds, the cliff sitting just above
+// fourteen.  None of that reaches here, because this side counts resources
+// instead of building an automaton.  Leaving the budget out also keeps the unit
+// count at 27, inside the 32 a FuncUnit bitmask holds.
 //
 // The itinerary carries no LATENCY yet -- every stage is one cycle -- because
 // nothing reads it: the only consumer is LVXBundler's resource counting, which
@@ -57,6 +70,7 @@ def LVX_Tiny0 : FuncUnit; def LVX_Tiny1 : FuncUnit; def LVX_Tiny2 : FuncUnit; de
 def LVX_Lite0 : FuncUnit; def LVX_Lite1 : FuncUnit;
 def LVX_Full : FuncUnit;
 def LVX_Lsu0 : FuncUnit; def LVX_Lsu1 : FuncUnit;
+def LVX_Comp : FuncUnit;
 def LVX_Bcu0 : FuncUnit; def LVX_Bcu1 : FuncUnit;
 def LVX_Ext0 : FuncUnit; def LVX_Ext1 : FuncUnit; def LVX_Ext2 : FuncUnit; def LVX_Ext3 : FuncUnit;
 def LVX_Brrp0 : FuncUnit; def LVX_Brrp1 : FuncUnit;
@@ -78,6 +92,7 @@ def LVXTinyStage : InstrStage<1, [LVX_Tiny0, LVX_Tiny1, LVX_Tiny2, LVX_Tiny3], 0
 def LVXLiteStage : InstrStage<1, [LVX_Lite0, LVX_Lite1], 0>;
 def LVXFullStage : InstrStage<1, [LVX_Full], 0>;
 def LVXLsuStage : InstrStage<1, [LVX_Lsu0, LVX_Lsu1], 0>;
+def LVXCompStage : InstrStage<1, [LVX_Comp], 0>;
 def LVXBcuStage : InstrStage<1, [LVX_Bcu0, LVX_Bcu1], 0>;
 def LVXExtStage : InstrStage<1, [LVX_Ext0, LVX_Ext1, LVX_Ext2, LVX_Ext3], 0>;
 def LVXBrrpStage : InstrStage<1, [LVX_Brrp0, LVX_Brrp1], 0>;
@@ -95,12 +110,12 @@ def LVXAccRStage : InstrStage<1, [LVX_AccR], 0>;
 
 def LVXItineraries : ProcessorItineraries<[
   LVX_Tiny0, LVX_Tiny1, LVX_Tiny2, LVX_Tiny3, LVX_Lite0, LVX_Lite1,
-  LVX_Full, LVX_Lsu0, LVX_Lsu1, LVX_Bcu0, LVX_Bcu1, LVX_Ext0,
-  LVX_Ext1, LVX_Ext2, LVX_Ext3, LVX_Brrp0, LVX_Brrp1, LVX_AuxR0,
-  LVX_AuxR1, LVX_AuxW0, LVX_AuxW1, LVX_Xfer, LVX_MemW, LVX_Misc0,
-  LVX_Misc1, LVX_AccR
+  LVX_Full, LVX_Lsu0, LVX_Lsu1, LVX_Comp, LVX_Bcu0, LVX_Bcu1,
+  LVX_Ext0, LVX_Ext1, LVX_Ext2, LVX_Ext3, LVX_Brrp0, LVX_Brrp1,
+  LVX_AuxR0, LVX_AuxR1, LVX_AuxW0, LVX_AuxW1, LVX_Xfer, LVX_MemW,
+  LVX_Misc0, LVX_Misc1, LVX_AccR
 ], [], [
-  InstrItinData<ALL,                   [LVXTinyStage, LVXLiteStage, LVXFullStage, LVXLsuStage, LVXBcuStage, LVXExtStage, LVXBrrpStage, LVXAuxRStage, LVXAuxWStage, LVXXferStage, LVXMemWStage, LVXMiscStage, LVXAccRStage]>,
+  InstrItinData<ALL,                   [LVXTinyStage, LVXTinyStage, LVXTinyStage, LVXTinyStage, LVXCompStage, LVXBcuStage, LVXBcuStage, LVXExtStage, LVXExtStage, LVXExtStage, LVXExtStage, LVXMiscStage, LVXMiscStage]>,
   InstrItinData<BCU,                   [LVXBcuStage]>,   // not in BE/GCC: derived from the name alone
   InstrItinData<BCU_XFER,              [LVXBcuStage, LVXXferStage]>,
   InstrItinData<BCU_XFER_BRRP,         [LVXBcuStage, LVXBrrpStage, LVXXferStage]>,

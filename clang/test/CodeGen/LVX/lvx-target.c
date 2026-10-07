@@ -43,7 +43,7 @@ double fmax_num(double a, double b) { return __builtin_lvx_fmaxnd(a, b); }
 // copysignn takes the sign NEGATED -- lvx-gcc's lvx_fsignn<suffix> is
 // (copysign a (neg b)) -- so the fneg is part of the instruction, not
 // something the caller wrote.
-double copysign_neg(double a, double b) { return __builtin_lvx_copysignnd(a, b); }
+double copysign_neg(double a, double b) { return __builtin_lvx_fsignnd(a, b); }
 // CHECK-LABEL: @copysign_neg
 // CHECK: fneg double
 // CHECK: call double @llvm.copysign.f64

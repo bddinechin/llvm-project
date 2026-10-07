@@ -20,14 +20,14 @@ typedef unsigned char  v32u8 __attribute__((vector_size(32)));
 
 // CHECK-LABEL: @sign_wq(
 // CHECK: call <4 x float> @llvm.copysign.v4f32(
-v4sf sign_wq(v4sf a, v4sf b) { return __builtin_lvx_copysignwq(a, b); }
+v4sf sign_wq(v4sf a, v4sf b) { return __builtin_lvx_fsigncwq(a, b); }
 
 // copysignn takes the sign NEGATED, which is part of what the instruction
 // means rather than something the caller wrote.
 // CHECK-LABEL: @sign_ndq(
 // CHECK: fneg <4 x double>
 // CHECK: call <4 x double> @llvm.copysign.v4f64(
-v4df sign_ndq(v4df a, v4df b) { return __builtin_lvx_copysignndq(a, b); }
+v4df sign_ndq(v4df a, v4df b) { return __builtin_lvx_fsignndq(a, b); }
 
 // xorsign FLIPS the sign rather than replacing it, and is done on the bits:
 // copysign(a, a*b) would agree on every finite value but not on a NaN, whose
@@ -36,7 +36,7 @@ v4df sign_ndq(v4df a, v4df b) { return __builtin_lvx_copysignndq(a, b); }
 // CHECK: and <2 x i64> {{.*}}, splat (i64 -9223372036854775808)
 // CHECK: xor <2 x i64>
 // CHECK-NOT: fmul
-v2df xsign_dp(v2df a, v2df b) { return __builtin_lvx_xorsigndp(a, b); }
+v2df xsign_dp(v2df a, v2df b) { return __builtin_lvx_fsignmdp(a, b); }
 
 // A widening multiply extends both operands to the destination lane width and
 // multiplies there. "" is signed...

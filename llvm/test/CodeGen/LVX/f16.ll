@@ -79,7 +79,7 @@ define half @neg(half %a) {
 define half @copysign(half %m, half %s) {
 ; CHECK-LABEL: copysign:
 ; CHECK-NOT:  fwiden
-; CHECK:      fsignh $r0 = $r0, $r1
+; CHECK:      fsignch $r0 = $r0, $r1
 ; CHECK:      ret
   %r = call half @llvm.copysign.f16(half %m, half %s)
   ret half %r
@@ -193,7 +193,7 @@ declare half @llvm.copysign.f16(half, half)
 define half @copysign_from_f32(half %m, float %s) {
 ; CHECK-LABEL: copysign_from_f32:
 ; CHECK-NOT: fnarrowwh
-; CHECK-NOT: fsignh
+; CHECK-NOT: fsignch
 ; CHECK:     andd
 ; CHECK:     iord
   %c = fptrunc float %s to half

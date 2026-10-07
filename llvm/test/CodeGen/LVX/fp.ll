@@ -138,14 +138,14 @@ define double @fconst() {
 ; If this ever regresses, check that mask, and test with a magnitude whose
 ; bit 62 is SET.
 ; CHECK-LABEL: copysign64:
-; CHECK: fsignd $r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
+; CHECK: fsigncd $r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
 define double @copysign64(double %mag, double %sgn) {
   %r = call double @llvm.copysign.f64(double %mag, double %sgn)
   ret double %r
 }
 
 ; CHECK-LABEL: copysign32:
-; CHECK: fsignw $r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
+; CHECK: fsigncw $r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
 define float @copysign32(float %mag, float %sgn) {
   %r = call float @llvm.copysign.f32(float %mag, float %sgn)
   ret float %r

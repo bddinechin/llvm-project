@@ -540,9 +540,15 @@ def : Pat<(fabs f16:$a),         (FABSH_FHMO1 f16:$a)>;
 // a pattern of its own: without it that shape costs a separate negate.
 
 
-// Sign transfer. FSIGND is "(argument2 & 0x7FFF…) | (argument3 & 0x8000…)"
+// Sign transfer. FSIGNCD is "(argument2 & 0x7FFF…) | (argument3 & 0x8000…)"
 // -- magnitude from $rZ, sign from $rY -- which is exactly ISD::FCOPYSIGN's
 // (magnitude, sign) operand order, so this maps directly.
+//
+// The C is for sign COPY: the ISA renamed FSIGN* to FSIGNC* on 2026-10-02 to
+// make room for two siblings this back end does not use yet. FSIGNN* is
+// copysign(a, -b), which DAGCombiner hands over as (fcopysign a (fneg b)) and
+// as (fneg (fcopysign a b)); FSIGNM* multiplies the signs, lvx-gcc's xorsign.
+// lvx-gcc has patterns for both -- see builtin.md's copysign/xorsign block.
 //
 // Historical note: these masks used to read 0x3FFF…, clearing exponent bit 62
 // along with the sign, so copysign of any magnitude >= 2.0 returned +/-0.
@@ -550,9 +556,9 @@ def : Pat<(fabs f16:$a),         (FABSH_FHMO1 f16:$a)>;
 // 2026-08-04). If a copysign test ever regresses, check that mask first --
 // and test with a magnitude that has bit 62 SET, because 1.0 and 0.5 give the
 // right answer even with the broken mask.
-def : Pat<(fcopysign f64:$mag, f64:$sgn), (FSIGND_FDMMWR f64:$mag, f64:$sgn)>;
-def : Pat<(fcopysign f32:$mag, f32:$sgn), (FSIGNW_FWMMWR f32:$mag, f32:$sgn)>;
-def : Pat<(fcopysign f16:$mag, f16:$sgn), (FSIGNH_FHMMWR f16:$mag, f16:$sgn)>;
+def : Pat<(fcopysign f64:$mag, f64:$sgn), (FSIGNCD_FDMMWR f64:$mag, f64:$sgn)>;
+def : Pat<(fcopysign f32:$mag, f32:$sgn), (FSIGNCW_FWMMWR f32:$mag, f32:$sgn)>;
+def : Pat<(fcopysign f16:$mag, f16:$sgn), (FSIGNCH_FHMMWR f16:$mag, f16:$sgn)>;
 
 // A mismatched fcopysign -- the two operands need NOT share a type, and
 // DAGCombiner actively MAKES them differ by folding "fcopysign x, (fpextend

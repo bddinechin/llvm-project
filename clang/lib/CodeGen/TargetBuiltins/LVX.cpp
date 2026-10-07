@@ -60,19 +60,19 @@ Value *CodeGenFunction::EmitLVXBuiltinExpr(unsigned BuiltinID,
   case LVX::BI__builtin_lvx_fmaxnd:
     return Binary(Intrinsic::maxnum);
 
-  case LVX::BI__builtin_lvx_copysignh:
-  case LVX::BI__builtin_lvx_copysignw:
-  case LVX::BI__builtin_lvx_copysignd:
+  case LVX::BI__builtin_lvx_fsignch:
+  case LVX::BI__builtin_lvx_fsigncw:
+  case LVX::BI__builtin_lvx_fsigncd:
     return Binary(Intrinsic::copysign);
 
   // copysignn takes the sign NEGATED: lvx-gcc's lvx_fsignn<suffix> is
   // (copysign a (neg b)), so the negation is part of what the instruction
   // means rather than something the caller wrote.
-  case LVX::BI__builtin_lvx_copysignnh:
-  case LVX::BI__builtin_lvx_copysignnw:
-  case LVX::BI__builtin_lvx_copysignnd:
-  case LVX::BI__builtin_lvx_copysignnwq:
-  case LVX::BI__builtin_lvx_copysignndq: {
+  case LVX::BI__builtin_lvx_fsignnh:
+  case LVX::BI__builtin_lvx_fsignnw:
+  case LVX::BI__builtin_lvx_fsignnd:
+  case LVX::BI__builtin_lvx_fsignnwq:
+  case LVX::BI__builtin_lvx_fsignndq: {
     auto [A, B] = Args();
     return Builder.CreateBinaryIntrinsic(Intrinsic::copysign, A,
                                          Builder.CreateFNeg(B));
@@ -81,21 +81,21 @@ Value *CodeGenFunction::EmitLVXBuiltinExpr(unsigned BuiltinID,
   // The vector sign family needs no separate code: llvm.copysign is
   // overloaded, so the same intrinsic applied to a vector type is the
   // lane-wise operation, and the back end selects FSIGN<lane> for it.
-  case LVX::BI__builtin_lvx_copysignwq:
-  case LVX::BI__builtin_lvx_copysignho:
-  case LVX::BI__builtin_lvx_copysigndp:
-  case LVX::BI__builtin_lvx_copysignwo:
-  case LVX::BI__builtin_lvx_copysigndq:
+  case LVX::BI__builtin_lvx_fsigncwq:
+  case LVX::BI__builtin_lvx_fsigncho:
+  case LVX::BI__builtin_lvx_fsigncdp:
+  case LVX::BI__builtin_lvx_fsigncwo:
+  case LVX::BI__builtin_lvx_fsigncdq:
     return Binary(Intrinsic::copysign);
 
   // xorsign: `a` with its sign bit XORed with b's. Done on the bits rather
   // than as copysign(a, a*b), which agrees on every finite value but not on a
   // NaN -- a multiply does not carry a NaN's sign -- and not as
   // copysign(a, b) either, which REPLACES the sign instead of flipping it.
-  case LVX::BI__builtin_lvx_xorsignwq:
-  case LVX::BI__builtin_lvx_xorsignho:
-  case LVX::BI__builtin_lvx_xorsigndp:
-  case LVX::BI__builtin_lvx_xorsignwo: {
+  case LVX::BI__builtin_lvx_fsignmwq:
+  case LVX::BI__builtin_lvx_fsignmho:
+  case LVX::BI__builtin_lvx_fsignmdp:
+  case LVX::BI__builtin_lvx_fsignmwo: {
     auto [A, B] = Args();
     auto *VecTy = cast<llvm::FixedVectorType>(A->getType());
     unsigned Bits = VecTy->getScalarSizeInBits();
