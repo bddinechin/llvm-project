@@ -158,11 +158,12 @@ func.func @select_i64x2(%a: memref<4xi64>, %b: memref<4xi64>, %c: memref<4xi64>)
 
 // -----
 
-// Making a mask. A lane count is the loop-tail idiom: lanes 0..n-1 active is
-// `(1 << n) - 1`. A constant count folds to `vector.constant_mask` upstream
-// and is one `maked`; a dynamic one is four ops, the clamp included -- a
-// count outside the vector is defined for `create_mask` (negative masks
-// nothing, large masks everything) where a shift by it is not.
+// Making a mask. A lane count is the loop-tail idiom: lanes 0..n-1 active. A
+// constant count folds to `vector.constant_mask` upstream and is one `maked`;
+// a dynamic one is `taild`, which sets lane i iff `base + i <u count` and
+// clears the bits above the lane count -- so "a large count masks everything"
+// is free, and only the negative case needs a clamp (`taild` compares
+// unsigned). Two ops per iteration, against the four `(1 << n) - 1` cost.
 
 // ROW: vector.constant_mask | i1x4
 // CHECK-LABEL: @constant_mask_i1x4
@@ -184,9 +185,10 @@ func.func @constant_mask_i1x4(%a: memref<8xf32>, %b: memref<8xf32>, %c: memref<8
 // ROW: vector.create_mask | i1x4
 // CHECK-LABEL: @create_mask_i1x4
 // CHECK: lvx.maxd_i
-// CHECK: lvx.mind_i
-// CHECK: lvx.slld
-// CHECK: lvx.addd_i
+// CHECK: lvx.taild v4
+// CHECK-NOT: lvx.mind_i
+// CHECK-NOT: lvx.slld
+// CHECK-NOT: lvx.addd_i
 func.func @create_mask_i1x4(%a: memref<8xf32>, %b: memref<8xf32>, %c: memref<8xf32>, %n: index) {
   %i = arith.constant 0 : index
   %x = vector.load %a[%i] : memref<8xf32>, vector<4xf32>

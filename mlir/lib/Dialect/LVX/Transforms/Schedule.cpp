@@ -60,6 +60,39 @@ using namespace mlir::lvx;
 
 namespace {
 
+/// A bundle's size limits, tracking lvx-binutils' include/opcode/lvx.h.
+///
+/// `LVX_MAXBUNDLEISSUE` is 10 because that is the issue slots a bundle has:
+/// 2x BCU + 2x ALU + 2x LSU + 2x EXT + 2x TINY, the TINY pair being what the
+/// planned LSU/TINY decoupling extracts from the LSU. `LVX_MAXBUNDLEWORDS` is
+/// 18 = those 10 instruction words plus at most 8 immediate extension
+/// syllables -- and that 8 is exactly IMMX's availability in Resource.yml.
+///
+/// So the two are not independent: words = issues + immx, and since the IMMX
+/// resource already caps immx at 8, bounding issues at 10 implies words <= 18.
+/// The word count is still carried and checked, because it is the limit gas
+/// actually tests ("bundle has too many syllables: %d instead of %d" in
+/// tc-lvx.c, on `word_cnt + lvx_immx_cnt`) and the one a reader will compare
+/// against; if the relation above ever stops holding, this is where it shows.
+///
+/// These replace the ISSUE resource, which used to cap a bundle at 8 syllables
+/// and is gone from Resource.yml; IMMX inherited its availability of 8 but
+/// counts only extension words, so it bounds a part of a bundle, not the whole.
+constexpr unsigned kMaxBundleIssue = 10; // LVX_MAXBUNDLEISSUE
+constexpr unsigned kMaxBundleWords = 18; // LVX_MAXBUNDLEWORDS
+
+/// The syllables an op occupies: its own instruction word, plus the immediate
+/// extension words its reservation takes (the `.X` and `.Y` formats). This is
+/// gas' `length + immx` for one instruction.
+static unsigned syllablesOf(const Reservation *reservation) {
+  unsigned immx = 0;
+  if (reservation)
+    for (unsigned i = 0; i != reservation->numUses; ++i)
+      if (reservation->uses[i].resource == Resource::immx)
+        immx += reservation->uses[i].count;
+  return 1 + immx;
+}
+
 /// The attribute the schedule is recorded in: `cycle`, the issue cycle
 /// relative to the block's start, declared on every op of the four dialects
 /// (LVX_CycleAttr in LVXBase.td), so it is the op's own typed state rather
@@ -474,6 +507,11 @@ private:
 
     while (placed != nodes.size()) {
       unsigned used[kNumResources] = {};
+      // Syllables and instructions issued in this bundle. The unit resources
+      // bound each function unit; these bound the bundle as a whole, which no
+      // resource does since ISSUE was retired.
+      unsigned words = 0;
+      unsigned issues = 0;
       // The distinct BCU prefixes already issued in this bundle. A prefixed
       // op whose prefix is among them costs no further syllable: the
       // assembler merges it into the one already there (gas
@@ -494,15 +532,23 @@ private:
           Node &n = nodes[ready[k]];
           if (n.earliest > bundle)
             continue;
-          // A prefix already in this bundle is free; a new one is a syllable
-          // in a BCU slot, on top of whatever the op itself reserves.
+          // A prefix already in this bundle is free; a new one takes a BCU slot,
+          // on top of whatever the op itself reserves.
+          //
+          // It also takes a syllable, counted in `words` rather than against a
+          // resource: the charge used to go against `Resource::issue`, and `immx`
+          // -- which inherited that resource's availability of 8 -- counts only
+          // immediate extension words, so a prefix does not belong there.
           bool newPrefix = n.prefix && !llvm::is_contained(prefixes, *n.prefix);
           unsigned extra[kNumResources] = {};
-          if (newPrefix) {
+          if (newPrefix)
             extra[static_cast<unsigned>(Resource::bcu)] = 1;
-            extra[static_cast<unsigned>(Resource::issue)] = 1;
-          }
-          bool fits = true;
+          // A prefix is a syllable and takes an issue slot of its own, so it
+          // counts toward both limits.
+          unsigned extraWords = syllablesOf(n.reservation) + (newPrefix ? 1 : 0);
+          unsigned extraIssues = 1 + (newPrefix ? 1 : 0);
+          bool fits = words + extraWords <= kMaxBundleWords &&
+                      issues + extraIssues <= kMaxBundleIssue;
           for (unsigned idx = 0; idx != kNumResources; ++idx)
             if (extra[idx] &&
                 used[idx] + extra[idx] > kResourceAvailability[idx])
@@ -520,6 +566,8 @@ private:
             continue;
           for (unsigned idx = 0; idx != kNumResources; ++idx)
             used[idx] += extra[idx];
+          words += extraWords;
+          issues += extraIssues;
           if (newPrefix)
             prefixes.push_back(*n.prefix);
           if (n.reservation) {

@@ -139,26 +139,36 @@ lvx_func.func @formats(%p: !lvx.reg<r0>) {
 // or it reserves a slot gas never uses. lvx-gcc does the same thing in
 // `lvx_sched_dfa_new_cycle`, comparing the guard conditions with rtx_equal_p.
 //
-// Reaching the point where it shows takes some arranging, because the binding
-// resource is normally TINY (4 per bundle, and every ALU *and* LSU op takes
-// one) rather than the 8 issue syllables. Two masked loads and two extended
-// immediate adds are 4 TINY and 7 syllables: 8 with one prefix between the
-// loads, 9 with one each, so the same-mask case is exactly one bundle and the
-// two-mask case cannot be. The adds carry immediates too wide for the bare
-// format, so `chooseFormat` gives them ALU_TINY.X (2 syllables) and
-// ALU_TINY.Y (3).
+// What a bundle holds: 10 instructions (`LVX_MAXBUNDLEISSUE`) and 18 syllables
+// (`LVX_MAXBUNDLEWORDS`). The 10 is the issue slots -- 2xBCU + 2xALU + 2xLSU +
+// 2xEXT + 2xTINY -- and the 18 is those 10 instruction words plus at most 8
+// IMMX syllables, which is IMMX's availability in Resource.yml. So
+// words = issues + immx, and the 10 and the 8 imply the 18.
+//
+// Neither cap binds today, and no test here exercises them directly. TINY2 and
+// TINY3 are not yet extracted from LSU0 and LSU1, so every LSU reservation
+// also takes a `tiny`, and `tiny` (4) covers the ALU and LSU instructions
+// together: 4 tiny + 2 bcu + 4 ext is itself 10, so the per-unit resources
+// already imply both bundle caps. They become load-bearing after that
+// extraction, which is why the bundler counts them even so.
+//
+// This also means prefix sharing is no longer observable through a bundle
+// boundary. It used to be: an `ISSUE` resource capped a bundle at 8 syllables,
+// and the two functions below came to 8 with a shared prefix and 9 with one
+// each, so the second had to split. ISSUE is gone -- renamed IWORD then IMMX,
+// narrowing to extension words only -- and 9 syllables is now simply legal.
+// Both functions are one bundle, and what they pin is that the prefix
+// accounting does not *over*-count: two distinct prefixes must not invent a
+// bundle boundary that neither gas nor the resources ask for.
 //
 // Loads rather than stores because two stores are ordered against each other
 // anyway -- the bundler has no alias analysis, so it never puts two writes in
 // one bundle and the prefix count could not be what decided it.
 //
-// Each function returns a value computed in the bundle so that its `ret`
-// lands in the next one. That is not presentation: no control instruction has
-// an entry in the generated reservations (`reservationOf` knows none of ret,
-// goto, cb, call), so a terminator reserves nothing and the bundler would put
-// this `ret` in the full bundle, which gas then rejects outright -- "resource
-// ISSUE over-used in bundle: 9 used, 8 available". Keeping it out of the
-// bundle is what lets this test measure the prefix and nothing else.
+// Each function returns a value computed in the bundle so that its `ret` lands
+// in the next one: no control instruction has an entry in the generated
+// reservations (`reservationOf` knows none of ret, goto, cb, call), so a
+// terminator reserves nothing and would otherwise join the bundle it ends.
 
 // CHECK-LABEL: lvx_func.func @one_prefix
 // CHECK: lvx.masked_load {{.*}}cycle = 0
@@ -175,16 +185,41 @@ lvx_func.func @one_prefix(%s: !lvx.reg<r1>, %m: !lvx.reg<r2>,
 
 // -----
 
-// The same block with two different mask registers: one syllable more than a
-// bundle holds, so something must move to the next one.
+// Two different mask registers, so two prefix syllables rather than one: 4
+// instructions + 2 prefixes = 6 issues, and 9 syllables (the two adds carry
+// immediates too wide for the bare format, so `chooseFormat` gives them
+// ALU_TINY.X at 2 syllables and ALU_TINY.Y at 3). Both are inside 10 and 18,
+// and tiny is 4/4 with lsu 2/2 and bcu 2/2 -- everything exactly fits, so this
+// is one bundle. Under the old 8-syllable ISSUE cap the 9th syllable split it.
 // CHECK-LABEL: lvx_func.func @two_prefixes
 // CHECK: lvx.masked_load {{.*}}cycle = 0
-// CHECK: lvx.masked_load {{.*}}cycle = 1
+// CHECK: lvx.masked_load {{.*}}cycle = 0
+// CHECK: lvx_func.return {cycle = 1
 lvx_func.func @two_prefixes(%s: !lvx.reg<r1>, %m: !lvx.reg<r2>, %n: !lvx.reg<r3>,
                             %p: !lvx.reg<r4>, %q: !lvx.reg<r5>) -> !lvx.reg<r0> {
   %a = lvx.addd_i %s, 305419896 : i64 : (!lvx.reg<r1>) -> !lvx.reg<r0>
   %b = lvx.addd_i %s, 81985529216486895 : i64 : (!lvx.reg<r1>) -> !lvx.reg<r7>
   %x = lvx.masked_load %m, %p, 0 : i64 : (!lvx.reg<r2>, !lvx.reg<r4>) -> !lvx.pair<r14r15>
   %y = lvx.masked_load %n, %q, 0 : i64 : (!lvx.reg<r3>, !lvx.reg<r5>) -> !lvx.pair<r16r17>
+  lvx_func.return %a : !lvx.reg<r0>
+}
+
+// -----
+
+// The limit that does bind a masked access: LSU, 2 per bundle. A third masked
+// load moves to the next bundle, and it is `lsu` that moves it, not the prefix
+// count -- the same split happens when all three share one mask register and
+// there is only one prefix syllable between them. Worth pinning separately so
+// a future change to the prefix accounting cannot be mistaken for this.
+// CHECK-LABEL: lvx_func.func @lsu_bound
+// CHECK: lvx.masked_load {{.*}}cycle = 0
+// CHECK: lvx.masked_load {{.*}}cycle = 0
+// CHECK: lvx.masked_load {{.*}}cycle = 1
+lvx_func.func @lsu_bound(%s: !lvx.reg<r1>, %m: !lvx.reg<r2>, %p: !lvx.reg<r4>,
+                         %q: !lvx.reg<r5>, %t: !lvx.reg<r8>) -> !lvx.reg<r0> {
+  %a = lvx.addd_i %s, 305419896 : i64 : (!lvx.reg<r1>) -> !lvx.reg<r0>
+  %x = lvx.masked_load %m, %p, 0 : i64 : (!lvx.reg<r2>, !lvx.reg<r4>) -> !lvx.pair<r14r15>
+  %y = lvx.masked_load %m, %q, 0 : i64 : (!lvx.reg<r2>, !lvx.reg<r5>) -> !lvx.pair<r16r17>
+  %z = lvx.masked_load %m, %t, 0 : i64 : (!lvx.reg<r2>, !lvx.reg<r8>) -> !lvx.pair<r18r19>
   lvx_func.return %a : !lvx.reg<r0>
 }

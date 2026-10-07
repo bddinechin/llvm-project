@@ -1877,11 +1877,14 @@ using VMinNumFToLVX = VectorBinaryToLVX<arith::MinNumFOp,
 using VMaxNumFToLVX = VectorBinaryToLVX<arith::MaxNumFOp,
     NoLaneOp, lvx::FmaxnhoOp, lvx::FmaxnwqOp, lvx::FmaxndpOp,
     NoLaneOp, lvx::FmaxnhxOp, lvx::FmaxnwoOp, lvx::FmaxndqOp>;
-// `copysign` is `fsign*` at pair width and `copysign*` -- the composite of
-// `fsign*` -- at quad width, one of the few places the two names differ.
+// `copysign` is `fsignc*` -- sign *transfer* -- at both widths, the quad
+// form being two pair-width ones in a bundle. The family letter is
+// load-bearing: `fsignm*` combines the two signs and `fsignn*` negates, so
+// either would compute the wrong thing silently. (Spelled `fsign*` and
+// `copysign*` before the 2026-10 ISA rename.)
 using VCopySignToLVX = VectorBinaryToLVX<math::CopySignOp,
-    NoLaneOp, lvx::FsignhoOp,   lvx::FsignwqOp,   lvx::FsigndpOp,
-    NoLaneOp, lvx::CopysignhxOp, lvx::CopysignwoOp, lvx::CopysigndqOp>;
+    NoLaneOp, lvx::FsignchoOp,   lvx::FsigncwqOp,   lvx::FsigncdpOp,
+    NoLaneOp, lvx::FsignchxOp, lvx::FsigncwoOp, lvx::FsigncdqOp>;
 using VNegFToLVX = VectorUnaryToLVX<arith::NegFOp,
     NoLaneOp, lvx::FneghoOp, lvx::FnegwqOp, lvx::FnegdpOp,
     NoLaneOp, lvx::FneghxOp, lvx::FnegwoOp, lvx::FnegdqOp>;
@@ -2254,21 +2257,53 @@ struct VectorConstantMaskToLVX
   }
 };
 
-/// `vector.create_mask %n`: `(1 << n) - 1`, with `%n` clamped to `[0, lanes]`
-/// first. The clamp is not optional -- `vector.create_mask` is defined for a
-/// count outside the vector (a negative one masks nothing, a large one masks
-/// everything) whereas a shift by 64 or more is not defined at all, and a
-/// negative count would shift by its low six bits and set the wrong lanes.
-/// Five ops -- `maxd_i`, `mind_i`, `li`, `slld`, `addd_i` -- of which the `li`
-/// is loop-invariant, so four per iteration. A constant count folds to
-/// `vector.constant_mask` upstream and is one `li`.
+/// The `lanecount` modifier for a mask of `lanes` lanes. The modifier is log2
+/// of the count, and the type converter only gives `vector<Nxi1>` a register
+/// for a power of two in [2, 32], so every mask that converts at all is
+/// expressible here. A shape that is not stays unconverted and fails the
+/// conversion loudly, which is what the converter intends.
+static std::optional<lvx::Lanecount> taildLanecountFor(unsigned lanes) {
+  switch (lanes) {
+  case 2:
+    return lvx::Lanecount::v2;
+  case 4:
+    return lvx::Lanecount::v4;
+  case 8:
+    return lvx::Lanecount::v8;
+  case 16:
+    return lvx::Lanecount::v16;
+  case 32:
+    return lvx::Lanecount::v32;
+  default:
+    return std::nullopt;
+  }
+}
+
+/// `vector.create_mask %n`: one `taild`.
 ///
-/// The `li` is for the *value* being shifted, not the amount. LVX has
-/// immediate shifts at every width, scalar and vector (`slld_i`, `sllwq_i`,
-/// ...), but their immediate is the shift *amount* and the value is always a
-/// register. Here it is the other way round -- the amount is the dynamic
-/// count, the value is the constant 1 -- and no instruction takes a constant
-/// as the shifted value, so the 1 has to be materialised.
+/// `taild.v<n> $rW = $rZ, $rY` sets lane *i* iff `$rZ + i <u $rY` and clears
+/// the bits above the lane count, so lanes 0..n-1 active is `taild` of a zero
+/// base against the count -- two ops per iteration (`maxd_i` and `taild`) plus
+/// a loop-invariant `li 0`.
+///
+/// This replaced `(1 << n) - 1`, which was `maxd_i`, `mind_i`, `li 1`, `slld`,
+/// `addd_i` -- four per iteration. Two of the three it drops are the point:
+///
+///  - the upper clamp (`mind_i`) goes away, because clearing the bits above the
+///    lane count is exactly `create_mask`'s "a large count masks everything";
+///  - the materialised `1` goes away. LVX has immediate shifts at every width,
+///    scalar and vector (`slld_i`, `sllwq_i`, ...), but their immediate is the
+///    shift *amount* and the value is always a register. Here it was the other
+///    way round -- the amount dynamic, the value the constant 1 -- and no
+///    instruction takes a constant as the shifted value, so the 1 had to be
+///    materialised.
+///
+/// What does *not* go away is the lower clamp: `taild` compares **unsigned**,
+/// so a negative count would read as huge and set every lane where
+/// `create_mask` wants none.
+///
+/// A constant count folds to `vector.constant_mask` upstream and is one `li`,
+/// so this is the dynamic loop-tail path only.
 struct VectorCreateMaskToLVX : public OpConversionPattern<vector::CreateMaskOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
@@ -2277,9 +2312,10 @@ struct VectorCreateMaskToLVX : public OpConversionPattern<vector::CreateMaskOp> 
     auto vecTy = cast<VectorType>(op.getType());
     if (vecTy.getRank() != 1 || adaptor.getOperands().size() != 1)
       return rewriter.notifyMatchFailure(op, "only a 1-D mask has a register");
-    unsigned lanes = vecTy.getNumElements();
-    if (lanes > 63)
-      return rewriter.notifyMatchFailure(op, "more lanes than a shift reaches");
+    std::optional<lvx::Lanecount> lanecount =
+        taildLanecountFor(vecTy.getNumElements());
+    if (!lanecount)
+      return rewriter.notifyMatchFailure(op, "no lanecount for this mask");
     Type regTy = getTypeConverter()->convertType(vecTy);
     if (!regTy)
       return rewriter.notifyMatchFailure(op, "no register for this mask");
@@ -2287,13 +2323,9 @@ struct VectorCreateMaskToLVX : public OpConversionPattern<vector::CreateMaskOp> 
     Value count = adaptor.getOperands()[0];
     Value low = rewriter.create<lvx::MaxdImmOp>(loc, regTy, count,
                                                 rewriter.getI64IntegerAttr(0));
-    Value clamped = rewriter.create<lvx::MindImmOp>(
-        loc, regTy, low, rewriter.getI64IntegerAttr(lanes));
-    Value one = rewriter.create<lvx::LiOp>(loc, regTy,
-                                           rewriter.getI64IntegerAttr(1));
-    Value shifted = rewriter.create<lvx::SlldOp>(loc, regTy, one, clamped);
-    rewriter.replaceOpWithNewOp<lvx::AdddImmOp>(
-        op, regTy, shifted, rewriter.getI64IntegerAttr(-1));
+    Value zero =
+        rewriter.create<lvx::LiOp>(loc, regTy, rewriter.getI64IntegerAttr(0));
+    rewriter.replaceOpWithNewOp<lvx::TaildOp>(op, regTy, *lanecount, zero, low);
     return success();
   }
 };

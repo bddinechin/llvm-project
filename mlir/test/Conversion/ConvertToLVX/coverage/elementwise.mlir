@@ -1479,7 +1479,7 @@ func.func @arith_maxnumf_f64x4(%a: memref<64xf64>, %b: memref<64xf64>, %c: memre
 
 // ROW: math.copysign | f32x4
 // CHECK-LABEL: @math_copysign_f32x4
-// CHECK: lvx.fsignwq
+// CHECK: lvx.fsigncwq
 func.func @math_copysign_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
   %i = arith.constant 0 : index
   %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
@@ -1494,7 +1494,7 @@ func.func @math_copysign_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memre
 
 // ROW: math.copysign | f64x2
 // CHECK-LABEL: @math_copysign_f64x2
-// CHECK: lvx.fsigndp
+// CHECK: lvx.fsigncdp
 func.func @math_copysign_f64x2(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
   %i = arith.constant 0 : index
   %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
@@ -1509,7 +1509,7 @@ func.func @math_copysign_f64x2(%a: memref<64xf64>, %b: memref<64xf64>, %c: memre
 
 // ROW: math.copysign | f32x8
 // CHECK-LABEL: @math_copysign_f32x8
-// CHECK: lvx.copysignwo
+// CHECK: lvx.fsigncwo
 func.func @math_copysign_f32x8(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
   %i = arith.constant 0 : index
   %x = vector.load %a[%i] : memref<64xf32>, vector<8xf32>
@@ -1524,7 +1524,7 @@ func.func @math_copysign_f32x8(%a: memref<64xf32>, %b: memref<64xf32>, %c: memre
 
 // ROW: math.copysign | f64x4
 // CHECK-LABEL: @math_copysign_f64x4
-// CHECK: lvx.copysigndq
+// CHECK: lvx.fsigncdq
 func.func @math_copysign_f64x4(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
   %i = arith.constant 0 : index
   %x = vector.load %a[%i] : memref<64xf64>, vector<4xf64>
