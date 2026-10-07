@@ -1075,6 +1075,53 @@ struct VectorSplatConstantToLVX : public OpConversionPattern<arith::ConstantOp> 
   }
 };
 
+// A constant **mask** vector: lane `i` is bit `i` of one register, which is
+// exactly the convention `vector.constant_mask` lowers to, so this is one
+// `li` of the bit pattern.
+//
+// Read through `getValues<bool>()`, never `getRawData()`: an `i1` dense attr
+// is *bit-packed*, so the byte-wise read the other constant pattern uses
+// would be reading the packing rather than the lanes. That is why that
+// pattern excludes `i1` and this one exists.
+//
+// It covers the splat too. `dense<true>` looked as though it already lowered
+// and did not -- measured through the full pipeline, the surrounding
+// `arith.select` was folded away by canonicalization before the conversion
+// ever saw the mask, so the constant never had to be legalized. With the
+// select kept alive, splat and non-splat failed alike.
+struct VectorMaskConstantToLVX : public OpConversionPattern<arith::ConstantOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(arith::ConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = dyn_cast<VectorType>(op.getType());
+    if (!vecTy || !vecTy.getElementType().isInteger(1))
+      return rewriter.notifyMatchFailure(op, "not an i1 vector constant");
+    if (vecTy.getRank() != 1)
+      return rewriter.notifyMatchFailure(op, "only a 1-D mask has a register");
+    unsigned lanes = vecTy.getNumElements();
+    if (lanes > 64)
+      return rewriter.notifyMatchFailure(op, "more lanes than a register bits");
+    auto dense = dyn_cast<DenseIntElementsAttr>(op.getValue());
+    if (!dense)
+      return rewriter.notifyMatchFailure(op, "not a dense constant");
+    Type regTy = getTypeConverter()->convertType(vecTy);
+    if (!regTy)
+      return rewriter.notifyMatchFailure(op, "no register for this mask");
+
+    uint64_t bits = 0;
+    unsigned i = 0;
+    for (bool lane : dense.getValues<bool>()) {
+      if (lane)
+        bits |= uint64_t{1} << i;
+      ++i;
+    }
+    rewriter.replaceOpWithNewOp<lvx::LiOp>(
+        op, regTy, rewriter.getI64IntegerAttr(static_cast<int64_t>(bits)));
+    return success();
+  }
+};
+
 // A vector constant that is *not* a splat. There is nothing to compute: a
 // constant is its bytes, so each 64-bit register word is one `li` and the
 // units are joined by an `lvx.concat`, which emits nothing. Two instructions
@@ -1090,9 +1137,9 @@ struct VectorSplatConstantToLVX : public OpConversionPattern<arith::ConstantOp> 
 // wants, so f32 and i8 need no separate case. Two exclusions:
 //   - a splat, which `VectorSplatConstantToLVX` does in two instructions for
 //     any width and one `li` for the value, so it stays cheaper;
-//   - `i1`, where the raw data is bit-packed rather than one byte per lane --
-//     masks have their own path (`vector.constant_mask`) and a byte-wise read
-//     of them would be silently wrong.
+//   - `i1`, where the raw data is bit-packed rather than one byte per lane, so
+//     a byte-wise read would be reading the packing and not the lanes.
+//     `VectorMaskConstantToLVX` above takes those, lane by lane.
 struct VectorDenseConstantToLVX : public OpConversionPattern<arith::ConstantOp> {
   using OpConversionPattern::OpConversionPattern;
   LogicalResult
@@ -1108,7 +1155,8 @@ struct VectorDenseConstantToLVX : public OpConversionPattern<arith::ConstantOp> 
       return rewriter.notifyMatchFailure(op, "the splat pattern is cheaper");
     if (vecTy.getElementType().isInteger(1))
       return rewriter.notifyMatchFailure(
-          op, "an i1 constant is bit-packed; masks have their own path");
+          op, "an i1 constant is bit-packed; VectorMaskConstantToLVX reads it "
+              "lane by lane instead");
     Type tupleTy = getTypeConverter()->convertType(vecTy);
     unsigned units = tupleTy ? tupleWidth(tupleTy) : 0;
     if (!units)
@@ -3599,6 +3647,7 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     VectorCmpIToLVX, VectorCmpFToLVX, VectorSelectToLVX,
     VectorSelectScalarCondToLVX,
     VectorSplatConstantToLVX, VectorDenseConstantToLVX,
+    VectorMaskConstantToLVX,
     VectorExtractStridedSliceToLVX, VectorInsertStridedSliceToLVX,
     VectorConstantMaskToLVX, VectorCreateMaskToLVX, VectorReductionToLVX,
     VSIToFPToLVX, VUIToFPToLVX, VFPToSIToLVX, VFPToUIToLVX,

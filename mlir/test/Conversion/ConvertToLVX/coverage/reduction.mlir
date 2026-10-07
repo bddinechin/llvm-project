@@ -299,3 +299,155 @@ func.func @contract_i32x4(%a: memref<4xi32>, %b: memref<4xi32>,
   memref.store %r, %c[%i] : memref<4xi32>
   return
 }
+
+// -----
+
+// The reduction kinds and widths the suite had not exercised, plus
+// `vector.outerproduct` and the float `multi_reduction`. All lower; the rows
+// exist so the table says so rather than leaving them open.
+
+// ROW: vector.reduction<maxsi> | i16x8
+// CHECK-LABEL: @reduction_maxsi_i16x8
+// CHECK: lvx.
+func.func @reduction_maxsi_i16x8(%a: memref<64xi16>, %c: memref<64xi16>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi16>, vector<8xi16>
+  // ROW-OP
+  %r = vector.reduction <maxsi>, %x : vector<8xi16> into i16
+  memref.store %r, %c[%i] : memref<64xi16>
+  return
+}
+// -----
+
+// ROW: vector.reduction<maxsi> | i32x4
+// CHECK-LABEL: @reduction_maxsi_i32x4
+// CHECK: lvx.
+func.func @reduction_maxsi_i32x4(%a: memref<64xi32>, %c: memref<64xi32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi32>, vector<4xi32>
+  // ROW-OP
+  %r = vector.reduction <maxsi>, %x : vector<4xi32> into i32
+  memref.store %r, %c[%i] : memref<64xi32>
+  return
+}
+// -----
+
+// ROW: vector.reduction<maxsi> | i64x2
+// CHECK-LABEL: @reduction_maxsi_i64x2
+// CHECK: lvx.
+func.func @reduction_maxsi_i64x2(%a: memref<64xi64>, %c: memref<64xi64>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi64>, vector<2xi64>
+  // ROW-OP
+  %r = vector.reduction <maxsi>, %x : vector<2xi64> into i64
+  memref.store %r, %c[%i] : memref<64xi64>
+  return
+}
+// -----
+
+// ROW: vector.reduction<minsi> | i8x16
+// CHECK-LABEL: @reduction_minsi_i8x16
+// CHECK: lvx.
+func.func @reduction_minsi_i8x16(%a: memref<64xi8>, %c: memref<64xi8>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi8>, vector<16xi8>
+  // ROW-OP
+  %r = vector.reduction <minsi>, %x : vector<16xi8> into i8
+  memref.store %r, %c[%i] : memref<64xi8>
+  return
+}
+// -----
+
+// ROW: vector.reduction<minsi> | i16x8
+// CHECK-LABEL: @reduction_minsi_i16x8
+// CHECK: lvx.
+func.func @reduction_minsi_i16x8(%a: memref<64xi16>, %c: memref<64xi16>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi16>, vector<8xi16>
+  // ROW-OP
+  %r = vector.reduction <minsi>, %x : vector<8xi16> into i16
+  memref.store %r, %c[%i] : memref<64xi16>
+  return
+}
+// -----
+
+// ROW: vector.reduction<minsi> | i64x2
+// CHECK-LABEL: @reduction_minsi_i64x2
+// CHECK: lvx.
+func.func @reduction_minsi_i64x2(%a: memref<64xi64>, %c: memref<64xi64>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi64>, vector<2xi64>
+  // ROW-OP
+  %r = vector.reduction <minsi>, %x : vector<2xi64> into i64
+  memref.store %r, %c[%i] : memref<64xi64>
+  return
+}
+// -----
+
+// ROW: vector.reduction<maximumf> | f32x4
+// CHECK-LABEL: @reduction_maximumf_f32x4
+// CHECK: lvx.
+func.func @reduction_maximumf_f32x4(%a: memref<64xf32>, %c: memref<64xf32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
+  // ROW-OP
+  %r = vector.reduction <maximumf>, %x fastmath<reassoc> : vector<4xf32> into f32
+  memref.store %r, %c[%i] : memref<64xf32>
+  return
+}
+// -----
+
+// ROW: vector.reduction<maximumf> | f64x2
+// CHECK-LABEL: @reduction_maximumf_f64x2
+// CHECK: lvx.
+func.func @reduction_maximumf_f64x2(%a: memref<64xf64>, %c: memref<64xf64>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
+  // ROW-OP
+  %r = vector.reduction <maximumf>, %x fastmath<reassoc> : vector<2xf64> into f64
+  memref.store %r, %c[%i] : memref<64xf64>
+  return
+}
+// -----
+
+// ROW: vector.reduction<minimumf> | f64x2
+// CHECK-LABEL: @reduction_minimumf_f64x2
+// CHECK: lvx.
+func.func @reduction_minimumf_f64x2(%a: memref<64xf64>, %c: memref<64xf64>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
+  // ROW-OP
+  %r = vector.reduction <minimumf>, %x fastmath<reassoc> : vector<2xf64> into f64
+  memref.store %r, %c[%i] : memref<64xf64>
+  return
+}
+// -----
+
+// ROW: vector.reduction<mul> | f32x4
+// CHECK-LABEL: @reduction_mul_f32x4
+// CHECK: lvx.
+func.func @reduction_mul_f32x4(%a: memref<64xf32>, %c: memref<64xf32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
+  // ROW-OP
+  %r = vector.reduction <mul>, %x fastmath<reassoc> : vector<4xf32> into f32
+  memref.store %r, %c[%i] : memref<64xf32>
+  return
+}
+// -----
+
+// `vector.outerproduct`, never measured before. At a pair it is one broadcast
+// and one `ffma` per row of the result.
+// ROW: vector.outerproduct | f32x4
+// CHECK-LABEL: @outerproduct_f32x4
+// CHECK: lvx.
+func.func @outerproduct_f32x4(%a: memref<64xf32>, %c: memref<64xf32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
+  %y = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
+  // ROW-OP
+  %o = vector.outerproduct %x, %y : vector<4xf32>, vector<4xf32>
+  %r = vector.extract %o[0] : vector<4xf32> from vector<4x4xf32>
+  vector.store %r, %c[%i] : memref<64xf32>, vector<4xf32>
+  return
+}

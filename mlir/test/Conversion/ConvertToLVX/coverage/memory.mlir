@@ -204,3 +204,80 @@ func.func @maskedstore_i8x16(%a: memref<32xi8>, %c: memref<32xi8>, %m: vector<16
   vector.maskedstore %c[%i], %m, %x : memref<32xi8>, vector<16xi1>, vector<16xi8>
   return
 }
+
+// -----
+
+// Load and store at quad width: `lo`/`so`, one instruction each -- the 256-bit
+// access is a single instruction, not a composite, which is why `MASKM` has no
+// `.mtd` and why a masked quad access cannot take two masks (§4, Phase 2).
+
+// ROW: vector.load | i8x32
+// CHECK-LABEL: @vector_load_i8x32
+// CHECK: lvx.lo
+func.func @vector_load_i8x32(%a: memref<64xi8>, %c: memref<64xi8>) {
+  %i = arith.constant 0 : index
+  // ROW-OP
+  %x = vector.load %a[%i] : memref<64xi8>, vector<32xi8>
+  vector.store %x, %c[%i] : memref<64xi8>, vector<32xi8>
+  return
+}
+// -----
+
+// ROW: vector.store | i8x32
+// CHECK-LABEL: @vector_store_i8x32
+// CHECK: lvx.so
+func.func @vector_store_i8x32(%a: memref<64xi8>, %c: memref<64xi8>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi8>, vector<32xi8>
+  // ROW-OP
+  vector.store %x, %c[%i] : memref<64xi8>, vector<32xi8>
+  return
+}
+// -----
+
+// ROW: vector.load | i32x8
+// CHECK-LABEL: @vector_load_i32x8
+// CHECK: lvx.lo
+func.func @vector_load_i32x8(%a: memref<64xi32>, %c: memref<64xi32>) {
+  %i = arith.constant 0 : index
+  // ROW-OP
+  %x = vector.load %a[%i] : memref<64xi32>, vector<8xi32>
+  vector.store %x, %c[%i] : memref<64xi32>, vector<8xi32>
+  return
+}
+// -----
+
+// ROW: vector.store | i32x8
+// CHECK-LABEL: @vector_store_i32x8
+// CHECK: lvx.so
+func.func @vector_store_i32x8(%a: memref<64xi32>, %c: memref<64xi32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi32>, vector<8xi32>
+  // ROW-OP
+  vector.store %x, %c[%i] : memref<64xi32>, vector<8xi32>
+  return
+}
+// -----
+
+// ROW: vector.load | f64x4
+// CHECK-LABEL: @vector_load_f64x4
+// CHECK: lvx.lo
+func.func @vector_load_f64x4(%a: memref<64xf64>, %c: memref<64xf64>) {
+  %i = arith.constant 0 : index
+  // ROW-OP
+  %x = vector.load %a[%i] : memref<64xf64>, vector<4xf64>
+  vector.store %x, %c[%i] : memref<64xf64>, vector<4xf64>
+  return
+}
+// -----
+
+// ROW: vector.store | f64x4
+// CHECK-LABEL: @vector_store_f64x4
+// CHECK: lvx.so
+func.func @vector_store_f64x4(%a: memref<64xf64>, %c: memref<64xf64>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<4xf64>
+  // ROW-OP
+  vector.store %x, %c[%i] : memref<64xf64>, vector<4xf64>
+  return
+}

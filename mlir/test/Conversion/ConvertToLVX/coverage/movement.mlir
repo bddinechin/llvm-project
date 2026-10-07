@@ -408,3 +408,131 @@ func.func @insert_strided_slice_i32x4(%a: memref<8xi32>, %c: memref<8xi32>) {
   vector.store %s, %c[%i] : memref<8xi32>, vector<8xi32>
   return
 }
+
+// -----
+
+// The quad width of the splatting load, the deinterleave and the slice.
+
+// ROW: vector.broadcast(load) | i8x32
+// CHECK-LABEL: @broadcast_load_i8x32
+// CHECK: lvx.lbso
+func.func @broadcast_load_i8x32(%a: memref<64xi8>, %c: memref<64xi8>) {
+  %i = arith.constant 0 : index
+  %s = memref.load %a[%i] : memref<64xi8>
+  // ROW-OP
+  %x = vector.broadcast %s : i8 to vector<32xi8>
+  vector.store %x, %c[%i] : memref<64xi8>, vector<32xi8>
+  return
+}
+// -----
+
+// ROW: vector.broadcast(load) | i16x16
+// CHECK-LABEL: @broadcast_load_i16x16
+// CHECK: lvx.lhso
+func.func @broadcast_load_i16x16(%a: memref<64xi16>, %c: memref<64xi16>) {
+  %i = arith.constant 0 : index
+  %s = memref.load %a[%i] : memref<64xi16>
+  // ROW-OP
+  %x = vector.broadcast %s : i16 to vector<16xi16>
+  vector.store %x, %c[%i] : memref<64xi16>, vector<16xi16>
+  return
+}
+// -----
+
+// ROW: vector.broadcast(load) | i32x8
+// CHECK-LABEL: @broadcast_load_i32x8
+// CHECK: lvx.lwso
+func.func @broadcast_load_i32x8(%a: memref<64xi32>, %c: memref<64xi32>) {
+  %i = arith.constant 0 : index
+  %s = memref.load %a[%i] : memref<64xi32>
+  // ROW-OP
+  %x = vector.broadcast %s : i32 to vector<8xi32>
+  vector.store %x, %c[%i] : memref<64xi32>, vector<8xi32>
+  return
+}
+// -----
+
+// ROW: vector.broadcast(load) | i64x4
+// CHECK-LABEL: @broadcast_load_i64x4
+// CHECK: lvx.ldso
+func.func @broadcast_load_i64x4(%a: memref<64xi64>, %c: memref<64xi64>) {
+  %i = arith.constant 0 : index
+  %s = memref.load %a[%i] : memref<64xi64>
+  // ROW-OP
+  %x = vector.broadcast %s : i64 to vector<4xi64>
+  vector.store %x, %c[%i] : memref<64xi64>, vector<4xi64>
+  return
+}
+// -----
+
+// ROW: vector.broadcast(load) | f64x4
+// CHECK-LABEL: @broadcast_load_f64x4
+// CHECK: lvx.ldso
+func.func @broadcast_load_f64x4(%a: memref<64xf64>, %c: memref<64xf64>) {
+  %i = arith.constant 0 : index
+  %s = memref.load %a[%i] : memref<64xf64>
+  // ROW-OP
+  %x = vector.broadcast %s : f64 to vector<4xf64>
+  vector.store %x, %c[%i] : memref<64xf64>, vector<4xf64>
+  return
+}
+// -----
+
+// ROW: vector.deinterleave | i16x16
+// CHECK-LABEL: @deinterleave_i16x16
+// CHECK: lvx.evenhq
+// CHECK: lvx.oddhq
+func.func @deinterleave_i16x16(%a: memref<64xi16>, %d: memref<64xi16>, %e: memref<64xi16>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi16>, vector<16xi16>
+  // ROW-OP
+  %ev, %od = vector.deinterleave %x : vector<16xi16> -> vector<8xi16>
+  vector.store %ev, %d[%i] : memref<64xi16>, vector<8xi16>
+  vector.store %od, %e[%i] : memref<64xi16>, vector<8xi16>
+  return
+}
+// -----
+
+// ROW: vector.deinterleave | i32x8
+// CHECK-LABEL: @deinterleave_i32x8
+// CHECK: lvx.evenwq
+// CHECK: lvx.oddwq
+func.func @deinterleave_i32x8(%a: memref<64xi32>, %d: memref<64xi32>, %e: memref<64xi32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi32>, vector<8xi32>
+  // ROW-OP
+  %ev, %od = vector.deinterleave %x : vector<8xi32> -> vector<4xi32>
+  vector.store %ev, %d[%i] : memref<64xi32>, vector<4xi32>
+  vector.store %od, %e[%i] : memref<64xi32>, vector<4xi32>
+  return
+}
+// -----
+
+// ROW: vector.deinterleave | f64x4
+// CHECK-LABEL: @deinterleave_f64x4
+// CHECK: lvx.evendq
+// CHECK: lvx.odddq
+func.func @deinterleave_f64x4(%a: memref<64xf64>, %d: memref<64xf64>, %e: memref<64xf64>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<4xf64>
+  // ROW-OP
+  %ev, %od = vector.deinterleave %x : vector<4xf64> -> vector<2xf64>
+  vector.store %ev, %d[%i] : memref<64xf64>, vector<2xf64>
+  vector.store %od, %e[%i] : memref<64xf64>, vector<2xf64>
+  return
+}
+// -----
+
+// The float quad of the slice already measured at i32x8: still a lane view.
+// ROW: vector.extract_strided_slice | f32x8
+// CHECK-LABEL: @extract_strided_slice_f32x8
+// CHECK: lvx.lane %{{.*}}[2]
+func.func @extract_strided_slice_f32x8(%a: memref<64xf32>, %c: memref<64xf32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<8xf32>
+  // ROW-OP
+  %s = vector.extract_strided_slice %x {offsets = [4], sizes = [4], strides = [1]}
+       : vector<8xf32> to vector<4xf32>
+  vector.store %s, %c[%i] : memref<64xf32>, vector<4xf32>
+  return
+}

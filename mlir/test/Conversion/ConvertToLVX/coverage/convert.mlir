@@ -221,3 +221,60 @@ func.func @extf_f32x4(%a: memref<8xf32>, %c: memref<8xf64>) {
   vector.store %y, %c[%i] : memref<8xf64>, vector<4xf64>
   return
 }
+
+// -----
+
+// The unsigned conversions, and two widths of `extui`. Probed first because
+// only the signed forms had rows and an unsigned gap would have been easy to
+// miss; all four lower.
+
+// ROW: arith.extui | i8x16
+// CHECK-LABEL: @arith_extui_i8x16
+// CHECK: lvx.
+func.func @arith_extui_i8x16(%a: memref<64xi8>, %c: memref<64xi16>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi8>, vector<16xi8>
+  // ROW-OP
+  %z = arith.extui %x : vector<16xi8> to vector<16xi16>
+  vector.store %z, %c[%i] : memref<64xi16>, vector<16xi16>
+  return
+}
+// -----
+
+// ROW: arith.extui | i16x8
+// CHECK-LABEL: @arith_extui_i16x8
+// CHECK: lvx.
+func.func @arith_extui_i16x8(%a: memref<64xi16>, %c: memref<64xi32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi16>, vector<8xi16>
+  // ROW-OP
+  %z = arith.extui %x : vector<8xi16> to vector<8xi32>
+  vector.store %z, %c[%i] : memref<64xi32>, vector<8xi32>
+  return
+}
+// -----
+
+// ROW: arith.fptoui | f64x2
+// CHECK-LABEL: @arith_fptoui_f64x2
+// CHECK: lvx.
+func.func @arith_fptoui_f64x2(%a: memref<64xf64>, %c: memref<64xi64>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
+  // ROW-OP
+  %z = arith.fptoui %x : vector<2xf64> to vector<2xi64>
+  vector.store %z, %c[%i] : memref<64xi64>, vector<2xi64>
+  return
+}
+// -----
+
+// ROW: arith.uitofp | i64x2
+// CHECK-LABEL: @arith_uitofp_i64x2
+// CHECK: lvx.
+func.func @arith_uitofp_i64x2(%a: memref<64xi64>, %c: memref<64xf64>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi64>, vector<2xi64>
+  // ROW-OP
+  %z = arith.uitofp %x : vector<2xi64> to vector<2xf64>
+  vector.store %z, %c[%i] : memref<64xf64>, vector<2xf64>
+  return
+}

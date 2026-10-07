@@ -2278,3 +2278,123 @@ func.func @muli_i8x32(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64xi8>) {
   vector.store %z, %c[%i] : memref<64xi8>, vector<32xi8>
   return
 }
+
+// -----
+
+// The quad width of the bitwise pair and of `vector.fma`. The quad rows are
+// the ones that carry information beyond replication: where one comes out
+// class C and a composite would make it class B, what is missing is a
+// `Builtin.yml` `split:` record rather than an instruction (§7).
+
+// ROW: arith.ori | i8x32
+// CHECK-LABEL: @arith_ori_i8x32
+// CHECK: lvx.iorq
+func.func @arith_ori_i8x32(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64xi8>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi8>, vector<32xi8>
+  %y = vector.load %b[%i] : memref<64xi8>, vector<32xi8>
+  // ROW-OP
+  %z = arith.ori %x, %y : vector<32xi8>
+  vector.store %z, %c[%i] : memref<64xi8>, vector<32xi8>
+  return
+}
+// -----
+
+// ROW: arith.ori | i32x8
+// CHECK-LABEL: @arith_ori_i32x8
+// CHECK: lvx.iorq
+func.func @arith_ori_i32x8(%a: memref<64xi32>, %b: memref<64xi32>, %c: memref<64xi32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi32>, vector<8xi32>
+  %y = vector.load %b[%i] : memref<64xi32>, vector<8xi32>
+  // ROW-OP
+  %z = arith.ori %x, %y : vector<8xi32>
+  vector.store %z, %c[%i] : memref<64xi32>, vector<8xi32>
+  return
+}
+// -----
+
+// ROW: arith.ori | i64x4
+// CHECK-LABEL: @arith_ori_i64x4
+// CHECK: lvx.iorq
+func.func @arith_ori_i64x4(%a: memref<64xi64>, %b: memref<64xi64>, %c: memref<64xi64>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi64>, vector<4xi64>
+  %y = vector.load %b[%i] : memref<64xi64>, vector<4xi64>
+  // ROW-OP
+  %z = arith.ori %x, %y : vector<4xi64>
+  vector.store %z, %c[%i] : memref<64xi64>, vector<4xi64>
+  return
+}
+// -----
+
+// ROW: arith.xori | i8x32
+// CHECK-LABEL: @arith_xori_i8x32
+// CHECK: lvx.eorq
+func.func @arith_xori_i8x32(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64xi8>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi8>, vector<32xi8>
+  %y = vector.load %b[%i] : memref<64xi8>, vector<32xi8>
+  // ROW-OP
+  %z = arith.xori %x, %y : vector<32xi8>
+  vector.store %z, %c[%i] : memref<64xi8>, vector<32xi8>
+  return
+}
+// -----
+
+// ROW: arith.xori | i32x8
+// CHECK-LABEL: @arith_xori_i32x8
+// CHECK: lvx.eorq
+func.func @arith_xori_i32x8(%a: memref<64xi32>, %b: memref<64xi32>, %c: memref<64xi32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi32>, vector<8xi32>
+  %y = vector.load %b[%i] : memref<64xi32>, vector<8xi32>
+  // ROW-OP
+  %z = arith.xori %x, %y : vector<8xi32>
+  vector.store %z, %c[%i] : memref<64xi32>, vector<8xi32>
+  return
+}
+// -----
+
+// ROW: arith.xori | i64x4
+// CHECK-LABEL: @arith_xori_i64x4
+// CHECK: lvx.eorq
+func.func @arith_xori_i64x4(%a: memref<64xi64>, %b: memref<64xi64>, %c: memref<64xi64>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi64>, vector<4xi64>
+  %y = vector.load %b[%i] : memref<64xi64>, vector<4xi64>
+  // ROW-OP
+  %z = arith.xori %x, %y : vector<4xi64>
+  vector.store %z, %c[%i] : memref<64xi64>, vector<4xi64>
+  return
+}
+// -----
+
+// ROW: vector.fma | f32x8
+// CHECK-LABEL: @vector_fma_f32x8
+// CHECK: lvx.ffma
+func.func @vector_fma_f32x8(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<8xf32>
+  %y = vector.load %b[%i] : memref<64xf32>, vector<8xf32>
+  %z = vector.load %c[%i] : memref<64xf32>, vector<8xf32>
+  // ROW-OP
+  %r = vector.fma %x, %y, %z : vector<8xf32>
+  vector.store %r, %c[%i] : memref<64xf32>, vector<8xf32>
+  return
+}
+// -----
+
+// ROW: vector.fma | f64x4
+// CHECK-LABEL: @vector_fma_f64x4
+// CHECK: lvx.ffma
+func.func @vector_fma_f64x4(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<4xf64>
+  %y = vector.load %b[%i] : memref<64xf64>, vector<4xf64>
+  %z = vector.load %c[%i] : memref<64xf64>, vector<4xf64>
+  // ROW-OP
+  %r = vector.fma %x, %y, %z : vector<4xf64>
+  vector.store %r, %c[%i] : memref<64xf64>, vector<4xf64>
+  return
+}
