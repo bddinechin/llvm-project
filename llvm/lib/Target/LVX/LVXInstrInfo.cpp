@@ -473,6 +473,17 @@ bool LVXInstrInfo::reverseBranchCondition(
 }
 
 unsigned LVXInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
+  // A bundle is as wide as the syllables in it. Nothing measures code size
+  // after LVXBundler runs -- branch relaxation is already done by then -- but
+  // a BUNDLE is a pseudo, so without this it would measure as nothing.
+  if (MI.isBundle()) {
+    const MachineBasicBlock &MBB = *MI.getParent();
+    unsigned Size = 0;
+    for (auto I = std::next(MI.getIterator());
+         I != MBB.instr_end() && I->isInsideBundle(); ++I)
+      Size += getInstSizeInBytes(*I);
+    return Size;
+  }
   if (MI.isPseudo() || MI.isMetaInstruction())
     return 0;
   // Every real LVX instruction carries its width: 4 bytes for a single

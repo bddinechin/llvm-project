@@ -38,23 +38,40 @@ public:
   void emitInlineAsmEnd(const MCSubtargetInfo &StartInfo,
                         const MCSubtargetInfo *EndInfo,
                         const MachineInstr *MI) override;
+
+private:
+  void emitOne(const MachineInstr *MI);
 };
 
 } // end anonymous namespace
 
-void LVXAsmPrinter::emitInstruction(const MachineInstr *MI) {
+// Print one instruction, with no bundle terminator of its own.
+void LVXAsmPrinter::emitOne(const MachineInstr *MI) {
   LVXMCInstLower MCInstLowering(OutContext, *this);
   MCInst TmpInst;
   MCInstLowering.Lower(MI, TmpInst);
   OutStreamer->emitInstruction(TmpInst, getSubtargetInfo());
+}
 
-  // LVX assembly syntax requires an explicit ";;" bundle terminator after
-  // every bundle (confirmed against the real GNU Binutils port and
-  // lvx-mds/refs's regression-test corpus, which places ";;" on its own
-  // line after every single instruction). Since this backend has no VLIW
-  // bundling (every instruction is its own one-instruction bundle -- see
-  // LVXInst's Inst{31}=0 "always 0 for single-issue" convention), every
-  // real instruction gets its own terminator here.
+void LVXAsmPrinter::emitInstruction(const MachineInstr *MI) {
+  // LVX assembly marks the END of a bundle: the assembler reads ";;" as the
+  // boundary and sets the parallel bit on every syllable before it, so the
+  // terminator goes once per bundle and the instructions in between are what
+  // issue together.
+  //
+  // LVXBundler wraps a group of two or more into a BUNDLE instruction, and the
+  // generic AsmPrinter hands us that BUNDLE rather than its members -- so this
+  // is where the members get printed. Anything not in a bundle is a bundle of
+  // one, which is what every instruction was before bundling existed.
+  if (MI->isBundle()) {
+    const MachineBasicBlock *MBB = MI->getParent();
+    MachineBasicBlock::const_instr_iterator I = std::next(MI->getIterator());
+    for (; I != MBB->instr_end() && I->isInsideBundle(); ++I)
+      if (!I->isDebugInstr() && !I->isImplicitDef())
+        emitOne(&*I);
+  } else {
+    emitOne(MI);
+  }
   OutStreamer->emitRawText("\t;;");
 }
 

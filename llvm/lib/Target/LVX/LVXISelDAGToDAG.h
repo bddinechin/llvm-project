@@ -20,6 +20,7 @@ namespace llvm {
 // Widens any branch whose target is out of reach of its current encoding --
 // see LVXBranchRelaxation.cpp.
 FunctionPass *createLVXBranchRelaxationPass();
+FunctionPass *createLVXBundlerPass();
 void initializeLVXBranchRelaxationPass(PassRegistry &);
 
 FunctionPass *createLVXISelDag(LVXTargetMachine &TM,

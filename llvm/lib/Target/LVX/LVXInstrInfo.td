@@ -141,43 +141,25 @@ def ADJCALLSTACKUP : LVXPseudo<(outs), (ins i64imm:$amt1, i64imm:$amt2),
                                [(callseq_end timm:$amt1, timm:$amt2)]>;
 }
 
-//===----------------------------------------------------------------------===//
-// Subtarget features and processor model
-//
-// LVXGenSubtargetInfo.inc generation requires at least one ProcessorModel
-// def to have something to parse. ProcessorModel's second template
-// argument is a SchedMachineModel, not a ProcessorItineraries (a
-// real TableGen type distinction caught at build time) -- GenericModel
-// below is a placeholder with no real scheduling information yet. The
-// itinerary classes themselves are generated from the machine
-// description's Scheduling table, in LVXInstrEncodings.td.
-//===----------------------------------------------------------------------===//
-
-def GenericItineraries : ProcessorItineraries<[], [], []>;
-
-def GenericModel : SchedMachineModel {
-  let NoModel = 1;
-  let CompleteModel = 0;
-}
-
-def : ProcessorModel<"generic", GenericModel, []>;
-
-// The two ISA variants, named as lvx-gcc's -march names them and as the
-// clang driver passes them through -mcpu. They carry no features yet: the
-// description installed into this directory is one core's at a time (see
-// lvx-mds's BE/LLVM), so which instructions exist is decided before the
-// build, not by a SubtargetFeature. They exist so that -mcpu=lvx-1 names a
-// processor this target knows rather than drawing "not a recognized
-// processor"; when the two descriptions are merged into one build, this is
-// where the feature that tells them apart goes.
-def : ProcessorModel<"lvx-1", GenericModel, []>;
-def : ProcessorModel<"lvx-2", GenericModel, []>;
 
 //===----------------------------------------------------------------------===//
 // The generated instruction description
 //===----------------------------------------------------------------------===//
 
 include "LVXInstrEncodings.td"
+
+//===----------------------------------------------------------------------===//
+// Bundling resources and the processor model
+//
+// LVXSchedule.td says what a bundle can hold and what each instruction
+// occupies, keyed by the itinerary classes LVXInstrEncodings.td declares just
+// above -- which is why it is included here and not with the rest of the
+// hand-written description: a reference to ALU_TINY only resolves once the
+// generated file has defined it.  It also carries the ProcessorModel defs,
+// since the model is what makes the itinerary reachable from the subtarget.
+//===----------------------------------------------------------------------===//
+
+include "LVXSchedule.td"
 
 //===----------------------------------------------------------------------===//
 // COPYD: synthetic register-to-register copy, per lvx_Synthetic.yml

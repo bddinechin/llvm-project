@@ -20,6 +20,7 @@ add_public_tablegen_target(LVXCommonTableGen)
 add_llvm_target(LVXCodeGen
   LVXAsmPrinter.cpp
   LVXBranchRelaxation.cpp
+  LVXBundler.cpp
   LVXFrameLowering.cpp
   LVXInstrInfo.cpp
   LVXISelDAGToDAG.cpp

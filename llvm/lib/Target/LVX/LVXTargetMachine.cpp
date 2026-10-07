@@ -71,6 +71,11 @@ public:
   // prologue/epilogue insertion and block placement.
   void addPreEmitPass() override {
     addPass(createLVXBranchRelaxationPass());
+    // Bundling runs last, and must: it wraps instructions in BUNDLE
+    // instructions, which branch relaxation's size walk does not expect, and
+    // it is the one pass whose output the assembler reads as parallelism
+    // rather than as instructions.
+    addPass(createLVXBundlerPass());
   }
 };
 } // end anonymous namespace

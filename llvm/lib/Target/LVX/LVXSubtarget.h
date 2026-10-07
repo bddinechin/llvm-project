@@ -59,8 +59,19 @@ public:
     return &TSInfo;
   }
 
+  // What a bundle can hold, and what each instruction occupies in it. The
+  // itinerary is the only part of the scheduling model LVX fills in (see
+  // LVXSchedule.td); its consumer is LVXBundler, which counts units and
+  // ignores the cycles. TargetSubtargetInfo returns nullptr unless a target
+  // overrides this, and a null itinerary is how the bundler decides it has
+  // nothing to go on, so this has to be here for bundling to happen at all.
+  const InstrItineraryData *getInstrItineraryData() const override {
+    return &InstrItins;
+  }
+
 private:
   LVXInstrInfo InstrInfo;
+  InstrItineraryData InstrItins;
   LVXFrameLowering FrameLowering;
   LVXTargetLowering TLInfo;
   LVXSelectionDAGInfo TSInfo;
