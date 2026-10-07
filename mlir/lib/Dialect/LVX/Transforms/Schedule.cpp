@@ -81,16 +81,38 @@ namespace {
 constexpr unsigned kMaxBundleIssue = 10; // LVX_MAXBUNDLEISSUE
 constexpr unsigned kMaxBundleWords = 18; // LVX_MAXBUNDLEWORDS
 
-/// The syllables an op occupies: its own instruction word, plus the immediate
-/// extension words its reservation takes (the `.X` and `.Y` formats). This is
-/// gas' `length + immx` for one instruction.
-static unsigned syllablesOf(const Reservation *reservation) {
+/// The immediate extensions a bundle may carry: 8, which is `IMMX`'s
+/// `availability` in Resource.yml and the number `LVX_MAXBUNDLEWORDS` is built
+/// from (18 = 10 instruction words + 8 extensions).
+///
+/// gas accepted only six for a while, and not by design: `lvx_immx_buffer` was
+/// dimensioned `LVX_MAXOPERANDS` (7) and the bound test incremented before it
+/// compared, so the seventh was fatal -- "[lvx_insn_add_immx] max number of
+/// IMMX exceeded: 7". That off-by-one was unreachable while the syllable budget
+/// covered whole words, and became reachable when the budget narrowed to
+/// extensions only; it is fixed in lvx-binutils, which now takes 8.
+///
+/// So this must not go below 8 again without checking the assembler, and must
+/// not go above it without checking Resource.yml. lvx-llvm's LVXBundler holds
+/// the same number as `MaxImmxPerBundle`.
+constexpr unsigned kMaxBundleImmx = 8;
+
+/// The immediate extension words an op's reservation takes -- the `.X` and `.Y`
+/// formats. Equivalently all of an instruction's syllables but the first, which
+/// is how lvx-llvm's `immxOf` computes it.
+static unsigned immxOf(const Reservation *reservation) {
   unsigned immx = 0;
   if (reservation)
     for (unsigned i = 0; i != reservation->numUses; ++i)
       if (reservation->uses[i].resource == Resource::immx)
         immx += reservation->uses[i].count;
-  return 1 + immx;
+  return immx;
+}
+
+/// The syllables an op occupies: its own instruction word plus its extensions.
+/// This is gas' `length + immx` for one instruction.
+static unsigned syllablesOf(const Reservation *reservation) {
+  return 1 + immxOf(reservation);
 }
 
 /// The attribute the schedule is recorded in: `cycle`, the issue cycle
@@ -512,6 +534,7 @@ private:
       // resource does since ISSUE was retired.
       unsigned words = 0;
       unsigned issues = 0;
+      unsigned immx = 0;
       // The distinct BCU prefixes already issued in this bundle. A prefixed
       // op whose prefix is among them costs no further syllable: the
       // assembler merges it into the one already there (gas
@@ -545,10 +568,14 @@ private:
             extra[static_cast<unsigned>(Resource::bcu)] = 1;
           // A prefix is a syllable and takes an issue slot of its own, so it
           // counts toward both limits.
+          // A prefix is a syllable and an issue slot, but carries no immediate
+          // extension of its own.
+          unsigned extraImmx = immxOf(n.reservation);
           unsigned extraWords = syllablesOf(n.reservation) + (newPrefix ? 1 : 0);
           unsigned extraIssues = 1 + (newPrefix ? 1 : 0);
           bool fits = words + extraWords <= kMaxBundleWords &&
-                      issues + extraIssues <= kMaxBundleIssue;
+                      issues + extraIssues <= kMaxBundleIssue &&
+                      immx + extraImmx <= kMaxBundleImmx;
           for (unsigned idx = 0; idx != kNumResources; ++idx)
             if (extra[idx] &&
                 used[idx] + extra[idx] > kResourceAvailability[idx])
@@ -568,6 +595,7 @@ private:
             used[idx] += extra[idx];
           words += extraWords;
           issues += extraIssues;
+          immx += extraImmx;
           if (newPrefix)
             prefixes.push_back(*n.prefix);
           if (n.reservation) {
