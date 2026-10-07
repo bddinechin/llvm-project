@@ -97,10 +97,31 @@ static cl::opt<bool> AllowAntiDeps(
              "overwrites a register it reads (a bundle reads all its operands "
              "before writing any of them)"));
 
-// Eight 4-byte syllables. The same constant is LVX_SCHED2_BUNDLE_SIZE in
-// lvx-gcc, and it is also why LVXSchedule.td need not model issue slots: the
-// syllable count of an instruction is its encoded size.
-static constexpr unsigned BundleSizeLimit = 32;
+// What bounds a bundle, now that it is actually known.
+//
+// It is NOT a syllable count. lvx-gcc caps its own bundles at 32 bytes
+// (LVX_SCHED2_BUNDLE_SIZE) and the ISSUE resource had availability 8, and this
+// pass used to take that for the architectural limit. It is not: the bound is
+// one instruction per functional unit, which the itinerary already enforces,
+// and the assembler happily takes a nine-syllable bundle (four .X forms plus a
+// branch assembles and disassembles as one bundle, 36 bytes). The 8 was the
+// availability of a resource that happened to count syllables, and lvx-mds
+// stopped counting them on 2026-10-07 -- a flat per-word resource does not
+// minimise in GCC's automaton.
+//
+// So the real ceilings are LVX_MAXBUNDLEWORDS worth of syllables, and the
+// immediate extensions:
+static constexpr unsigned BundleSizeLimit = 72;   // 18 syllables
+
+// The assembler takes at most six immediate extensions in one bundle --
+// "[lvx_insn_add_immx] max number of IMMX exceeded: 7", measured, because
+// lvx_immx_buffer is dimensioned LVX_MAXOPERANDS and the bound test increments
+// before it compares. That is a gas limitation rather than an architectural
+// one, and it was unreachable while the budget covered whole words. It is
+// reachable now, and exceeding it is a fatal assembler error, so respect it
+// here. An instruction of n syllables carries n-1 extensions, an identity
+// check-lvx-schedule.py proves against every format class.
+static constexpr unsigned MaxImmxPerBundle = 6;
 
 namespace llvm {
 // INITIALIZE_PASS below defines llvm::initializeLVXBundlerPass, so it has to be
@@ -137,12 +158,21 @@ private:
   // this code already handles it.
   SmallVector<std::pair<unsigned, unsigned>, 16> Claimed;
   unsigned ClaimedBytes = 0;
+  unsigned ClaimedImmx = 0;
   SmallVector<MachineInstr *, 8> Members;
 
   void openBundle() {
     Claimed.clear();
     ClaimedBytes = 0;
+    ClaimedImmx = 0;
     Members.clear();
+  }
+
+  // The immediate-extension syllables an instruction carries: all of its
+  // syllables but the first.
+  unsigned immxOf(const MachineInstr &MI) const {
+    unsigned Bytes = TII->getInstSizeInBytes(MI);
+    return Bytes > 4 ? Bytes / 4 - 1 : 0;
   }
 
   bool isSolo(const MachineInstr &MI) const;
@@ -192,6 +222,8 @@ bool LVXBundler::isSolo(const MachineInstr &MI) const {
 // the itinerary.
 bool LVXBundler::haveRoomFor(const MachineInstr &MI) const {
   if (ClaimedBytes + TII->getInstSizeInBytes(MI) > BundleSizeLimit)
+    return false;
+  if (ClaimedImmx + immxOf(MI) > MaxImmxPerBundle)
     return false;
 
   unsigned Cls = MI.getDesc().getSchedClass();
@@ -263,6 +295,7 @@ bool LVXBundler::isIndependentOfBundle(const MachineInstr &MI) const {
 
 void LVXBundler::claim(MachineInstr &MI) {
   ClaimedBytes += TII->getInstSizeInBytes(MI);
+  ClaimedImmx += immxOf(MI);
   unsigned Cls = MI.getDesc().getSchedClass();
   for (const InstrStage *S = Itin->beginStage(Cls), *E = Itin->endStage(Cls);
        S != E; ++S) {

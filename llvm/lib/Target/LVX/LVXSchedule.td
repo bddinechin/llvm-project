@@ -6,11 +6,18 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// What a bundle can hold.  LVX is a VLIW: a bundle is up to eight 4-byte
-// syllables, and -- this is the property the bundler leans on -- ANY
-// resource-feasible parallel group of instructions can be encoded as a valid
-// bundle.  So forming bundles needs no encoding knowledge at all, only the
-// per-unit capacity of a bundle and the count each instruction occupies.
+// What a bundle can hold.  LVX is a VLIW, and -- this is the property the
+// bundler leans on -- ANY resource-feasible parallel group of instructions can
+// be encoded as a valid bundle.  So forming bundles needs no encoding knowledge
+// at all, only the per-unit capacity of a bundle and the count each instruction
+// occupies.
+//
+// A bundle is bounded by its FUNCTION UNITS, one instruction per unit, which is
+// exactly what the itineraries below state.  It is not bounded by a syllable
+// count: the assembler takes a nine-syllable bundle (four .X forms and a
+// branch, 36 bytes, verified), so lvx-gcc's 32-byte LVX_SCHED2_BUNDLE_SIZE and
+// the old ISSUE availability of 8 were never the architectural limit.  See
+// LVXBundler.cpp for the two ceilings that are real.
 //
 // This file is the LLVM counterpart of BE/GCC's scheduling-isa.md and
 // lvx-issue-table.inc, and it is INTERIM AND HAND-DERIVED: it is generated
@@ -43,8 +50,8 @@
 // none, a `.X' one and a `.Y' two.  In LLVM the whole syllable count is already
 // in the instruction: it is getInstSizeInBytes()/4, since the _X and _Y formats
 // are LVXInst64 and LVXInst96.  The generator checks that identity on every
-// format class rather than restating it, and LVXBundler caps a bundle at 32
-// bytes, which is the same eight syllables.
+// format class rather than restating it, and LVXBundler counts extensions off
+// it directly -- it has to, the assembler taking only six per bundle.
 //
 // BE/GCC reached IMMX from an earlier ISSUE/IWORD that counted every syllable,
 // and it had to: genautomata affords a flat eight-unit count but not the
