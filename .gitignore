@@ -91,7 +91,7 @@ pythonenv*
 # automodapi puts generated documentation files here.
 /lldb/docs/python_api/
 
-# Delivered by lvx-mds from lvx-refs (superproject: make export); not versioned here.
+# Delivered by lvx-mds from lvx-refs (superproject: make refresh); not versioned here.
 /mlir/include/mlir/Dialect/LVX/IR/LVXModifiers.td
 /mlir/include/mlir/Dialect/LVX/IR/LVXRegisters.td
 /mlir/include/mlir/Dialect/LVX/IR/LVXInstrOps.td
