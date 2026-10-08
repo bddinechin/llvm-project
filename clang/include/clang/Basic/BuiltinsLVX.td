@@ -41,6 +41,14 @@ class LVXBuiltin<string prototype> : TargetBuiltin {
 // 2026-08-04. validation/tests/ir/minmax-nan.ll pins it on the ISS.
 //===----------------------------------------------------------------------===//
 
+// TAILD -- the tail mask of a loop's last iteration, bit per lane. Spelled as
+// lvx-gcc spells it, the lane count being a string (".v1" .. ".v128") because
+// it is an instruction modifier: a plain integer would invite a run-time value,
+// and ".v3" has to be a diagnostic rather than a silent round-down.
+def TailD : LVXBuiltin<"unsigned long int(unsigned long int, unsigned long int, char const*)"> {
+  let Spellings = ["__builtin_lvx_taild"];
+}
+
 def FMinH : LVXBuiltin<"_Float16(_Float16, _Float16)"> {
   let Spellings = ["__builtin_lvx_fminh"];
 }

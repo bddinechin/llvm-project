@@ -540,6 +540,46 @@ def : Pat<(fabs f16:$a),         (FABSH_FHMO1 f16:$a)>;
 // a pattern of its own: without it that shape costs a separate negate.
 
 
+//===----------------------------------------------------------------------===//
+// TAILD -- a lane mask from a loop's own bounds.
+//
+// Bit i of the result is set iff i < lanes and $rZ + i <u $rY, which is a
+// masked loop's last iteration in one ALU_TINY syllable: both operands are
+// already live, where (1 << n) - 1 costs four instructions and reads a count of
+// 64 as empty and a negative one as full.
+//
+// The lanecount is an instruction MODIFIER, not an operand, so it is constant by
+// construction -- an ImmArg on the intrinsic. clang's __builtin_lvx_taild takes
+// it as the string lvx-gcc takes (".v16") and maps it to this 0..7 encoding.
+//
+// One pattern per encoding, with the lanecount as a LITERAL, which is how every
+// other modifier in this file is written (EXTFSD_BFWR GPR:$rZ, 16, 0). A single
+// pattern with a named `timm:$lanecount' does not work: the generated
+// `lanecount' operand is an Operand<i32>, LVX has no legal i32, so a named
+// operand of that type has no type set and TableGen refuses the pattern. Eight
+// lines is the price of a modifier being a modifier.
+//===----------------------------------------------------------------------===//
+
+// The lanecount needs its type spelled out: `lanecount' is an Operand<i32>, and
+// a bare timm leaves TableGen with nothing to infer from ("Type set is empty
+// for each HW mode").
+def : Pat<(int_lvx_taild GPR:$rZ, GPR:$rY, 0),
+          (TAILD_DTWRR GPR:$rZ, GPR:$rY, 0)>;
+def : Pat<(int_lvx_taild GPR:$rZ, GPR:$rY, 1),
+          (TAILD_DTWRR GPR:$rZ, GPR:$rY, 1)>;
+def : Pat<(int_lvx_taild GPR:$rZ, GPR:$rY, 2),
+          (TAILD_DTWRR GPR:$rZ, GPR:$rY, 2)>;
+def : Pat<(int_lvx_taild GPR:$rZ, GPR:$rY, 3),
+          (TAILD_DTWRR GPR:$rZ, GPR:$rY, 3)>;
+def : Pat<(int_lvx_taild GPR:$rZ, GPR:$rY, 4),
+          (TAILD_DTWRR GPR:$rZ, GPR:$rY, 4)>;
+def : Pat<(int_lvx_taild GPR:$rZ, GPR:$rY, 5),
+          (TAILD_DTWRR GPR:$rZ, GPR:$rY, 5)>;
+def : Pat<(int_lvx_taild GPR:$rZ, GPR:$rY, 6),
+          (TAILD_DTWRR GPR:$rZ, GPR:$rY, 6)>;
+def : Pat<(int_lvx_taild GPR:$rZ, GPR:$rY, 7),
+          (TAILD_DTWRR GPR:$rZ, GPR:$rY, 7)>;
+
 // Sign transfer. FSIGNCD is "(argument2 & 0x7FFF…) | (argument3 & 0x8000…)"
 // -- magnitude from $rZ, sign from $rY -- which is exactly ISD::FCOPYSIGN's
 // (magnitude, sign) operand order, so this maps directly.

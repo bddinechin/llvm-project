@@ -13,6 +13,10 @@
 #include "CodeGenFunction.h"
 #include "clang/Basic/TargetBuiltins.h"
 #include "llvm/IR/IntrinsicInst.h"
+// Intrinsic::lvx_* lives in this generated header, not in Intrinsics.h: the
+// per-target enums are split out by -intrinsic-prefix. Every other target's
+// builtin file includes its own the same way.
+#include "llvm/IR/IntrinsicsLVX.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -32,6 +36,38 @@ Value *CodeGenFunction::EmitLVXBuiltinExpr(unsigned BuiltinID,
     auto [A, B] = Args();
     return Builder.CreateBinaryIntrinsic(ID, A, B);
   };
+
+  // TAILD's lane count. It is an instruction modifier, so it has to be a
+  // literal, and lvx-gcc spells it as the assembly suffix does -- ".v16" --
+  // which is what this accepts, mapping it to the 0..7 encoding (log2 of the
+  // lane count). A count that is not a power of two in range is a diagnostic,
+  // not a round-down: lvx-gcc rejects ".v3" and so does this.
+  if (BuiltinID == LVX::BI__builtin_lvx_taild) {
+    const auto *SL = dyn_cast<StringLiteral>(E->getArg(2)->IgnoreParenCasts());
+    if (!SL) {
+      CGM.ErrorUnsupported(E, "taild whose lane count is not a string literal "
+                              "(\".v1\" ... \".v128\")");
+      return llvm::PoisonValue::get(ConvertType(E->getType()));
+    }
+    static constexpr const char *Suffixes[8] = {".v1",  ".v2",  ".v4",  ".v8",
+                                                ".v16", ".v32", ".v64", ".v128"};
+    StringRef Want = SL->getString();
+    int Enc = -1;
+    for (int I = 0; I != 8; ++I)
+      if (Want == Suffixes[I]) {
+        Enc = I;
+        break;
+      }
+    if (Enc < 0) {
+      CGM.ErrorUnsupported(E, "taild lane count that is not one of \".v1\", "
+                              "\".v2\", \".v4\", \".v8\", \".v16\", "
+                              "\".v32\", \".v64\", \".v128\"");
+      return llvm::PoisonValue::get(ConvertType(E->getType()));
+    }
+    auto [Index, Bound] = Args();
+    Function *F = CGM.getIntrinsic(Intrinsic::lvx_taild);
+    return Builder.CreateCall(F, {Index, Bound, Builder.getInt64(Enc)});
+  }
 
   switch (BuiltinID) {
   default:

@@ -96,3 +96,13 @@ v2di call128(v2di a) { return pass128(a); }
 v4di call256(v4di a) { return pass256(a); }
 // CHECK-LABEL: @call256
 // CHECK: call <4 x i64> @pass256(<4 x i64>
+
+// TAILD's lane count is an instruction modifier, so the builtin takes it as the
+// assembly suffix spells it -- the same spelling lvx-gcc takes -- and codegen
+// maps it to the 0..7 encoding. A count that is not one of the eight is a
+// diagnostic rather than a round-down.
+// CHECK-LABEL: define {{.*}}@tail_mask
+// CHECK: call i64 @llvm.lvx.taild(i64 %{{.*}}, i64 %{{.*}}, i64 4)
+unsigned long tail_mask(unsigned long i, unsigned long n) {
+  return __builtin_lvx_taild(i, n, ".v16");
+}
