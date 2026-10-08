@@ -113,15 +113,29 @@ static cl::opt<bool> AllowAntiDeps(
 // immediate extensions:
 static constexpr unsigned BundleSizeLimit = 72;   // 18 syllables
 
-// The assembler takes at most six immediate extensions in one bundle --
-// "[lvx_insn_add_immx] max number of IMMX exceeded: 7", measured, because
-// lvx_immx_buffer is dimensioned LVX_MAXOPERANDS and the bound test increments
-// before it compares. That is a gas limitation rather than an architectural
-// one, and it was unreachable while the budget covered whole words. It is
-// reachable now, and exceeding it is a fatal assembler error, so respect it
-// here. An instruction of n syllables carries n-1 extensions, an identity
+// A bundle holds at most eight immediate extension syllables: the IMMX
+// resource's availability in lvx-family's Resource.yml.
+//
+// This is a real constraint rather than a formality, and it is NOT shadowed by
+// the slot groups -- which is the part worth knowing, because it very nearly
+// is. Four .Y ALU or LSU ops are 8 IMMX and all four TINY slots at once, so
+// TINY binds first on that route (the assembler says "too many ALU
+// instructions in bundle", not anything about IMMX). What gets past TINY is
+// BCU2_X: one extension, no slot, availability 2. So the reachable ceiling is
+// 10 against an availability of 8, and the check has to be here.
+//
+// An instruction of n syllables carries n-1 extensions, an identity
 // check-lvx-schedule.py proves against every format class.
-static constexpr unsigned MaxImmxPerBundle = 6;
+//
+// It was 6 here until 2026-10-08, for gas rather than for the architecture:
+// lvx_immx_buffer was dimensioned LVX_MAXOPERANDS and its bound test
+// incremented before comparing, so the seventh extension was a fatal error
+// ("[lvx_insn_add_immx] max number of IMMX exceeded: 7"). That is fixed in
+// lvx-binutils; 4 x .Y now assembles. A buffer is storage and a resource table
+// is policy, and the buffer filled during parsing where the resource check
+// runs at bundle close -- so a buffer too small to hold a legal bundle
+// pre-empted the diagnostic that would have explained it.
+static constexpr unsigned MaxImmxPerBundle = 8;
 
 namespace llvm {
 // INITIALIZE_PASS below defines llvm::initializeLVXBundlerPass, so it has to be
