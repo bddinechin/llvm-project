@@ -60,61 +60,27 @@ using namespace mlir::lvx;
 
 namespace {
 
-/// A bundle's size limits, tracking lvx-binutils' include/opcode/lvx.h.
+/// What makes a bundle legal: the execution-unit and resource counters, and
+/// nothing else. For every resource, the sum of what the bundle's instructions
+/// reserve must be at most `kResourceAvailability` -- TINY 4, LITE 2, FULL 1,
+/// LSU 2, BCU 2, EXT 4, and IMMX 8, the immediate-extension syllables.
 ///
-/// `LVX_MAXBUNDLEISSUE` is 10 because that is the issue slots a bundle has:
-/// 2x BCU + 2x ALU + 2x LSU + 2x EXT + 2x TINY, the TINY pair being what the
-/// planned LSU/TINY decoupling extracts from the LSU. `LVX_MAXBUNDLEWORDS` is
-/// 18 = those 10 instruction words plus at most 8 immediate extension
-/// syllables -- and that 8 is exactly IMMX's availability in Resource.yml.
+/// There is deliberately no separate instruction or syllable count here.
+/// `LVX_MAXBUNDLEISSUE` (10) and `LVX_MAXBUNDLEWORDS` (18) in lvx-binutils'
+/// `include/opcode/lvx.h` are consequences of the unit counts rather than
+/// independent limits: 4 TINY + 2 BCU + 4 EXT is itself 10, and 18 is those 10
+/// instruction words plus IMMX's own availability of 8. Checking them again
+/// here would be checking the same machine twice, and the second copy is the
+/// one that goes stale -- which is how the retired `ISSUE` resource, 8
+/// syllables, outlived its own deletion in this file's comments.
 ///
-/// So the two are not independent: words = issues + immx, and since the IMMX
-/// resource already caps immx at 8, bounding issues at 10 implies words <= 18.
-/// The word count is still carried and checked, because it is the limit gas
-/// actually tests ("bundle has too many syllables: %d instead of %d" in
-/// tc-lvx.c, on `word_cnt + lvx_immx_cnt`) and the one a reader will compare
-/// against; if the relation above ever stops holding, this is where it shows.
-///
-/// These replace the ISSUE resource, which used to cap a bundle at 8 syllables
-/// and is gone from Resource.yml; IMMX inherited its availability of 8 but
-/// counts only extension words, so it bounds a part of a bundle, not the whole.
-constexpr unsigned kMaxBundleIssue = 10; // LVX_MAXBUNDLEISSUE
-constexpr unsigned kMaxBundleWords = 18; // LVX_MAXBUNDLEWORDS
-
-/// The immediate extensions a bundle may carry: 8, which is `IMMX`'s
-/// `availability` in Resource.yml and the number `LVX_MAXBUNDLEWORDS` is built
-/// from (18 = 10 instruction words + 8 extensions).
-///
-/// gas accepted only six for a while, and not by design: `lvx_immx_buffer` was
-/// dimensioned `LVX_MAXOPERANDS` (7) and the bound test incremented before it
-/// compared, so the seventh was fatal -- "[lvx_insn_add_immx] max number of
-/// IMMX exceeded: 7". That off-by-one was unreachable while the syllable budget
-/// covered whole words, and became reachable when the budget narrowed to
-/// extensions only; it is fixed in lvx-binutils, which now takes 8.
-///
-/// So this must not go below 8 again without checking the assembler, and must
-/// not go above it without checking Resource.yml. lvx-llvm's LVXBundler holds
-/// the same number as `MaxImmxPerBundle`.
-constexpr unsigned kMaxBundleImmx = 8;
-
-/// The immediate extension words an op's reservation takes -- the `.X` and `.Y`
-/// formats. Equivalently all of an instruction's syllables but the first, which
-/// is how lvx-llvm's `immxOf` computes it.
-static unsigned immxOf(const Reservation *reservation) {
-  unsigned immx = 0;
-  if (reservation)
-    for (unsigned i = 0; i != reservation->numUses; ++i)
-      if (reservation->uses[i].resource == Resource::immx)
-        immx += reservation->uses[i].count;
-  return immx;
-}
-
-/// The syllables an op occupies: its own instruction word plus its extensions.
-/// This is gas' `length + immx` for one instruction.
-static unsigned syllablesOf(const Reservation *reservation) {
-  return 1 + immxOf(reservation);
-}
-
+/// IMMX is worth naming because it is the one resource that counts something
+/// other than a unit, and because it was briefly wrong on both sides: gas took
+/// only six, its `lvx_immx_buffer` being dimensioned `LVX_MAXOPERANDS` (7)
+/// with a bound test that incremented before it compared. That off-by-one was
+/// unreachable while the budget covered whole instruction words and became
+/// reachable when lvx-mds narrowed it to extensions (69b9cba, 2026-10-07). It
+/// is fixed in lvx-binutils, so the description's 8 is what both sides hold.
 /// The attribute the schedule is recorded in: `cycle`, the issue cycle
 /// relative to the block's start, declared on every op of the four dialects
 /// (LVX_CycleAttr in LVXBase.td), so it is the op's own typed state rather
@@ -538,9 +504,6 @@ private:
       // Syllables and instructions issued in this bundle. The unit resources
       // bound each function unit; these bound the bundle as a whole, which no
       // resource does since ISSUE was retired.
-      unsigned words = 0;
-      unsigned issues = 0;
-      unsigned immx = 0;
       // The distinct BCU prefixes already issued in this bundle. A prefixed
       // op whose prefix is among them costs no further syllable: the
       // assembler merges it into the one already there (gas
@@ -561,27 +524,18 @@ private:
           Node &n = nodes[ready[k]];
           if (n.earliest > bundle)
             continue;
-          // A prefix already in this bundle is free; a new one takes a BCU slot,
-          // on top of whatever the op itself reserves.
-          //
-          // It also takes a syllable, counted in `words` rather than against a
-          // resource: the charge used to go against `Resource::issue`, and `immx`
-          // -- which inherited that resource's availability of 8 -- counts only
-          // immediate extension words, so a prefix does not belong there.
+          // A prefix already in this bundle is free; a new one takes a BCU
+          // slot, on top of whatever the op itself reserves. That is its whole
+          // cost here: it occupies a syllable but carries no immediate
+          // extension, so it belongs against `bcu` and not against `immx`.
+          // With `bcu` availability 2 this is exactly lvx-gcc's rule in
+          // `lvx_sched_dfa_new_cycle` -- a bundle holds at most two distinct
+          // prefixes.
           bool newPrefix = n.prefix && !llvm::is_contained(prefixes, *n.prefix);
           unsigned extra[kNumResources] = {};
           if (newPrefix)
             extra[static_cast<unsigned>(Resource::bcu)] = 1;
-          // A prefix is a syllable and takes an issue slot of its own, so it
-          // counts toward both limits.
-          // A prefix is a syllable and an issue slot, but carries no immediate
-          // extension of its own.
-          unsigned extraImmx = immxOf(n.reservation);
-          unsigned extraWords = syllablesOf(n.reservation) + (newPrefix ? 1 : 0);
-          unsigned extraIssues = 1 + (newPrefix ? 1 : 0);
-          bool fits = words + extraWords <= kMaxBundleWords &&
-                      issues + extraIssues <= kMaxBundleIssue &&
-                      immx + extraImmx <= kMaxBundleImmx;
+          bool fits = true;
           for (unsigned idx = 0; idx != kNumResources; ++idx)
             if (extra[idx] &&
                 used[idx] + extra[idx] > kResourceAvailability[idx])
@@ -599,9 +553,6 @@ private:
             continue;
           for (unsigned idx = 0; idx != kNumResources; ++idx)
             used[idx] += extra[idx];
-          words += extraWords;
-          issues += extraIssues;
-          immx += extraImmx;
           if (newPrefix)
             prefixes.push_back(*n.prefix);
           if (n.reservation) {

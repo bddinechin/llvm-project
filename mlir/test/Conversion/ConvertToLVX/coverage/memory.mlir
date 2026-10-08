@@ -162,6 +162,65 @@ func.func @maskedload_passthru_f32x4(%a: memref<8xf32>, %b: memref<8xf32>, %c: m
 
 // -----
 
+// The same three at 256 bits. The access itself does not grow: `maskm.mt lo`
+// and `so` read a quad, and the four masked accesses are byte-identical on
+// both cores. Only the pass-thru blend grows, `blend*` having no quad form.
+
+// ROW: vector.maskedload | f32x8
+// CHECK-LABEL: @maskedload_f32x8
+// CHECK: lvx.extb4d
+// CHECK: lvx.masked_load
+func.func @maskedload_f32x8(%a: memref<16xf32>, %c: memref<16xf32>, %m: vector<8xi1>) {
+  %i = arith.constant 0 : index
+  %p = arith.constant dense<0.0> : vector<8xf32>
+  // ROW-OP
+  %x = vector.maskedload %a[%i], %m, %p : memref<16xf32>, vector<8xi1>, vector<8xf32> into vector<8xf32>
+  vector.store %x, %c[%i] : memref<16xf32>, vector<8xf32>
+  return
+}
+
+// -----
+
+// Two `blendwq` over the loaded halves, the high one reading the lane mask
+// shifted down by the half lane count. Executed by `examples/masked.mlir`,
+// where omitting that shift moves the answer from 1895280 to 809360.
+
+// ROW: vector.maskedload(passthru) | f32x8
+// CHECK-LABEL: @maskedload_passthru_f32x8
+// CHECK: lvx.extb4d
+// CHECK: lvx.masked_load
+// CHECK: lvx.blendwq
+// CHECK: lvx.srld_i
+// CHECK: lvx.blendwq
+// CHECK: lvx.concat
+//
+// The shift sits *between* the blends rather than before both: each half is
+// built in turn, and only the second needs the mask moved down.
+func.func @maskedload_passthru_f32x8(%a: memref<16xf32>, %b: memref<16xf32>, %c: memref<16xf32>, %m: vector<8xi1>) {
+  %i = arith.constant 0 : index
+  %p = vector.load %b[%i] : memref<16xf32>, vector<8xf32>
+  // ROW-OP
+  %x = vector.maskedload %a[%i], %m, %p : memref<16xf32>, vector<8xi1>, vector<8xf32> into vector<8xf32>
+  vector.store %x, %c[%i] : memref<16xf32>, vector<8xf32>
+  return
+}
+
+// -----
+
+// ROW: vector.maskedstore | f32x8
+// CHECK-LABEL: @maskedstore_f32x8
+// CHECK: lvx.extb4d
+// CHECK: lvx.masked_store
+func.func @maskedstore_f32x8(%a: memref<16xf32>, %c: memref<16xf32>, %m: vector<8xi1>) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<16xf32>, vector<8xf32>
+  // ROW-OP
+  vector.maskedstore %c[%i], %m, %x : memref<16xf32>, vector<8xi1>, vector<8xf32>
+  return
+}
+
+// -----
+
 // ROW: vector.maskedstore | f32x4
 // CHECK-LABEL: @maskedstore_f32x4
 // CHECK: lvx.extb4d

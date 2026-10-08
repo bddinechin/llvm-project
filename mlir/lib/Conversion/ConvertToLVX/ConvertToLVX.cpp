@@ -1057,20 +1057,43 @@ struct VectorSplatConstantToLVX : public OpConversionPattern<arith::ConstantOp> 
     if (!dense || !dense.isSplat())
       return rewriter.notifyMatchFailure(op, "only a splat constant");
     Type tupleTy = getTypeConverter()->convertType(vecTy);
-    if (tupleWidth(tupleTy) != 2)
-      return rewriter.notifyMatchFailure(
-          op, "the ISA splats a pair; a quad splat has no composite");
+    unsigned units = tupleWidth(tupleTy);
+    if (units != 2 && units != 4)
+      return rewriter.notifyMatchFailure(op, "no register tuple for this shape");
     auto scalarAttr = dyn_cast<TypedAttr>(dense.getSplatValue<Attribute>());
     if (!scalarAttr)
       return rewriter.notifyMatchFailure(op, "no scalar attribute to load");
     Location loc = op.getLoc();
     Type regTy = RegisterType::get(rewriter.getContext(), std::nullopt);
+    unsigned elemBits = vecTy.getElementTypeBitWidth();
     Value scalar = rewriter.create<lvx::LiOp>(loc, regTy, scalarAttr);
-    Value result = createSplat(rewriter, loc, tupleTy,
-                               vecTy.getElementTypeBitWidth(), scalar);
-    if (!result)
-      return rewriter.notifyMatchFailure(op, "no splat for this element width");
-    rewriter.replaceOp(op, result);
+    if (units == 2) {
+      Value result = createSplat(rewriter, loc, tupleTy, elemBits, scalar);
+      if (!result)
+        return rewriter.notifyMatchFailure(op, "no splat for this element width");
+      rewriter.replaceOp(op, result);
+      return success();
+    }
+
+    // A quad. There is no quad `splat*` and no composite for one, but a
+    // *constant* needs neither: every lane is the same value, so both halves
+    // are the same pair and it is two `splat*q` over one `li`.
+    //
+    // Two separate ops rather than one value used twice, because `lvx.concat`
+    // places its parts at offsets and so needs them distinct. `-cse` will
+    // merge them back into one and the allocator's `splitRepeatedConcatParts`
+    // puts the copy back where the tuple needs two registers -- which is the
+    // machinery that already exists for this exact shape
+    // (RegisterAllocation.md, Step 4).
+    Value half[2];
+    for (unsigned k = 0; k != 2; ++k) {
+      Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
+      half[k] = createSplat(rewriter, loc, pairTy, elemBits, scalar);
+      if (!half[k])
+        return rewriter.notifyMatchFailure(op, "no splat for this element width");
+    }
+    rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy,
+                                               ValueRange{half[0], half[1]});
     return success();
   }
 };
@@ -2056,9 +2079,21 @@ struct VectorCmpFToLVX : public OpConversionPattern<arith::CmpFOp> {
 /// when the ISA has no blend for it. The blend writes through its destination,
 /// so `no` is its tied operand and the preserving-copy pass covers a `no` that
 /// is live past it.
+/// One `blend*`, which is a 128-bit instruction: the tuple must be a pair.
+/// There is no quad `blend*` and no composite for one -- it *reads* a mask,
+/// and two independent halves cannot pack lanes 4-7's bits above lanes 0-3's
+/// in one register (VectorCoverage.md §6, the families that must not get a
+/// plain `split:`). `createWideBlend` is what handles a quad, by halves.
+///
+/// The pair check is not decoration. Dispatching on the element width alone
+/// sent a quad to `blend*q` and asserted inside the generated builder, which
+/// casts to `TypedValue<PairType>` -- reached by `vector.maskedload` on a
+/// 256-bit vector with a non-zero `pass_thru`.
 static Value createBlend(ConversionPatternRewriter &rewriter, Location loc,
                          Type tupleTy, VectorType vecTy, Value yes, Value mask,
                          Value no) {
+  if (!isa_and_nonnull<lvx::PairType>(tupleTy))
+    return {};
   switch (vecTy.getElementTypeBitWidth()) {
   case 8:
     return rewriter.create<lvx::BlendbxOp>(loc, tupleTy, yes, mask, no);
@@ -2071,6 +2106,49 @@ static Value createBlend(ConversionPatternRewriter &rewriter, Location loc,
   default:
     return {};
   }
+}
+
+/// A blend at either tuple width: one `blend*` for a pair, two plus an
+/// `lvx.concat` for a quad.
+///
+/// The mask a quad compare produces is the two halves' bit runs joined
+/// low-first (`combineHalfMasks`), so the low blend reads it as it stands and
+/// the high blend wants it shifted down by the half lane count -- one
+/// `srld_i`, and it is the same register either way, since `blend*` reads only
+/// as many bits as it has lanes and ignores what sits above them.
+///
+/// Slicing here rather than having the compare produce two masks follows from
+/// a masked *access* being indivisible: `lo`/`so` take one mask register and
+/// `MASKM` cannot distribute, so the combined form is the one a masked loop
+/// needs and the blends pay a shift for it.
+///
+/// Returns null when the lane width has no `blend*` or the tuple is neither a
+/// pair nor a quad.
+static Value createWideBlend(ConversionPatternRewriter &rewriter, Location loc,
+                             Type tupleTy, VectorType vecTy, Value yes,
+                             Value mask, Value no) {
+  unsigned units = tupleWidth(tupleTy);
+  if (units == 2)
+    return createBlend(rewriter, loc, tupleTy, vecTy, yes, mask, no);
+  if (units != 4)
+    return {};
+  Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
+  Type regTy = RegisterType::get(rewriter.getContext(), std::nullopt);
+  unsigned halfLanes = vecTy.getNumElements() / 2;
+  Value half[2];
+  for (unsigned k = 0; k != 2; ++k) {
+    Value halfMask =
+        k == 0 ? mask
+               : rewriter.create<lvx::SrldImmOp>(
+                     loc, regTy, mask, rewriter.getI64IntegerAttr(halfLanes));
+    half[k] = createBlend(rewriter, loc, pairTy, vecTy,
+                          quadHalf(rewriter, loc, yes, k), halfMask,
+                          quadHalf(rewriter, loc, no, k));
+    if (!half[k])
+      return {};
+  }
+  return rewriter.create<lvx::ConcatOp>(loc, tupleTy,
+                                        ValueRange{half[0], half[1]});
 }
 
 /// Is `v` a vector constant of all zeros? Asked of the *original* operand, so
@@ -2150,49 +2228,15 @@ struct VectorSelectToLVX : public OpConversionPattern<arith::SelectOp> {
         condTy.getNumElements() != vecTy.getNumElements())
       return rewriter.notifyMatchFailure(op, "no register tuple for this shape");
     Location loc = op.getLoc();
-    unsigned units = tupleWidth(tupleTy);
-    Value yes = adaptor.getTrueValue(), mask = adaptor.getCondition(),
-          no = adaptor.getFalseValue();
-    if (units == 2) {
-      Value result = createBlend(rewriter, loc, tupleTy, vecTy, yes, mask, no);
-      if (!result)
-        return rewriter.notifyMatchFailure(op, "no blend for this lane width");
-      rewriter.replaceOp(op, result);
-      return success();
-    }
-
-    // A quad: `blend*` has no quad form and no composite -- it reads a mask,
-    // and two halves cannot pack lanes 4-7's bits above lanes 0-3's in one
-    // register (§7's group B) -- so it is two blends on the halves.
-    //
-    // The mask the quad compare produced is the two halves' bit runs joined
-    // low-first (`combineHalfMasks`), so the low blend reads it as it stands
-    // and the high blend wants it shifted down by the half lane count. One
-    // `srld_i`, and it is the same register either way: `blend*` reads only as
-    // many bits as it has lanes and ignores what sits above them.
-    //
-    // Slicing here rather than having the compare produce two masks is the
-    // consequence of a masked *access* being indivisible: `lo`/`so` take one
-    // mask register and `MASKM` cannot distribute, so the combined form is the
-    // one a masked loop needs and the blends pay a shift for it.
-    Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
-    Type regTy = RegisterType::get(rewriter.getContext(), std::nullopt);
-    unsigned halfLanes = vecTy.getNumElements() / 2;
-    Value half[2];
-    for (unsigned k = 0; k != 2; ++k) {
-      Value halfMask =
-          k == 0 ? mask
-                 : rewriter.create<lvx::SrldImmOp>(
-                       loc, regTy, mask,
-                       rewriter.getI64IntegerAttr(halfLanes));
-      half[k] = createBlend(rewriter, loc, pairTy, vecTy,
-                            quadHalf(rewriter, loc, yes, k), halfMask,
-                            quadHalf(rewriter, loc, no, k));
-      if (!half[k])
-        return rewriter.notifyMatchFailure(op, "no blend for this lane width");
-    }
-    rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy,
-                                               ValueRange{half[0], half[1]});
+    // A pair is one `blend*`; a quad is two on the halves, with the high one
+    // reading the mask shifted down. `createWideBlend` carries both, and the
+    // reason there is no quad `blend*` to use instead.
+    Value result =
+        createWideBlend(rewriter, loc, tupleTy, vecTy, adaptor.getTrueValue(),
+                        adaptor.getCondition(), adaptor.getFalseValue());
+    if (!result)
+      return rewriter.notifyMatchFailure(op, "no blend for this shape");
+    rewriter.replaceOp(op, result);
     return success();
   }
 };
@@ -2378,9 +2422,12 @@ struct VectorMaskedLoadToLVX
       return success();
     }
     // Inactive lanes are zero, so blending them against the pass-thru under
-    // the *lane* mask restores them.
-    Value blended = createBlend(rewriter, loc, tupleTy, vecTy, loaded,
-                                adaptor.getMask(), adaptor.getPassThru());
+    // the *lane* mask restores them. `createWideBlend` because the access
+    // itself is fine at 256 bits -- `maskm.mt lo` is one op on a quad, which
+    // is what lvx-gcc emits since 2026-10-08 -- while `blend*` is 128-bit, so
+    // a quad pass-thru is two blends over the loaded halves.
+    Value blended = createWideBlend(rewriter, loc, tupleTy, vecTy, loaded,
+                                    adaptor.getMask(), adaptor.getPassThru());
     if (!blended)
       return rewriter.notifyMatchFailure(
           op, "no blend for this lane width, and pass_thru is not zero");
