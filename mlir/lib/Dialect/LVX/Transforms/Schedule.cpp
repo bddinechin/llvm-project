@@ -219,10 +219,13 @@ static LogicalResult chooseFormat(Operation *op, StringRef mnemonic) {
   // as one syllable instead of the three its `.Y` form takes. Four of them in
   // a bundle then overflowed the syllable budget and gas refused the output
   // -- "resource ISSUE over-used in bundle: 9 used, 8 available" as the
-  // resource was then spelled; since the 2026-10-07 rename it is `IMMX` and
-  // the same four `.Y` forms are refused by `lvx_insn_add_immx` instead (see
-  // `kGasMaxImmx`). Latent until non-splat vector constants started emitting
-  // large immediates in quantity.
+  // resource was then spelled. Since the 2026-10-07 rename it is `IMMX`,
+  // counting extensions alone, and four `.Y` forms are exactly its
+  // availability of 8 -- legal, and all four TINY slots. Going past 8 needs a
+  // unit that carries an extension without a TINY slot, which is `BCU2_X`
+  // (1 IMMX, 0 TINY, availability 2), so the reachable ceiling is 10 and the
+  // limit is real rather than shadowed by TINY. Latent until non-splat vector
+  // constants started emitting large immediates in quantity.
   if (!valueAttr)
     if (auto li = dyn_cast<LiOp>(op))
       valueAttr = dyn_cast_or_null<TypedAttr>(li.getValueAttr());
@@ -301,36 +304,6 @@ static std::optional<PrefixKey> prefixOf(Operation *op) {
     return PrefixKey{guarded.getCondition(),
                      stringifyBcuCond(guarded.getExecpred())};
   return std::nullopt;
-}
-
-/// The IMMX syllables a bundle holds, which is **not** what the generated
-/// table says. `kResourceAvailability` gives 8, the ISA's figure; the real
-/// assembler takes 6.
-///
-/// `lvx_immx_buffer` in `lvx-binutils`' `gas/config/tc-lvx.c` is dimensioned
-/// `LVX_MAXOPERANDS` -- the most operands one *instruction* can have, 7 --
-/// which has nothing to do with how many extension syllables a *bundle* may
-/// carry, and the bound test increments before comparing (`lvx_immx_cnt++`
-/// then `>= NELEMS`), losing one more. So gas dies with
-/// "[lvx_insn_add_immx] max number of IMMX exceeded: 7" on the seventh,
-/// measured 2026-10-07: three `.Y` immediates in a bundle assemble, four do
-/// not, and so do six `.X` against seven.
-///
-/// This did not matter until 2026-10-07. While the resource counted
-/// instruction *words* against 8, a bundle could not reach six extensions --
-/// two three-word instructions are six syllables for four of them, and a
-/// fifth word leaves no room for a sixth. Counting extensions alone against
-/// the same 8 does reach it, so honouring the table here would start emitting
-/// bundles the assembler refuses.
-///
-/// Raise this to `kResourceAvailability` once gas sizes that buffer by a
-/// bundle constant.
-static constexpr unsigned kGasMaxImmx = 6;
-
-static unsigned availabilityOf(unsigned idx) {
-  if (idx == static_cast<unsigned>(Resource::immx))
-    return std::min(kResourceAvailability[idx], kGasMaxImmx);
-  return kResourceAvailability[idx];
 }
 
 struct Node {
@@ -610,13 +583,15 @@ private:
                       issues + extraIssues <= kMaxBundleIssue &&
                       immx + extraImmx <= kMaxBundleImmx;
           for (unsigned idx = 0; idx != kNumResources; ++idx)
-            if (extra[idx] && used[idx] + extra[idx] > availabilityOf(idx))
+            if (extra[idx] &&
+                used[idx] + extra[idx] > kResourceAvailability[idx])
               fits = false;
           if (n.reservation) {
             for (unsigned r = 0; r != n.reservation->numUses; ++r) {
               const ResourceUse &use = n.reservation->uses[r];
               unsigned idx = static_cast<unsigned>(use.resource);
-              if (used[idx] + extra[idx] + use.count > availabilityOf(idx))
+              if (used[idx] + extra[idx] + use.count >
+                  kResourceAvailability[idx])
                 fits = false;
             }
           }

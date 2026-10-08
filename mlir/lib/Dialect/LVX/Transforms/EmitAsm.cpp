@@ -601,6 +601,13 @@ private:
         .Case([&](FsqrtwOp op) { return emitUnaryMode(op, "fsqrtw", op.getFloatmode()); })
         .Case([&](FrintdOp op) { return emitUnaryMode(op, "frintd", op.getFloatmode()); })
         .Case([&](FrintwOp op) { return emitUnaryMode(op, "frintw", op.getFloatmode()); })
+        // `taild` is a compare in shape -- two registers, a register result,
+        // a dotted modifier -- so it prints through the same helper. Its
+        // modifier is the lane count rather than a predicate:
+        // `taild.v4 $rW = $rZ, $rY` (lvx_v2 reference assembly line 2670).
+        .Case([&](TaildOp op) {
+          return emitCompare(op, "taild", stringifyLanecount(op.getLanecount()));
+        })
         // Comparisons (dotted predicate).
         // All four comparisons are generated now and name the attribute
         // after the MDS modifier -- `intcomp` for the integer pair,

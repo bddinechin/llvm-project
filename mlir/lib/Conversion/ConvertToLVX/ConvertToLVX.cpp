@@ -1100,12 +1100,13 @@ struct VectorMaskConstantToLVX : public OpConversionPattern<arith::ConstantOp> {
     if (vecTy.getRank() != 1)
       return rewriter.notifyMatchFailure(op, "only a 1-D mask has a register");
     unsigned lanes = vecTy.getNumElements();
-    if (lanes > 64)
-      return rewriter.notifyMatchFailure(op, "more lanes than a register bits");
     auto dense = dyn_cast<DenseIntElementsAttr>(op.getValue());
     if (!dense)
       return rewriter.notifyMatchFailure(op, "not a dense constant");
-    Type regTy = getTypeConverter()->convertType(vecTy);
+    // See the note in `VectorConstantMaskToLVX`: ask for a register type, not
+    // a non-null one, and let that stand in for the lane-count guard.
+    auto regTy =
+        dyn_cast_or_null<lvx::RegisterType>(getTypeConverter()->convertType(vecTy));
     if (!regTy)
       return rewriter.notifyMatchFailure(op, "no register for this mask");
 
@@ -2244,9 +2245,14 @@ struct VectorConstantMaskToLVX
     if (vecTy.getRank() != 1 || dims.size() != 1)
       return rewriter.notifyMatchFailure(op, "only a 1-D mask has a register");
     unsigned lanes = vecTy.getNumElements();
-    if (lanes > 64)
-      return rewriter.notifyMatchFailure(op, "more lanes than a register bits");
-    Type regTy = getTypeConverter()->convertType(vecTy);
+    // A register type, not merely a non-null one -- `convertType`'s identity
+    // fallback hands back the vector type for a shape it cannot place, so
+    // `!regTy` never fires and the builder below would assert on it. This
+    // subsumes a lane-count guard: the converter accepts 2 to 32 lanes and
+    // powers of two, so asking it is stricter than asking whether 64 bits
+    // would hold the mask.
+    auto regTy =
+        dyn_cast_or_null<lvx::RegisterType>(getTypeConverter()->convertType(vecTy));
     if (!regTy)
       return rewriter.notifyMatchFailure(op, "no register for this mask");
     uint64_t active = std::min<int64_t>(dims[0], lanes);
@@ -2317,8 +2323,10 @@ struct VectorCreateMaskToLVX : public OpConversionPattern<vector::CreateMaskOp> 
     if (!lanecount)
       return rewriter.notifyMatchFailure(op, "no lanecount for this mask");
     Type regTy = getTypeConverter()->convertType(vecTy);
-    if (!regTy)
+    auto regType = dyn_cast_or_null<lvx::RegisterType>(regTy);
+    if (!regType)
       return rewriter.notifyMatchFailure(op, "no register for this mask");
+
     Location loc = op.getLoc();
     Value count = adaptor.getOperands()[0];
     Value low = rewriter.create<lvx::MaxdImmOp>(loc, regTy, count,

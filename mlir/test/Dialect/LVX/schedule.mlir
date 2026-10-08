@@ -223,3 +223,24 @@ lvx_func.func @lsu_bound(%s: !lvx.reg<r1>, %m: !lvx.reg<r2>, %p: !lvx.reg<r4>,
   %z = lvx.masked_load %m, %t, 0 : i64 : (!lvx.reg<r2>, !lvx.reg<r8>) -> !lvx.pair<r18r19>
   lvx_func.return %a : !lvx.reg<r0>
 }
+
+// -----
+
+// A fifth does not fit, and the reason is `tiny`, not `IMMX`: five ALU ops
+// want five of the four TINY slots. On this machine IMMX binds only with a
+// `BCU2_X` in the bundle -- 1 IMMX and no TINY slot, availability 2, so the
+// reachable ceiling is 10 against an availability of 8.
+// CHECK-LABEL: lvx_func.func @tiny_budget
+// CHECK: lvx.addd_i {{.*}}cycle = 0
+// CHECK: lvx.addd_i {{.*}}cycle = 0
+// CHECK: lvx.addd_i {{.*}}cycle = 0
+// CHECK: lvx.addd_i {{.*}}cycle = 0
+// CHECK: lvx.addd_i {{.*}}cycle = 1
+lvx_func.func @tiny_budget(%s: !lvx.reg<r1>) -> !lvx.reg<r0> {
+  %a = lvx.addd_i %s, 1 : i64 : (!lvx.reg<r1>) -> !lvx.reg<r0>
+  %b = lvx.addd_i %s, 2 : i64 : (!lvx.reg<r1>) -> !lvx.reg<r7>
+  %c = lvx.addd_i %s, 3 : i64 : (!lvx.reg<r1>) -> !lvx.reg<r8>
+  %d = lvx.addd_i %s, 4 : i64 : (!lvx.reg<r1>) -> !lvx.reg<r9>
+  %e = lvx.addd_i %s, 5 : i64 : (!lvx.reg<r1>) -> !lvx.reg<r10>
+  lvx_func.return %a : !lvx.reg<r0>
+}
