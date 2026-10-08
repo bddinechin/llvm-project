@@ -190,6 +190,15 @@ def LVXItineraries : ProcessorItineraries<[
 
 def LVXModel : SchedMachineModel {
   let Itineraries = LVXItineraries;
+
+  // Run the post-RA scheduler.  TargetSubtargetInfo::enablePostRAScheduler
+  // reads exactly this field, and with an itinerary present the generic
+  // pipeline drives it through a ScoreboardHazardRecognizer -- which consumes
+  // the InstrStage FuncUnits above, so the scheduler avoids the same
+  // structural hazards LVXBundler refuses to pack.  Without it the bundler
+  // sees only what the register allocator happened to leave adjacent.
+  let PostRAScheduler = 1;
+
   let CompleteModel = 0;
 }
 
