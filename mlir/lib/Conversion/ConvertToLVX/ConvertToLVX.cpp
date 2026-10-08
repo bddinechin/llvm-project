@@ -2151,9 +2151,43 @@ static Value createWideBlend(ConversionPatternRewriter &rewriter, Location loc,
                                         ValueRange{half[0], half[1]});
 }
 
-/// Is `v` a vector constant of all zeros? Asked of the *original* operand, so
-/// the constant is still an `arith.constant` here.
-static bool isZeroVector(Value v) {
+/// Is `v` a scalar zero constant?
+static bool isZeroScalar(Value v) {
+  auto constant = v.getDefiningOp<arith::ConstantOp>();
+  if (!constant)
+    return false;
+  if (auto f = dyn_cast<FloatAttr>(constant.getValue()))
+    return f.getValue().isZero();
+  if (auto i = dyn_cast<IntegerAttr>(constant.getValue()))
+    return i.getValue().isZero();
+  return false;
+}
+
+/// Does a masked load's `pass_thru` of `v` need no restoring blend? Asked of
+/// the *original* operand, so a constant is still an `arith.constant` here.
+///
+/// `maskm` zeroes the lanes it does not read -- it has no merge form, by
+/// design -- so the blend exists only to put the pass-thru back. Three
+/// spellings make it unnecessary, and a vectorised loop produces the third:
+///
+///   - an all-zero constant vector, `dense<0.0>`, which is what the masked
+///     load already leaves behind. A hand-written kernel says this;
+///   - a `vector.broadcast` of a zero scalar, which is the same thing one
+///     step earlier -- the padding of a `vector.transfer_read` is a *scalar*,
+///     and the transfer lowering broadcasts it to make the `pass_thru`;
+///   - `ub.poison`, where the lanes are not merely zero but unconstrained:
+///     any value refines poison, so zeroes are a legal result and nothing has
+///     to be restored. This is what `affine-super-vectorize` emits for the
+///     padding, and after canonicalization folds `broadcast(poison)` into a
+///     poison vector it is what actually arrives.
+///
+/// Missing these cost two ops per masked load -- a `splat*q` and a `blend*`
+/// -- to rebuild what the hardware had already produced.
+static bool passThruNeedsNoBlend(Value v) {
+  if (v.getDefiningOp<ub::PoisonOp>())
+    return true;
+  if (auto broadcast = v.getDefiningOp<vector::BroadcastOp>())
+    return isZeroScalar(broadcast.getSource());
   auto constant = v.getDefiningOp<arith::ConstantOp>();
   if (!constant)
     return false;
@@ -2417,7 +2451,7 @@ struct VectorMaskedLoadToLVX
         laneMaskToByteEnables(rewriter, loc, adaptor.getMask(), bytes);
     Value loaded = rewriter.create<lvx::MaskedLoadOp>(
         loc, tupleTy, enables, *address, rewriter.getI64IntegerAttr(0));
-    if (isZeroVector(op.getPassThru())) {
+    if (passThruNeedsNoBlend(op.getPassThru())) {
       rewriter.replaceOp(op, loaded);
       return success();
     }

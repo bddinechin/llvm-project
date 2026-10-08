@@ -24,6 +24,7 @@
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
 #include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
 #include "mlir/Dialect/Vector/Transforms/VectorTransforms.h"
+#include "mlir/Dialect/Vector/Utils/VectorUtils.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir {
@@ -280,6 +281,57 @@ static std::optional<SmallVector<int64_t>> lvxNativeShape(Operation *op) {
   return native;
 }
 
+/// An out-of-bounds 1-D transfer gets an explicit lane mask: lanes
+/// `[0, dim - offset)` active, which is exactly `vector.create_mask` of the
+/// elements remaining.
+///
+/// `vector.transfer_read`/`write` are bounds-checked by definition -- absent
+/// an `in_bounds` attribute they are *assumed* to run off the end -- and
+/// `affine-super-vectorize` leaves them that way when it strip-mines a loop
+/// whose trip count does not divide the vector length. So the last iteration
+/// of `for 0 to 13 step 4` addresses lanes 12..15 of a 13-element memref, and
+/// the mask is what makes that legal. (linalg vectorization instead wraps the
+/// transfer in `vector.mask`, which stage 1d above already handles.)
+///
+/// Narrow by construction: rank 1, and only the minor dimension's bound. A
+/// higher-rank transfer is unrolled to rank 1 before this runs, and a
+/// non-minor out-of-bounds dimension would need a mask per dimension, which
+/// no LVX access takes.
+template <typename XferOp>
+struct MaskOutOfBoundsTransfer : public OpRewritePattern<XferOp> {
+  using OpRewritePattern<XferOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(XferOp xferOp,
+                                PatternRewriter &rewriter) const override {
+    if (!xferOp.hasOutOfBoundsDim())
+      return failure();
+    VectorType vecTy = xferOp.getVectorType();
+    if (vecTy.getRank() != 1 || vecTy.isScalable() || xferOp.getIndices().empty())
+      return failure();
+
+    Location loc = xferOp.getLoc();
+    unsigned minor = llvm::size(xferOp.getIndices()) - 1;
+    Value offset = xferOp.getIndices()[minor];
+    Value dim = vector::createOrFoldDimOp(rewriter, loc, xferOp.getBase(),
+                                          minor);
+    Value remaining =
+        arith::SubIOp::create(rewriter, loc, dim.getType(), dim, offset);
+    Value mask = vector::CreateMaskOp::create(
+        rewriter, loc, VectorType::get(vecTy.getShape(), rewriter.getI1Type()),
+        remaining);
+    // An existing mask is intersected, not replaced: a `vector.mask` wrapper
+    // that stage 1d turned into an operand says which lanes the *program*
+    // wants, and the bound says which lanes exist. Both must hold.
+    if (Value had = xferOp.getMask())
+      mask = arith::AndIOp::create(rewriter, loc, had, mask);
+
+    rewriter.modifyOpInPlace(xferOp, [&]() {
+      xferOp.getMaskMutable().assign(mask);
+      xferOp.setInBoundsAttr(rewriter.getBoolArrayAttr({true}));
+    });
+    return success();
+  }
+};
+
 struct LVXLowerVectorTransfersPass
     : public lvx::impl::LVXLowerVectorTransfersPassBase<
           LVXLowerVectorTransfersPass> {
@@ -392,6 +444,42 @@ struct LVXLowerVectorTransfersPass
     }
 
     RewritePatternSet patterns(&getContext());
+    // 2a. A transfer that may run off the end of its memref gets a mask.
+    //
+    // This is the loop tail, and it is the one case `affine-super-vectorize`
+    // leaves for us to handle rather than wrapping in `vector.mask` the way
+    // linalg does: it strip-mines `for 0 to 13` into `step 4` and leaves
+    // bare, bounds-unchecked transfers, so the last iteration addresses lanes
+    // 12..15 of a 13-element memref. `vector.transfer_read`/`write` are
+    // bounds-checked ops by definition -- absent `in_bounds` they are
+    // *assumed* out of bounds -- so this is not the vectorizer being wrong,
+    // it is the contract saying the mask is the lowering's job.
+    //
+    // Without this the pipeline refused the loop: upstream's
+    // `TransferReadToVectorLoadLowering` declines an out-of-bounds transfer
+    // ("out-of-bounds needs mask") and `-convert-to-lvx` then has no pattern
+    // for what is left, so a trip count that did not divide the vector length
+    // failed to legalize. It failed loudly rather than reading past the end,
+    // which is the right failure, but it meant only exact multiples
+    // vectorized.
+    //
+    // `MaskOutOfBoundsTransfer` makes the mask `create_mask(dim - offset)`,
+    // marks the transfer in-bounds, and the lowering below then produces
+    // `vector.maskedload`/`maskedstore` -- which this back end has at both
+    // tuple widths, `maskm.mt lq` and `lo`.
+    //
+    // Ours rather than upstream's `populateVectorMaskMaterializationPatterns`,
+    // which does the same job and then undoes it: that set bundles
+    // `VectorCreateMaskOpConversion`, which rewrites every 1-D `create_mask`
+    // into `broadcast(n) sgt [0,1,2,...]` -- an index-vector comparison for
+    // targets with no mask instruction. LVX has one, and `create_mask` is a
+    // single `taild`, so arriving at the comparison would be a loss twice
+    // over: the compare is on `vector<4xi64>`, a *quad*, to produce a 4-lane
+    // mask for an f32 vector. Measured before this was ours: broadcast +
+    // `cmpi` on a quad in place of one `taild`.
+    patterns.add<MaskOutOfBoundsTransfer<vector::TransferReadOp>,
+                 MaskOutOfBoundsTransfer<vector::TransferWriteOp>>(
+        &getContext(), /*benefit=*/4);
     vector::populateVectorTransferPermutationMapLoweringPatterns(patterns,
                                                                  /*benefit=*/3);
     vector::populateScalarVectorTransferLoweringPatterns(
