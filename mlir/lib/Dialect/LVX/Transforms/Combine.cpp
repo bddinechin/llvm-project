@@ -21,6 +21,7 @@
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
 #include "mlir/Dialect/LVX/IR/LVXImmediates.h"
+#include "mlir/Dialect/LVXSCF/IR/LVXSCF.h"
 
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -310,6 +311,107 @@ struct FoldSplatConstantIntoImmediate : public RewritePattern {
   }
 };
 
+/// Is `v` a value this pass can prove is not negative?
+///
+/// The whole correctness of `FoldTaildFromZeroBase` rests on this, so it is
+/// deliberately narrow and structural: the two forms a vectorized loop's
+/// bound and index actually take, each non-negative by construction rather
+/// than by arithmetic.
+///
+/// Not `ValueBoundsConstraintSet`, which would be more general: its reasoning
+/// lives in external interface models that have to be registered, and when
+/// they are not it answers "unknown" rather than failing -- so the fold would
+/// silently stop happening depending on how the tool was assembled. A
+/// structural check either matches or does not, and a lit test says which.
+static bool isKnownNonNegative(Value v, unsigned depth = 0) {
+  if (depth > 4) // a lower bound built from a lower bound built from...
+    return false;
+  // A materialised constant that is not negative.
+  if (auto li = v.getDefiningOp<LiOp>())
+    if (auto attr = dyn_cast_or_null<IntegerAttr>(li.getValueAttr()))
+      return !attr.getValue().isNegative();
+  // A loop's induction variable, if the loop starts at a non-negative bound.
+  // This is why the fold lives here and not in `-convert-to-lvx`: during the
+  // conversion the loop body's block is detached, so the induction variable
+  // cannot be recognised as one (its block's parent operation is null).
+  if (auto arg = dyn_cast<BlockArgument>(v))
+    if (auto forOp =
+            dyn_cast_or_null<lvx_scf::ForOp>(arg.getOwner()->getParentOp()))
+      if (arg == forOp.getInductionVar())
+        return isKnownNonNegative(forOp.getLowerBound(), depth + 1);
+  return false;
+}
+
+/// `taild(0, max(dim - offset, 0))` -> `taild(offset, dim)`.
+///
+/// `taild` already takes a base -- lane *i* is active iff
+/// `base + i <u bound` -- so a mask counted from zero over a subtracted bound
+/// is doing by hand what the instruction does itself. Three instructions and
+/// two cycles fewer per iteration, and the shape is not hypothetical: it is
+/// what every masked loop tail lowers to, `-lvx-lower-vector-transfers`
+/// masking an out-of-bounds transfer with `create_mask(dim - offset)` and
+/// `-convert-to-lvx` turning that into `sbfd` + `maxd_i` + `li 0` + `taild`.
+///
+/// Sound only when **both** `dim` and `offset` are non-negative, and the
+/// failure otherwise is a wrong mask rather than a crash, so the condition is
+/// checked. With `n = dim - offset`:
+///
+///   - `dim >= 0, offset >= 0`: the clamped form gives lane *i* iff `i < n`;
+///     `taild(offset, dim)` gives `offset + i <u dim`, and both being
+///     non-negative the unsigned compare is the signed one, so `i < n`. The
+///     same. This covers `offset > dim`, where `n` is negative: the clamp
+///     makes it zero and activates nothing, and `taild` finds
+///     `offset + i <u dim` false for every lane. Also the same.
+///   - `offset < 0`: `n > dim`, so the clamped form activates *every* lane
+///     (`taild` clears above its lane count, so a bound past the end is the
+///     full mask). `taild(offset, dim)` reads `offset` as a huge unsigned and
+///     activates *none*. The exact inverse.
+///   - `dim < 0`: the clamped form activates nothing; `taild`'s bound is a
+///     huge unsigned and it activates everything. Inverse again.
+///
+/// No overflow concern in the surviving case: `taild` forms `base + i` at 65
+/// bits precisely so it cannot wrap into a lane that should be off.
+struct FoldTaildFromZeroBase : public OpRewritePattern<TaildOp> {
+  using OpRewritePattern<TaildOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(TaildOp op,
+                                PatternRewriter &rewriter) const override {
+    // The base must be a materialised zero.
+    auto base = op.getLhs().getDefiningOp<LiOp>();
+    if (!base)
+      return failure();
+    auto baseAttr = dyn_cast_or_null<IntegerAttr>(base.getValueAttr());
+    if (!baseAttr || !baseAttr.getValue().isZero())
+      return failure();
+
+    // The bound must be the clamp over a subtraction. `lvx.sbfd(a, b)` is
+    // `a - b` in the dialect -- the emitter swaps the operands for the ISA's
+    // "the %2 is subtracted from the %3" order -- so the dimension is the
+    // left operand and the offset the right, as in the `arith.subi` it came
+    // from.
+    auto clamp = op.getRhs().getDefiningOp<MaxdImmOp>();
+    if (!clamp)
+      return failure();
+    // `getSigned10()` hands back the immediate as a `TypedAttr`, so compare
+    // the value and not the attribute: `getSigned10() != 0` tests the
+    // attribute against a null one and is therefore always true.
+    auto clampAttr = dyn_cast_or_null<IntegerAttr>(clamp.getSigned10());
+    if (!clampAttr || !clampAttr.getValue().isZero())
+      return failure();
+    auto sub = clamp.getOperand().getDefiningOp<SbfdOp>();
+    if (!sub)
+      return failure();
+
+    Value dim = sub.getLhs(), offset = sub.getRhs();
+    if (!isKnownNonNegative(dim) || !isKnownNonNegative(offset))
+      return rewriter.notifyMatchFailure(
+          op, "cannot prove the dimension and offset are non-negative");
+
+    rewriter.replaceOpWithNewOp<TaildOp>(op, op.getType(), op.getLanecount(),
+                                         offset, dim);
+    return success();
+  }
+};
+
 struct LVXCombinePass
     : public lvx::impl::LVXCombinePassBase<LVXCombinePass> {
   void runOnOperation() override {
@@ -317,7 +419,8 @@ struct LVXCombinePass
     patterns.add<FoldMulAddToAddxD, FoldMulAddToAddxW,
                  DropRedundantZxwd, FoldSxwdIntoW,
                  FoldEorToNotD, FoldEorToNotW,
-                 FoldSplatConstantIntoImmediate>(&getContext());
+                 FoldSplatConstantIntoImmediate,
+                 FoldTaildFromZeroBase>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
       signalPassFailure();
   }

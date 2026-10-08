@@ -168,3 +168,63 @@ lvx_func.func @fold_eor_to_not_keeps_sx(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %2 = lvx.mv %1 : (!lvx.reg) -> !lvx.reg<r0>
   lvx_func.return %2 : !lvx.reg<r0>
 }
+
+// -----
+
+// `taild(0, max(dim - offset, 0))` -> `taild(offset, dim)`: the loop-tail mask
+// in one instruction instead of four.
+//
+// `taild` takes a base -- lane *i* active iff `base + i <u bound` -- so
+// counting from a materialised zero over a subtracted, clamped bound is doing
+// by hand what the instruction does. This is what every masked loop tail
+// lowers to before the fold: `-lvx-lower-vector-transfers` masks an
+// out-of-bounds transfer with `create_mask(dim - offset)` and
+// `-convert-to-lvx` turns that into `sbfd` + `maxd_i` + `li 0` + `taild`.
+//
+// Sound only when `dim` and `offset` are both non-negative -- see the pattern
+// for the case analysis; with a negative offset the two forms are exact
+// inverses. Here `dim` is `lvx.li 13` and `offset` is the loop's induction
+// variable over a lower bound of `lvx.li 0`.
+// CHECK-LABEL: lvx_func.func @taild_tail
+// CHECK: lvx_scf.for
+// CHECK: lvx.taild v4 %arg{{[0-9]+}}, %{{[0-9]+}}
+// CHECK-NOT: lvx.sbfd
+// CHECK-NOT: lvx.maxd_i
+lvx_func.func @taild_tail(%base: !lvx.reg<r0>) {
+  %lb = lvx.li 0 : index : !lvx.reg
+  %ub = lvx.li 13 : index : !lvx.reg
+  %st = lvx.li 4 : index : !lvx.reg
+  lvx_scf.for %lb : !lvx.reg to %ub : !lvx.reg step %st : !lvx.reg {
+  ^bb0(%i: !lvx.reg):
+    %n = lvx.sbfd %ub, %i : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    %c = lvx.maxd_i %n, 0 : i64 : (!lvx.reg) -> !lvx.reg
+    %z = lvx.li 0 : i64 : !lvx.reg
+    %m = lvx.taild v4 %z, %c : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    %e = lvx.extb4d %m : (!lvx.reg) -> !lvx.reg
+    %v = lvx.masked_load %e, %base, 0 : i64 : (!lvx.reg, !lvx.reg<r0>) -> !lvx.pair
+    lvx.masked_store %v, %e, %base, 0 : i64 : (!lvx.pair, !lvx.reg, !lvx.reg<r0>)
+    lvx_scf.yield
+  }
+  lvx_func.return
+}
+
+// -----
+
+// Not folded: the offset is a function argument, so nothing says it is
+// non-negative, and with a negative offset `taild(offset, dim)` activates no
+// lane where the clamped form activates every one. The four-op form stands.
+// CHECK-LABEL: lvx_func.func @taild_unproven_offset
+// CHECK: lvx.sbfd
+// CHECK: lvx.maxd_i
+// CHECK: lvx.taild v4 %{{[0-9]+}}, %{{[0-9]+}}
+lvx_func.func @taild_unproven_offset(%base: !lvx.reg<r0>, %off: !lvx.reg<r1>) {
+  %ub = lvx.li 13 : index : !lvx.reg
+  %n = lvx.sbfd %ub, %off : (!lvx.reg, !lvx.reg<r1>) -> !lvx.reg
+  %c = lvx.maxd_i %n, 0 : i64 : (!lvx.reg) -> !lvx.reg
+  %z = lvx.li 0 : i64 : !lvx.reg
+  %m = lvx.taild v4 %z, %c : (!lvx.reg, !lvx.reg) -> !lvx.reg
+  %e = lvx.extb4d %m : (!lvx.reg) -> !lvx.reg
+  %v = lvx.masked_load %e, %base, 0 : i64 : (!lvx.reg, !lvx.reg<r0>) -> !lvx.pair
+  lvx.masked_store %v, %e, %base, 0 : i64 : (!lvx.pair, !lvx.reg, !lvx.reg<r0>)
+  lvx_func.return
+}

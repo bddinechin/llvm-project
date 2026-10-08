@@ -2411,6 +2411,12 @@ struct VectorCreateMaskToLVX : public OpConversionPattern<vector::CreateMaskOp> 
                                                 rewriter.getI64IntegerAttr(0));
     Value zero =
         rewriter.create<lvx::LiOp>(loc, regTy, rewriter.getI64IntegerAttr(0));
+    // `-lvx-combine` folds this to `taild(offset, dim)` when the count came
+    // from `dim - offset` with both non-negative, which is the loop-tail
+    // shape: three instructions fewer. It cannot be done here -- at
+    // conversion time the enclosing loop's body block is detached, so the
+    // induction variable cannot be recognised as one (measured: its block's
+    // parent operation is null).
     rewriter.replaceOpWithNewOp<lvx::TaildOp>(op, regTy, *lanecount, zero, low);
     return success();
   }
