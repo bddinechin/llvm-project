@@ -1576,8 +1576,24 @@ struct VectorBinaryToLVX : public OpConversionPattern<SourceOp> {
       rewriter.replaceOp(op, result);
       return success();
     }
+    // A quad whose operand is a splat of a scalar: the ISA splats into a pair
+    // only, so `VectorBroadcastToLVX` leaves a quad broadcast as the pair
+    // splat and relies on the consumer reading it whole. A composite does --
+    // each of its parts takes the pair source entire -- but it has to be
+    // handed the pair rather than the unresolved pair-to-quad cast the
+    // framework inserts, which is what `pairSplatOf` supplies.
+    //
+    // `vector.fma` has done this since the 8-lane matmul; the plain binaries
+    // had not, so a 256-bit `arith.mulf` against a broadcast scalar failed to
+    // legalize -- "existing live user: lvx.fmulwo ... (!lvx.quad, !lvx.quad)".
+    // PolyBench's gemm at VEC=8 is the first kernel here to ask for it:
+    // `alpha * A[i][k]` is exactly that shape.
+    Value cLhs = pairSplatOf(rewriter, loc, *this->getTypeConverter(), lhs,
+                             op.getLhs());
+    Value cRhs = pairSplatOf(rewriter, loc, *this->getTypeConverter(), rhs,
+                             op.getRhs());
     if (Value composite = byWidthBinary<QB, QH, QW, QD>(bits, rewriter, loc,
-                                                        tupleTy, lhs, rhs)) {
+                                                        tupleTy, cLhs, cRhs)) {
       rewriter.replaceOp(op, composite);
       return success();
     }
