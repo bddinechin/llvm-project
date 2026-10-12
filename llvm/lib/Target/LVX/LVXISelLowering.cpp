@@ -372,8 +372,7 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
     // No hardware for these; they are libm calls in C anyway.
     for (unsigned Op : {ISD::FREM, ISD::FSIN, ISD::FCOS, ISD::FSINCOS,
                         ISD::FPOW, ISD::FEXP, ISD::FEXP2, ISD::FLOG,
-                        ISD::FLOG2, ISD::FLOG10, ISD::FCEIL, ISD::FFLOOR,
-                        ISD::FTRUNC, ISD::FROUND, ISD::FNEARBYINT})
+                        ISD::FLOG2, ISD::FLOG10})
       setOperationAction(Op, VT, Expand);
 
     // There IS hardware for these, and until now nothing said so. LVX has both
@@ -391,10 +390,26 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
     // connects the two.
     //
     // FRINT rounds by the current mode, which is exactly what FRINTD does with
-    // floatmode=7. FNEARBYINT stays Expand above: it differs precisely in not
-    // raising inexact, and nothing here suppresses that flag.
+    // floatmode=7.
+    //
+    // The other six rounding functions are FROUNDD, which is "FRINTD without
+    // the inexact exception" -- IEEE-754's roundToIntegral against FRINT's
+    // roundToIntegralExact -- with the direction in the same floatmode
+    // modifier, so each is one instruction and the patterns in
+    // LVXInstrInfo.td spell out which modifier each ISD node takes. That is
+    // precisely why FRINT cannot implement them: floor, ceil, trunc, round,
+    // roundeven and nearbyint are exact operations that must not raise
+    // inexact, and rint is defined to raise it.
+    //
+    // These were Expand until 2026-10-12, which was worse than slow: LVX has
+    // no libcall table, so "ffloor" did not become a call to floor() but an
+    // `error: no libcall available for ffloor' and an `icall $r0' -- a
+    // diagnostic the compiler kept going past. lvx-gcc gained the same six on
+    // 2026-10-11 (the FROUND* instructions themselves are lvx-mds d7116fb).
     for (unsigned Op : {ISD::FMINNUM, ISD::FMAXNUM, ISD::FMINIMUM,
-                        ISD::FMAXIMUM, ISD::FRINT})
+                        ISD::FMAXIMUM, ISD::FRINT, ISD::FFLOOR, ISD::FCEIL,
+                        ISD::FTRUNC, ISD::FROUND, ISD::FROUNDEVEN,
+                        ISD::FNEARBYINT})
       setOperationAction(Op, VT, Legal);
 
     // FMA is Legal: FFMAD/FFMAW accumulate INTO their destination register
@@ -438,13 +453,16 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   setCondCodeAction(ISD::SETO, MVT::f16, Expand);
   setCondCodeAction(ISD::SETUO, MVT::f16, Expand);
 
-  // The same four min/max and FRINT the f32/f64 loop above declares Legal,
-  // for the same reason: both IEEE families have a half-word instruction
-  // (fminh propagates a NaN, fminnh returns the numeric operand) and their
-  // patterns are generated. Saying so explicitly is not redundant -- that
-  // loop runs over f32 and f64 only, and these do not default to Legal.
+  // The same four min/max, FRINT and the six FROUND rounding functions the
+  // f32/f64 loop above declares Legal, for the same reason: both IEEE
+  // families have a half-word instruction (fminh propagates a NaN, fminnh
+  // returns the numeric operand), and so do frinth and frounth. Saying so
+  // explicitly is not redundant -- that loop runs over f32 and f64 only, and
+  // these do not default to Legal.
   for (unsigned Op : {ISD::FMINNUM, ISD::FMAXNUM, ISD::FMINIMUM,
-                      ISD::FMAXIMUM, ISD::FRINT})
+                      ISD::FMAXIMUM, ISD::FRINT, ISD::FFLOOR, ISD::FCEIL,
+                      ISD::FTRUNC, ISD::FROUND, ISD::FROUNDEVEN,
+                      ISD::FNEARBYINT})
     setOperationAction(Op, MVT::f16, Legal);
 
   // NOT promoted, and the exceptions are the interesting part:
@@ -462,8 +480,7 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // No hardware, as for f32/f64: these are libm calls in C.
   for (unsigned Op : {ISD::FREM, ISD::FSIN, ISD::FCOS, ISD::FSINCOS,
                       ISD::FPOW, ISD::FEXP, ISD::FEXP2, ISD::FLOG,
-                      ISD::FLOG2, ISD::FLOG10, ISD::FCEIL, ISD::FFLOOR,
-                      ISD::FTRUNC, ISD::FROUND, ISD::FNEARBYINT})
+                      ISD::FLOG2, ISD::FLOG10})
     setOperationAction(Op, MVT::f16, Promote);
 
   // A half constant is its bit pattern in a GPR, like every other FP

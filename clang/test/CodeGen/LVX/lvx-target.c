@@ -106,3 +106,13 @@ v4di call256(v4di a) { return pass256(a); }
 unsigned long tail_mask(unsigned long i, unsigned long n) {
   return __builtin_lvx_taild(i, n, ".v16");
 }
+
+// STSUD is the other target intrinsic: a division step, whose argument order is
+// the mnemonic's and not the arithmetic's -- the SECOND argument is the running
+// remainder. Same spelling and order as lvx-gcc's builtin, so a divider written
+// once compiles under both.
+// CHECK-LABEL: define {{.*}}@div_step
+// CHECK: call i64 @llvm.lvx.stsud(i64 %{{.*}}, i64 %{{.*}})
+unsigned long div_step(unsigned long divisor, unsigned long rem) {
+  return __builtin_lvx_stsud(divisor, rem);
+}

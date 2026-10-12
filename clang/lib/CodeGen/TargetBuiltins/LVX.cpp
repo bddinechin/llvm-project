@@ -69,6 +69,16 @@ Value *CodeGenFunction::EmitLVXBuiltinExpr(unsigned BuiltinID,
     return Builder.CreateCall(F, {Index, Bound, Builder.getInt64(Enc)});
   }
 
+  // STSUD is a target intrinsic rather than generic IR, which the rest of this
+  // file avoids: generic IR can spell the value but needs six operations where
+  // the ISA has one instruction, and a divide loop is where that matters. See
+  // IntrinsicsLVX.td.
+  if (BuiltinID == LVX::BI__builtin_lvx_stsud) {
+    auto [Z, Y] = Args();
+    Function *F = CGM.getIntrinsic(Intrinsic::lvx_stsud);
+    return Builder.CreateCall(F, {Z, Y});
+  }
+
   switch (BuiltinID) {
   default:
     return nullptr;

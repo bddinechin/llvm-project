@@ -49,6 +49,19 @@ def TailD : LVXBuiltin<"unsigned long int(unsigned long int, unsigned long int, 
   let Spellings = ["__builtin_lvx_taild"];
 }
 
+// STSUD -- one step of a restoring unsigned division,
+// (y >=u z) ? ((y - z) << 1) | 1 : y << 1, where the SECOND argument is the
+// running remainder and the first the divisor: the arithmetic reads in the
+// opposite order from the mnemonic's "stsud $rW = $rZ, $rY". Same spelling and
+// same argument order as lvx-gcc's, so a divider compiles with either
+// compiler. Restored to the ISA on 2026-10-09; the vector members of the family
+// (stsudp/stsudq/stsuwq/stsuho) are lvx-2-only and are not here -- an lvx-2-only
+// instruction cannot be named from the shared hand-written half of the back end,
+// so they wait on MDS generating their patterns.
+def StsuD : LVXBuiltin<"unsigned long int(unsigned long int, unsigned long int)"> {
+  let Spellings = ["__builtin_lvx_stsud"];
+}
+
 def FMinH : LVXBuiltin<"_Float16(_Float16, _Float16)"> {
   let Spellings = ["__builtin_lvx_fminh"];
 }

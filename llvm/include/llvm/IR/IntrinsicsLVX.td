@@ -45,4 +45,29 @@ def int_lvx_taild
                             [IntrNoMem, IntrSpeculatable,
                              ImmArg<ArgIndex<2>>]>;
 
+// STSUD -- one step of a restoring unsigned division:
+//
+//   rW = (rY >=u rZ) ? ((rY - rZ) << 1) | 1 : rY << 1
+//
+// so a divide loop is one instruction per quotient bit: the new remainder is
+// rW >> 1 and the quotient bit is rW & 1. Note the operand order, which the
+// mnemonic prints and this intrinsic keeps: `stsud $rW = $rZ, $rY' subtracts
+// the FIRST source from the SECOND -- the second is the running remainder, the
+// first the divisor. A swap agrees on every input where rY >=u rZ and differs
+// only below that line.
+//
+// This one is a judgement call against the rule above, and worth stating:
+// generic IR CAN spell the value (icmp, sub, two shls, or, select), but not the
+// cost -- six IR operations where the ISA has one instruction, in the inner
+// loop of a divider, which is the only reason the builtin exists. lvx-gcc has
+// had `__builtin_lvx_stsud' on both cores since the instruction was restored
+// (lvx-mds 270d0b5, 2026-10-09). The alternative that would honour both -- emit
+// the generic shape and teach isel to recognise it, so hand-written C divisions
+// benefit too -- is a DAGCombine-shape match, and a fragile one: the `or' with 1
+// and the select both move under combining. If that ever lands, this intrinsic
+// is what it replaces.
+def int_lvx_stsud
+    : DefaultAttrsIntrinsic<[llvm_i64_ty], [llvm_i64_ty, llvm_i64_ty],
+                            [IntrNoMem, IntrSpeculatable]>;
+
 } // let TargetPrefix = "lvx"

@@ -523,6 +523,56 @@ def : Pat<(fabs f32:$a),         (FABSW_FWMO1 f32:$a)>;
 def : Pat<(fneg f16:$a),         (FNEGH_FHMO1 f16:$a)>;
 def : Pat<(fabs f16:$a),         (FABSH_FHMO1 f16:$a)>;
 
+// ---- Rounding to an integral value ---------------------------------------
+//
+// FRINT is rint() and only rint(): IEEE-754's roundToIntegralExact, which
+// raises inexact when the rounding changed the value. Its pattern is
+// generated (floatmode=7, "use $cs.RM"), which is exactly what rint is.
+//
+// The other six rounding functions are FROUND, "FRINTD without the inexact
+// exception" (Instruction.yml) -- roundToIntegral -- with the direction in the
+// floatmode modifier. They are the ones C requires to be exact, and raising
+// inexact is what disqualifies FRINT from implementing any of them.
+//
+// The modifier numbering is the generated one in LVXModifiers.h:
+//
+//   0 .rn  to nearest, ties to even        <- roundeven
+//   1 .rz  toward zero                     <- trunc
+//   2 .rd  downward                         <- floor
+//   3 .ru  upward                           <- ceil
+//   4 .rm  to nearest, ties to max magnitude <- round (C's ties away from zero)
+//   7 ""   the current mode from $cs.RM     <- nearbyint
+//
+// ISD::FROUND is ties AWAY FROM ZERO, so it takes .rm and not .rn -- the one
+// pairing here that is easy to get backwards and that no non-tie input can
+// distinguish. These cannot be written as one multiclass over the modifier:
+// `floatmode' is an Operand<i32>, LVX has no legal i32, and a named operand of
+// that type leaves TableGen with no type to infer (the same reason the TAILD
+// patterns below are written out one per lanecount).
+def : Pat<(froundeven f64:$a), (FROUNDD_FDMO0 f64:$a, 0)>;
+def : Pat<(ftrunc     f64:$a), (FROUNDD_FDMO0 f64:$a, 1)>;
+def : Pat<(ffloor     f64:$a), (FROUNDD_FDMO0 f64:$a, 2)>;
+def : Pat<(fceil      f64:$a), (FROUNDD_FDMO0 f64:$a, 3)>;
+def : Pat<(fround     f64:$a), (FROUNDD_FDMO0 f64:$a, 4)>;
+def : Pat<(fnearbyint f64:$a), (FROUNDD_FDMO0 f64:$a, 7)>;
+
+def : Pat<(froundeven f32:$a), (FROUNDW_FWMO0 f32:$a, 0)>;
+def : Pat<(ftrunc     f32:$a), (FROUNDW_FWMO0 f32:$a, 1)>;
+def : Pat<(ffloor     f32:$a), (FROUNDW_FWMO0 f32:$a, 2)>;
+def : Pat<(fceil      f32:$a), (FROUNDW_FWMO0 f32:$a, 3)>;
+def : Pat<(fround     f32:$a), (FROUNDW_FWMO0 f32:$a, 4)>;
+def : Pat<(fnearbyint f32:$a), (FROUNDW_FWMO0 f32:$a, 7)>;
+
+// The half word has its own instruction, so it is native here too rather than
+// promoted -- widening and narrowing around a rounding that is already exact
+// would be three instructions for one, and the narrowing rounds again.
+def : Pat<(froundeven f16:$a), (FROUNDH_FHMO0 f16:$a, 0)>;
+def : Pat<(ftrunc     f16:$a), (FROUNDH_FHMO0 f16:$a, 1)>;
+def : Pat<(ffloor     f16:$a), (FROUNDH_FHMO0 f16:$a, 2)>;
+def : Pat<(fceil      f16:$a), (FROUNDH_FHMO0 f16:$a, 3)>;
+def : Pat<(fround     f16:$a), (FROUNDH_FHMO0 f16:$a, 4)>;
+def : Pat<(fnearbyint f16:$a), (FROUNDH_FHMO0 f16:$a, 7)>;
+
 // Fused multiply-add. FFMAD computes
 //   result1 = f64_mulAdd(RM, argument3, argument2^fsign, argument1^fsign)
 // i.e. rY * rZ + rW, accumulating into its own destination -- which the
@@ -579,6 +629,22 @@ def : Pat<(int_lvx_taild GPR:$rZ, GPR:$rY, 6),
           (TAILD_DTWRR GPR:$rZ, GPR:$rY, 6)>;
 def : Pat<(int_lvx_taild GPR:$rZ, GPR:$rY, 7),
           (TAILD_DTWRR GPR:$rZ, GPR:$rY, 7)>;
+
+//===----------------------------------------------------------------------===//
+// STSUD -- one step of a restoring unsigned division.
+//
+//   $rW = ($rY >=u $rZ) ? (($rY - $rZ) << 1) | 1 : $rY << 1
+//
+// The operand order is the printed one and the intrinsic keeps it: the SECOND
+// source is the running remainder and the first the divisor, so the arithmetic
+// reads in the opposite order from the syntax. A swap is invisible on every
+// input where $rY >=u $rZ.
+//
+// No modifier, so one pattern is enough. ALU_TINY, no side effects: it bundles
+// like any other arithmetic.
+//===----------------------------------------------------------------------===//
+def : Pat<(int_lvx_stsud GPR:$rZ, GPR:$rY),
+          (STSUD_DWRRS GPR:$rZ, GPR:$rY)>;
 
 // Sign transfer. FSIGNCD is "(argument2 & 0x7FFF…) | (argument3 & 0x8000…)"
 // -- magnitude from $rZ, sign from $rY -- which is exactly ISD::FCOPYSIGN's
