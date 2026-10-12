@@ -1711,13 +1711,15 @@ struct VectorUnaryToLVX : public OpConversionPattern<SourceOp> {
 /// `SourceOp` on a vector, lowered to a packed op that carries a rounding
 /// mode: the round-to-integral family (`fround*`) and `fsqrt*`.
 ///
-/// Mode-carrying is the only difference from `VectorUnaryToLVX`; there is no
-/// composite attempt because the ISA stops at the 128-bit lane shapes for
-/// these -- no `frounddq`, no `fsqrtwo` -- so a quad is always two halves and
-/// an `lvx.concat`, which is what lvx-gcc's 256-bit expanders do as well
-/// (`vector.md`, "there is no frintdq/frintwo/frinthx").
+/// Mode-carrying is the only difference from `VectorUnaryToLVX`, composites
+/// included: `fround{wo,dq}` and `fsqrt{wo,dq}` became `split:` records on
+/// 2026-10-12, so a quad is one op again. The instruction still does not
+/// exist at 256 bits -- the composite *is* the two halves, printed with one
+/// `;;` -- which is why lvx-gcc spells the same thing as a `define_expand`
+/// over both halves in `builtin.md`.
 template <typename SourceOp, typename PB, typename PH, typename PW,
-          typename PD, FloatMode Mode>
+          typename PD, typename QB, typename QH, typename QW, typename QD,
+          FloatMode Mode>
 struct VectorUnaryModeToLVX : public OpConversionPattern<SourceOp> {
   using OpConversionPattern<SourceOp>::OpConversionPattern;
   using OpAdaptor = typename OpConversionPattern<SourceOp>::OpAdaptor;
@@ -1743,6 +1745,11 @@ struct VectorUnaryModeToLVX : public OpConversionPattern<SourceOp> {
       rewriter.replaceOp(op, result);
       return success();
     }
+    if (Value composite = byWidthUnaryMode<QB, QH, QW, QD>(
+            bits, rewriter, loc, tupleTy, operand, mode)) {
+      rewriter.replaceOp(op, composite);
+      return success();
+    }
     Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
     Value half[2];
     for (unsigned k = 0; k != 2; ++k) {
@@ -1763,7 +1770,12 @@ struct VectorUnaryModeToLVX : public OpConversionPattern<SourceOp> {
 /// `arith.shli` gives each lane its own. So a shift by a splat lowers, and a
 /// genuinely per-lane shift does not (the ISA has no equivalent of AVX2's
 /// `vpsllvd`) -- a class-D row of the coverage table.
-template <typename SourceOp, typename PB, typename PH, typename PW, typename PD>
+/// A quad is one composite (`sll{bv,hx,wo,dq}`, lvx-mds 2026-10-12) where the
+/// ISA has one: the shift amount is not a quad, so both parts read the same
+/// register, which is the `file ne "pairedReg"` case BE/MLIR's composite
+/// generator calls "a scalar every part reads".
+template <typename SourceOp, typename PB, typename PH, typename PW, typename PD,
+          typename QB, typename QH, typename QW, typename QD>
 struct VectorShiftToLVX : public OpConversionPattern<SourceOp> {
   using OpConversionPattern<SourceOp>::OpConversionPattern;
   using OpAdaptor = typename OpConversionPattern<SourceOp>::OpAdaptor;
@@ -1806,6 +1818,11 @@ struct VectorShiftToLVX : public OpConversionPattern<SourceOp> {
       if (!result)
         return rewriter.notifyMatchFailure(op, "no shift for this lane width");
       rewriter.replaceOp(op, result);
+      return success();
+    }
+    if (Value composite = byWidthBinary<QB, QH, QW, QD>(bits, rewriter, loc,
+                                                        tupleTy, value, amount)) {
+      rewriter.replaceOp(op, composite);
       return success();
     }
     Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
@@ -1941,11 +1958,12 @@ using VSubIToLVX = VectorBinaryToLVX<arith::SubIOp,
     lvx::SbfbxOp, lvx::SbfhoOp, lvx::SbfwqOp, lvx::SbfdpOp,
     lvx::SbfbvOp, lvx::SbfhxOp, lvx::SbfwoOp, lvx::SbfdqOp>;
 // No 8-bit multiply: only the widening `mulxbho`, which is another op.
-// `mulbx` arrived 2026-09-27; there is still no `mulbv`, so i8x32 is two
-// halves rather than a composite (§7's composite gap).
+// `mulbx` arrived 2026-09-27 and the quad composites on 2026-10-12, so the
+// 256-bit shapes are one op again (§7's composite gap, closed for this
+// family).
 using VMulIToLVX = VectorBinaryToLVX<arith::MulIOp,
     lvx::MulbxOp, lvx::MulhoOp, lvx::MulwqOp, lvx::MuldpOp,
-    NoLaneOp,     NoLaneOp,     NoLaneOp,     NoLaneOp>;
+    lvx::MulbvOp, lvx::MulhxOp, lvx::MulwoOp, lvx::MuldqOp>;
 using VMinSIToLVX = VectorBinaryToLVX<arith::MinSIOp,
     lvx::MinbxOp, lvx::MinhoOp, lvx::MinwqOp, lvx::MindpOp,
     lvx::MinbvOp, lvx::MinhxOp, lvx::MinwoOp, lvx::MindqOp>;
@@ -1959,23 +1977,27 @@ using VMaxUIToLVX = VectorBinaryToLVX<arith::MaxUIOp,
     lvx::MaxubxOp, lvx::MaxuhoOp, lvx::MaxuwqOp, lvx::MaxudpOp,
     lvx::MaxubvOp, lvx::MaxuhxOp, lvx::MaxuwoOp, lvx::MaxudqOp>;
 // The bitwise ops do not care where the lanes are: `andq`/`iorq`/`eorq` are
-// quadword-wide, so one op serves every element type, and a 256-bit vector
-// is two of them.
+// quadword-wide, so one op serves every element type -- and `ando`/`ioro`/
+// `eoro`, the composites added 2026-10-12, serve all four quad shapes the
+// same way.
 using VAndIToLVX = VectorBinaryToLVX<arith::AndIOp,
     lvx::AndqOp, lvx::AndqOp, lvx::AndqOp, lvx::AndqOp,
-    NoLaneOp,    NoLaneOp,    NoLaneOp,    NoLaneOp>;
+    lvx::AndoOp, lvx::AndoOp, lvx::AndoOp, lvx::AndoOp>;
 using VOrIToLVX = VectorBinaryToLVX<arith::OrIOp,
     lvx::IorqOp, lvx::IorqOp, lvx::IorqOp, lvx::IorqOp,
-    NoLaneOp,    NoLaneOp,    NoLaneOp,    NoLaneOp>;
+    lvx::IoroOp, lvx::IoroOp, lvx::IoroOp, lvx::IoroOp>;
 using VXOrIToLVX = VectorBinaryToLVX<arith::XOrIOp,
     lvx::EorqOp, lvx::EorqOp, lvx::EorqOp, lvx::EorqOp,
-    NoLaneOp,    NoLaneOp,    NoLaneOp,    NoLaneOp>;
+    lvx::EoroOp, lvx::EoroOp, lvx::EoroOp, lvx::EoroOp>;
 using VShLIToLVX = VectorShiftToLVX<arith::ShLIOp,
-    lvx::SllbxOp, lvx::SllhoOp, lvx::SllwqOp, lvx::SlldpOp>;
+    lvx::SllbxOp, lvx::SllhoOp, lvx::SllwqOp, lvx::SlldpOp,
+    lvx::SllbvOp, lvx::SllhxOp, lvx::SllwoOp, lvx::SlldqOp>;
 using VShRSIToLVX = VectorShiftToLVX<arith::ShRSIOp,
-    lvx::SrabxOp, lvx::SrahoOp, lvx::SrawqOp, lvx::SradpOp>;
+    lvx::SrabxOp, lvx::SrahoOp, lvx::SrawqOp, lvx::SradpOp,
+    lvx::SrabvOp, lvx::SrahxOp, lvx::SrawoOp, lvx::SradqOp>;
 using VShRUIToLVX = VectorShiftToLVX<arith::ShRUIOp,
-    lvx::SrlbxOp, lvx::SrlhoOp, lvx::SrlwqOp, lvx::SrldpOp>;
+    lvx::SrlbxOp, lvx::SrlhoOp, lvx::SrlwqOp, lvx::SrldpOp,
+    lvx::SrlbvOp, lvx::SrlhxOp, lvx::SrlwoOp, lvx::SrldqOp>;
 using VAbsIToLVX = VectorUnaryToLVX<math::AbsIOp,
     lvx::AbsbxOp, lvx::AbshoOp, lvx::AbswqOp, lvx::AbsdpOp,
     lvx::AbsbvOp, lvx::AbshxOp, lvx::AbswoOp, lvx::AbsdqOp>;
@@ -2041,16 +2063,25 @@ using VAbsFToLVX = VectorUnaryToLVX<math::AbsFOp,
 // Before these, a vectorized loop containing any of them did not lower at
 // all: §6's `math.floor`/`ceil`/`roundeven`/`trunc`/`round` rows were class D
 // at both f32x4 and f64x2, and ranked gap #5 ("SIMD `frint`", 8 rows).
+//
+// The quad column is `fround{wo,dq}`, the composites of 2026-10-12. There is
+// no `froundhx` record -- f16 is out of scope for the table (§1), so the ho
+// column has no quad twin and an f16x16 rounding is still two halves.
 using VRoundEvenToLVX = VectorUnaryModeToLVX<math::RoundEvenOp,
-    NoLaneOp, lvx::FroundhoOp, lvx::FroundwqOp, lvx::FrounddpOp, FloatMode::rn>;
+    NoLaneOp, lvx::FroundhoOp, lvx::FroundwqOp, lvx::FrounddpOp,
+    NoLaneOp, NoLaneOp,        lvx::FroundwoOp, lvx::FrounddqOp, FloatMode::rn>;
 using VMathTruncToLVX = VectorUnaryModeToLVX<math::TruncOp,
-    NoLaneOp, lvx::FroundhoOp, lvx::FroundwqOp, lvx::FrounddpOp, FloatMode::rz>;
+    NoLaneOp, lvx::FroundhoOp, lvx::FroundwqOp, lvx::FrounddpOp,
+    NoLaneOp, NoLaneOp,        lvx::FroundwoOp, lvx::FrounddqOp, FloatMode::rz>;
 using VFloorToLVX = VectorUnaryModeToLVX<math::FloorOp,
-    NoLaneOp, lvx::FroundhoOp, lvx::FroundwqOp, lvx::FrounddpOp, FloatMode::rd>;
+    NoLaneOp, lvx::FroundhoOp, lvx::FroundwqOp, lvx::FrounddpOp,
+    NoLaneOp, NoLaneOp,        lvx::FroundwoOp, lvx::FrounddqOp, FloatMode::rd>;
 using VCeilToLVX = VectorUnaryModeToLVX<math::CeilOp,
-    NoLaneOp, lvx::FroundhoOp, lvx::FroundwqOp, lvx::FrounddpOp, FloatMode::ru>;
+    NoLaneOp, lvx::FroundhoOp, lvx::FroundwqOp, lvx::FrounddpOp,
+    NoLaneOp, NoLaneOp,        lvx::FroundwoOp, lvx::FrounddqOp, FloatMode::ru>;
 using VRoundToLVX = VectorUnaryModeToLVX<math::RoundOp,
-    NoLaneOp, lvx::FroundhoOp, lvx::FroundwqOp, lvx::FrounddpOp, FloatMode::rm>;
+    NoLaneOp, lvx::FroundhoOp, lvx::FroundwqOp, lvx::FrounddpOp,
+    NoLaneOp, NoLaneOp,        lvx::FroundwoOp, lvx::FrounddqOp, FloatMode::rm>;
 // `fsqrt{ho,wq,dp}` (same commit) is a *true* square root, correctly rounded
 // -- not the `fsrsr*` seed -- so `math.sqrt` lowers to it with nothing to
 // qualify: it is the exact answer `math.sqrt` asks for, in one ALU_FULL
@@ -2063,6 +2094,15 @@ using VRoundToLVX = VectorUnaryModeToLVX<math::RoundOp,
 // authorised (VectorCoverage.md §7, "SIMD `fdiv`/`fsqrt`"). That the f64
 // seeds now exist (FSRECDP/FSRSRDP, lvx-mds b267594) changes the sequence
 // available, not the question of whether to emit it unasked.
+//
+// No quad composite, and this one is not an omission: `fsqrt*` is `ALU_FULL`
+// and a bundle has one full unit, so the two halves cannot issue together --
+// a composite asserts that they do, and `ALU_FULLx2` is a reservation no
+// bundle could satisfy. A 256-bit square root is two instructions in two
+// bundles, which is what §6 measures. (lvx-mds refuses the `split:` record
+// now; before that, the `static_assert` in LVXScheduling.h was what caught
+// it.) lvx-gcc has a 256-bit `fsqrtwo` *builtin* all the same: it expands to
+// two independent insns and gcc bundles them wherever they fit.
 using VSqrtToLVX = VectorUnaryToLVX<math::SqrtOp,
     NoLaneOp, lvx::FsqrthoOp, lvx::FsqrtwqOp, lvx::FsqrtdpOp,
     NoLaneOp, NoLaneOp,       NoLaneOp,       NoLaneOp>;
