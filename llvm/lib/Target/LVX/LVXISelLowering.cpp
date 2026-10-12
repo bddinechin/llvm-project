@@ -347,6 +347,21 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // and at 256 bits, where the select becomes two CMOVEQs over the halves.
   setOperationAction(ISD::SELECT_CC, MVT::v4i64, Expand);
 
+  // A 128-bit COMPARISON has to be lowered for the same reason the select
+  // does, and until 2026-10-12 it was not: there is no 128-bit compare
+  // instruction, and i128 being a LEGAL type means the legalizer does not
+  // split the comparison for us. Both nodes were left at the default action
+  // for a legal type -- Legal -- and LVXISelDAGToDAG's hand-written
+  // SETCC/BR_CC cases then selected a single COMPD or CCB on the pair's LOW
+  // half and dropped the high one. Not a crash: `(__int128)1 < (__int128)1<<64`
+  // simply answered false, and `a > b` with it. Expanding here, where the
+  // halves are still visible, is the only place it can be done.
+  setOperationAction(ISD::SETCC, MVT::i128, Custom);
+  // BR_CC's action is read off the COMPARED type, so this is the same
+  // comparison again in branch form; Expand turns it into BRCOND of the
+  // SETCC above, which is then Custom.
+  setOperationAction(ISD::BR_CC, MVT::i128, Expand);
+
   // A switch's jump table. LVX has no dedicated table-branch instruction, so
   // BR_JT is expanded into the generic sequence -- scale the index, add the
   // table base, load the entry, and branch indirectly through it -- and only
@@ -577,6 +592,8 @@ SDValue LVXTargetLowering::LowerOperation(SDValue Op,
     return lowerBuildVectorPacked(Op, DAG);
   case ISD::EXTRACT_VECTOR_ELT:
     return lowerExtractLane(Op, DAG);
+  case ISD::SETCC:
+    return lowerSetCC128(Op, DAG);
   default:
     llvm_unreachable(
         "Unimplemented operation in LVXTargetLowering::LowerOperation");
@@ -869,6 +886,72 @@ SDValue LVXTargetLowering::lowerMul128(SDValue Op, SelectionDAG &DAG) const {
   SDValue Shifted = DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i128,
                                 DAG.getConstant(0, DL, MVT::i64), Cross);
   return DAG.getNode(ISD::ADD, DL, MVT::i128, Lo128, Shifted);
+}
+
+// A 128-bit comparison, out of three 64-bit ones.
+//
+// Equality is the easy half: the values are equal exactly when both halves
+// are, so one OR of the two XORs against zero answers it, and that shape is
+// already two instructions plus the compare.
+//
+// An ordering is the lexicographic one, which for a RELATION rather than a
+// three-way comparison is
+//
+//   a <op> b   ==   (ahi <strict op> bhi) | (ahi == bhi & alo <unsigned op> blo)
+//
+// where the high halves are compared with the signedness of the whole
+// comparison and the low halves always unsigned -- the sign bit of the value
+// lives in the high half, and the low half is magnitude bits whatever the
+// operands' signedness.
+//
+// Note what is NOT done here: the non-strict relations are not built by
+// inverting the strict ones. `a <= b` is `!(b < a)`, but negating a 0/1 value
+// needs a boolean-contents assumption, and the ISA has a `le`/`leu` compare,
+// so asking for the relation directly is both shorter and free of that
+// assumption. Each of the eight orderings is three compares, an and and an or.
+SDValue LVXTargetLowering::lowerSetCC128(SDValue Op, SelectionDAG &DAG) const {
+  SDValue LHS = Op.getOperand(0), RHS = Op.getOperand(1);
+  if (LHS.getValueType() != MVT::i128)
+    return Op; // not ours: every other SETCC is a pattern or Expand
+  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
+  SDLoc DL(Op);
+  EVT VT = Op.getValueType();
+
+  // sub_hi is the LOW half and sub_lo the HIGH one -- the names say which
+  // register of the pair, not which end of the value (see int128.ll).
+  SDValue Alo = DAG.getTargetExtractSubreg(sub_hi, DL, MVT::i64, LHS);
+  SDValue Ahi = DAG.getTargetExtractSubreg(sub_lo, DL, MVT::i64, LHS);
+  SDValue Blo = DAG.getTargetExtractSubreg(sub_hi, DL, MVT::i64, RHS);
+  SDValue Bhi = DAG.getTargetExtractSubreg(sub_lo, DL, MVT::i64, RHS);
+
+  if (CC == ISD::SETEQ || CC == ISD::SETNE) {
+    SDValue Dlo = DAG.getNode(ISD::XOR, DL, MVT::i64, Alo, Blo);
+    SDValue Dhi = DAG.getNode(ISD::XOR, DL, MVT::i64, Ahi, Bhi);
+    SDValue Any = DAG.getNode(ISD::OR, DL, MVT::i64, Dlo, Dhi);
+    return DAG.getSetCC(DL, VT, Any, DAG.getConstant(0, DL, MVT::i64), CC);
+  }
+
+  ISD::CondCode HiCC, LoCC;
+  switch (CC) {
+  case ISD::SETLT:  HiCC = ISD::SETLT;  LoCC = ISD::SETULT; break;
+  case ISD::SETLE:  HiCC = ISD::SETLT;  LoCC = ISD::SETULE; break;
+  case ISD::SETGT:  HiCC = ISD::SETGT;  LoCC = ISD::SETUGT; break;
+  case ISD::SETGE:  HiCC = ISD::SETGT;  LoCC = ISD::SETUGE; break;
+  case ISD::SETULT: HiCC = ISD::SETULT; LoCC = ISD::SETULT; break;
+  case ISD::SETULE: HiCC = ISD::SETULT; LoCC = ISD::SETULE; break;
+  case ISD::SETUGT: HiCC = ISD::SETUGT; LoCC = ISD::SETUGT; break;
+  case ISD::SETUGE: HiCC = ISD::SETUGT; LoCC = ISD::SETUGE; break;
+  default:
+    // The ordered/unordered FP codes cannot reach an i128, and SETTRUE/
+    // SETFALSE are folded long before isel.
+    report_fatal_error("unexpected condition code on a 128-bit comparison");
+  }
+
+  SDValue Hi = DAG.getSetCC(DL, VT, Ahi, Bhi, HiCC);
+  SDValue Eq = DAG.getSetCC(DL, VT, Ahi, Bhi, ISD::SETEQ);
+  SDValue Lo = DAG.getSetCC(DL, VT, Alo, Blo, LoCC);
+  return DAG.getNode(ISD::OR, DL, VT, Hi,
+                     DAG.getNode(ISD::AND, DL, VT, Eq, Lo));
 }
 
 SDValue LVXTargetLowering::lowerShift128(SDValue Op, SelectionDAG &DAG) const {

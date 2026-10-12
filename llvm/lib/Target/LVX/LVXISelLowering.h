@@ -91,6 +91,10 @@ private:
   SDValue lowerBuildVectorPacked(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerExtractLane(SDValue Op, SelectionDAG &DAG) const;
 
+  // A 128-bit comparison, as three 64-bit ones: there is no 128-bit compare
+  // instruction and i128 is a legal type, so nothing else splits it.
+  SDValue lowerSetCC128(SDValue Op, SelectionDAG &DAG) const;
+
   SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const override;
 

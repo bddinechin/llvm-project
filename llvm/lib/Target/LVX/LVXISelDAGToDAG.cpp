@@ -366,6 +366,32 @@ static int getIntcompCode(ISD::CondCode CC) {
   }
 }
 
+// Whether a comparison's operands are the kind the three tables above
+// describe: a 64-bit integer, which after promotion is the only integer a
+// compare can have here.
+//
+// This guard is not defensive, it is load-bearing, and the reason is that
+// ISD::CondCode SHARES ITS ENUM between the unsigned integer relations and the
+// unordered floating-point ones. `ISD::SETULT` is both "unsigned <" and
+// "unordered or <", and `ISD::SETUGE` is both "unsigned >=" and "unordered or
+// >=" -- so `getIntcompCode(SETUGE)` happily returns `.geu` for an *FP*
+// comparison, and the only thing that can tell the two apart is the operand
+// type. Without this check, `if (x < 0.0)` on a double selected
+// `compd.geu` -- an unsigned INTEGER compare of the bit pattern against zero,
+// which is a tautology, so the branch was never taken. It survived because an
+// FP comparison only reaches here as the condition of a BRANCH: used as a
+// value it is matched by LVXInstrInfo.td's FCmpPat, which is typed and gets
+// it right, and that is the form every optimized `?:` takes. Found 2026-10-12
+// by running the differential corpus at -O0, where clang emits the branch.
+//
+// The width half of the test is the same story one type up: i128 is legal
+// here, and a 128-bit comparison selected as COMPD compares the LOW halves
+// only. SETCC/BR_CC on i128 are lowered in LVXISelLowering instead.
+static bool isCompareOnI64(SDValue V) {
+  EVT VT = V.getValueType();
+  return VT.isScalarInteger() && VT.getSizeInBits() <= 64;
+}
+
 static bool isNullConstant(SDValue V) {
   auto *C = dyn_cast<ConstantSDNode>(V);
   return C && C->isZero();
@@ -479,7 +505,7 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     return;
   }
 
-  if (N->getOpcode() == ISD::BR_CC) {
+  if (N->getOpcode() == ISD::BR_CC && isCompareOnI64(N->getOperand(2))) {
     ISD::CondCode CC = cast<CondCodeSDNode>(N->getOperand(1))->get();
     SDValue LHS = N->getOperand(2);
     SDValue RHS = N->getOperand(3);
@@ -546,7 +572,7 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
 
   // ISD::SETCC → "compd.<intcomp> $rW = $rZ, $rY", producing 0 or 1 in a
   // register. This is the comparison used as a value rather than branched on.
-  if (N->getOpcode() == ISD::SETCC) {
+  if (N->getOpcode() == ISD::SETCC && isCompareOnI64(N->getOperand(0))) {
     ISD::CondCode CC = cast<CondCodeSDNode>(N->getOperand(2))->get();
     if (int Cmp = getIntcompCode(CC); Cmp >= 0) {
       SDValue Cmp32 = CurDAG->getTargetConstant(Cmp, DL, MVT::i32);
