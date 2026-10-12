@@ -313,6 +313,50 @@ def : Pat<(rotr GPR:$rZ, uimm6imm:$imm), (RORD_DSWRI GPR:$rZ, uimm6imm:$imm)>;
 // The low half is a register, not an instruction.
 def : Pat<(i64 (trunc GPR128:$rP)), (EXTRACT_SUBREG GPR128:$rP, sub_hi)>;
 
+// Negation and complement are single instructions at this width too, and both
+// have to be written out: the DAG spells them as arithmetic on a constant --
+// `sub 0, x` and `xor x, -1` -- and the generated SBFQ/EORQ patterns match
+// that happily, so without these the i128 forms cost a MAKED, a COPYD to
+// build the constant pair, and the operation. Three instructions for one.
+def : Pat<(sub (i128 0), GPR128:$rP), (NEGQ_QBWR GPR128:$rP)>;
+def : Pat<(not GPR128:$rP),           (NOTQ_QBWR GPR128:$rP)>;
+
+// ---- The 128-bit comparison, COMPQ ------------------------------------------
+//
+// `compq<intcomp> $rM = $rP, $rO' compares two pairs and writes the boolean to
+// a THIRD pair -- the whole 128-bit destination is 0 or 1, so the answer is its
+// low half and reading it is a subregister read, not an instruction. intcomp is
+// the same four-bit modifier COMPD takes, with all twelve relations, so no
+// operand swapping and no inverting: the codes here are getIntcompCode's.
+//
+// This is one ALU_LITE syllable. It replaces a five-instruction lexicographic
+// expansion (compare the high halves, compare them for equality, compare the
+// low halves unsigned, and an AND and an OR to combine) that was written on
+// 2026-10-12 in the belief that COMPD was the widest compare in the ISA -- it
+// is not, and the lesson is to grep the opcode table rather than to infer the
+// surface from what the generated patterns happen to cover. COMPQ is on BOTH
+// cores.
+//
+// The operand order is the printed one: compq.lt $rM = $rP, $rO is rP < rO,
+// confirmed against Behavior_intcomp_128's argument order in the ISS shim.
+// (`cmp', not `code': `code' is a TableGen type keyword and a parameter so
+// named is rejected with "Expected identifier in declaration".)
+multiclass CompQPat<CondCode cc, int cmp> {
+  def : Pat<(i64 (setcc GPR128:$rP, GPR128:$rO, cc)),
+            (EXTRACT_SUBREG (COMPQ_QCWRR GPR128:$rP, GPR128:$rO, cmp),
+                            sub_hi)>;
+}
+defm : CompQPat<SETLT,  0>;   // .lt
+defm : CompQPat<SETGE,  1>;   // .ge
+defm : CompQPat<SETULT, 2>;   // .ltu
+defm : CompQPat<SETUGE, 3>;   // .geu
+defm : CompQPat<SETEQ,  4>;   // .eq
+defm : CompQPat<SETNE,  5>;   // .ne
+defm : CompQPat<SETLE,  8>;   // .le
+defm : CompQPat<SETGT,  9>;   // .gt
+defm : CompQPat<SETULE, 10>;  // .leu
+defm : CompQPat<SETUGT, 11>;  // .gtu
+
 // Widening: the pair's low half is the word, its high half is zero, the
 // sign spread over a word, or don't-care. REG_SEQUENCE rather than catdq
 // so the allocator can build the pair in place -- a word already in $r0 that

@@ -1,80 +1,66 @@
 ; RUN: llc -mtriple=lvx-mbr < %s | FileCheck %s
 
-; A 128-bit comparison, which has no instruction: the ISA's widest compare is
-; COMPD, so the relation is built from three 64-bit ones.
+; The 128-bit integer surface that is one instruction, and the two shapes that
+; have to be written out before they are.
 ;
-; This needs a target lowering precisely because i128 is a LEGAL type here --
-; where it is illegal the legalizer splits the comparison for you. Left at the
-; default action for a legal type, Legal, LVXISelDAGToDAG's hand-written
-; SETCC/BR_CC cases selected ONE compd on the pair's low half and dropped the
-; high one, so `(__int128)1 < (__int128)1 << 64` answered false. Silently: a
-; wrong value, not a diagnostic.
+; COMPQ is the 128-bit compare -- `compq<intcomp> $rM = $rP, $rO', the same
+; four-bit intcomp modifier COMPD takes, so all twelve relations with no
+; operand swap and no inversion. Its destination is a PAIR whose whole 128 bits
+; are 0 or 1, so the answer is the low half and reading it costs nothing.
 ;
-; The shape is the lexicographic relation
-;
-;   a <op> b  ==  (ahi <strict op> bhi) | (ahi == bhi & alo <unsigned op> blo)
-;
-; with the high halves carrying the comparison's signedness and the low halves
-; always unsigned. The non-strict relations are NOT the strict ones inverted --
-; the ISA has le/leu/ge/geu, so asking for the relation directly costs the same
-; and needs no assumption about what a boolean's bits are.
+; This test replaced one that pinned a five-instruction lexicographic expansion,
+; written in the belief that COMPD was the widest compare in the ISA. It is not.
+; What was a real bug underneath that -- and what the execution test
+; validation/tests/micro/i128cmp.c still guards -- is that these were left at a
+; legal type's default action, whereupon isel selected a single COMPD on the
+; pair's LOW half and dropped the high one: `(__int128)1 < (__int128)1 << 64'
+; answered false, silently.
 
 define i64 @slt(i128 %a, i128 %b) {
 ; CHECK-LABEL: slt:
-; CHECK-DAG:     compd.ltu $r{{[0-9]+}} = $r0, $r2
-; CHECK-DAG:     compd.eq $r{{[0-9]+}} = $r1, $r3
-; CHECK-DAG:     compd.lt $r{{[0-9]+}} = $r1, $r3
-; CHECK:         andd
-; CHECK:         iord
+; CHECK:         compq.lt $r0r1 = $r0r1, $r2r3
+; CHECK-NOT:     compd
   %c = icmp slt i128 %a, %b
   %z = zext i1 %c to i64
   ret i64 %z
 }
 
-; The signedness of the whole comparison shows up on the HIGH halves only.
+; The signedness is in the modifier, not in a different expansion.
 define i64 @ult(i128 %a, i128 %b) {
 ; CHECK-LABEL: ult:
-; CHECK-DAG:     compd.ltu $r{{[0-9]+}} = $r0, $r2
-; CHECK-DAG:     compd.ltu $r{{[0-9]+}} = $r1, $r3
+; CHECK:         compq.ltu $r0r1 = $r0r1, $r2r3
   %c = icmp ult i128 %a, %b
   %z = zext i1 %c to i64
   ret i64 %z
 }
 
-; A non-strict relation asks the hardware for itself: ge on the high halves,
-; geu on the low ones, and no negation anywhere.
+; And a non-strict relation is its own intcomp member, not a negation.
 define i64 @uge(i128 %a, i128 %b) {
 ; CHECK-LABEL: uge:
+; CHECK:         compq.geu $r0r1 = $r0r1, $r2r3
 ; CHECK-NOT:     eord
-; CHECK-DAG:     compd.geu $r{{[0-9]+}} = $r0, $r2
-; CHECK-DAG:     compd.gtu $r{{[0-9]+}} = $r1, $r3
   %c = icmp uge i128 %a, %b
   %z = zext i1 %c to i64
   ret i64 %z
 }
 
-; Equality needs no ordering at all: the values are equal exactly when both
-; halves are, so one OR of the two XORs against zero answers it.
 define i64 @eq(i128 %a, i128 %b) {
 ; CHECK-LABEL: eq:
-; CHECK-DAG:     eord $r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
-; CHECK-DAG:     eord $r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
-; CHECK:         iord
-; CHECK:         compd.eq $r{{[0-9]+}} = $r{{[0-9]+}}, 0
+; CHECK:         compq.eq $r0r1 = $r0r1, $r2r3
   %c = icmp eq i128 %a, %b
   %z = zext i1 %c to i64
   ret i64 %z
 }
 
-; In branch form it is the same lowering: BR_CC on an i128 is Expand, so it
-; becomes BRCOND of this SETCC and the branch tests the 0/1 it produces.
-; What must NOT appear is a ccb on half the value.
+; In branch form: BR_CC on an i128 is Expand, because there is no 128-bit
+; compare-and-branch, so the branch tests the boolean COMPQ wrote -- and tests
+; it in the pair's low register, which is where the subregister read lands.
 declare void @sink()
 define void @br_slt(i128 %a, i128 %b) {
 ; CHECK-LABEL: br_slt:
 ; CHECK-NOT:     ccb
-; CHECK:         compd
-; CHECK:         cb.{{deqz|dnez}} $r{{[0-9]+}}?
+; CHECK:         compq.ge $r0r1 = $r0r1, $r2r3
+; CHECK:         cb.dnez $r0?
   %c = icmp slt i128 %a, %b
   br i1 %c, label %yes, label %no
 yes:
@@ -82,4 +68,39 @@ yes:
   ret void
 no:
   ret void
+}
+
+; Negation and complement: the DAG spells them as arithmetic against a constant
+; (`sub 0, x', `xor x, -1'), which the generated SBFQ/EORQ patterns match
+; happily, so each used to cost a MAKED and a COPYD to build the constant pair
+; before the operation -- three instructions for one.
+define i128 @neg(i128 %a) {
+; CHECK-LABEL: neg:
+; CHECK-NOT:     maked
+; CHECK:         negq $r0r1 = $r0r1
+  %r = sub i128 0, %a
+  ret i128 %r
+}
+
+define i128 @nope(i128 %a) {
+; CHECK-LABEL: nope:
+; CHECK-NOT:     maked
+; CHECK:         notq $r0r1 = $r0r1
+  %r = xor i128 %a, -1
+  ret i128 %r
+}
+
+; The bit-counting family has NO 128-bit instruction -- the quadword ALU is
+; ADDQ/SBFQ/NEGQ, the logic ops, the shifts, CMOVEQ/BSELQ and COMPQ, and there
+; is no CLZQ -- so this one is Expand, over operations the pair does have. It is
+; here because on a legal type the default is Legal, and llvm.ctlz.i128 aborted
+; isel with "Cannot select" until 2026-10-12.
+declare i128 @llvm.ctlz.i128(i128, i1)
+define i64 @clz(i128 %a) {
+; CHECK-LABEL: clz:
+; CHECK-NOT:     clzq
+; CHECK:         srlq
+  %r = call i128 @llvm.ctlz.i128(i128 %a, i1 false)
+  %t = trunc i128 %r to i64
+  ret i64 %t
 }
