@@ -380,3 +380,40 @@ lvx_func.func @loop_step2(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %p = lvx.mv %r : (!lvx.reg) -> !lvx.reg<r0>
   lvx_func.return %p : !lvx.reg<r0>
 }
+
+// -----
+
+// The packed round-to-integral and square root, and the zeroing blend --
+// all three print through the arity rule's default path rather than a case
+// of their own, which is what has to be pinned here: the `floatmode`
+// modifier rides on `withModifiers` (one of the four silent wrong answers
+// Phase 6 found was exactly this modifier dropped at emission), and
+// `blendz*` has no tied operand where `blend*` has one, so all three of its
+// registers are printed.
+// CHECK-LABEL: rounding:
+// CHECK-NEXT: lq $r2r3 = 0[$r0]
+// CHECK-NEXT: ;;
+// CHECK-NEXT: froundwq.rd $r4r5 = $r2r3
+// CHECK-NEXT: ;;
+// CHECK-NEXT: blendzwq $r2r3 = $r4r5, $r1
+// CHECK-NEXT: ;;
+// CHECK-NEXT: sq 0[$r0] = $r2r3
+// CHECK-NEXT: ;;
+// CHECK-NEXT: lq $r2r3 = 16[$r0]
+// CHECK-NEXT: ;;
+// CHECK-NEXT: fsqrtdp $r4r5 = $r2r3
+// CHECK-NEXT: ;;
+// CHECK-NEXT: sq 16[$r0] = $r4r5
+// CHECK-NEXT: ;;
+// CHECK-NEXT: ret
+// CHECK-NEXT: ;;
+lvx_func.func @rounding(%base: !lvx.reg<r0>, %mask: !lvx.reg<r1>) {
+  %v = lvx.lq %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.pair
+  %r = lvx.froundwq rd %v : (!lvx.pair) -> !lvx.pair
+  %b = lvx.blendzwq %r, %mask : (!lvx.pair, !lvx.reg<r1>) -> !lvx.pair
+  lvx.sq %b, %base, 0 : i64 : (!lvx.pair, !lvx.reg<r0>)
+  %w = lvx.lq %base, 16 : i64 : (!lvx.reg<r0>) -> !lvx.pair
+  %s = lvx.fsqrtdp %w : (!lvx.pair) -> !lvx.pair
+  lvx.sq %s, %base, 16 : i64 : (!lvx.pair, !lvx.reg<r0>)
+  lvx_func.return
+}

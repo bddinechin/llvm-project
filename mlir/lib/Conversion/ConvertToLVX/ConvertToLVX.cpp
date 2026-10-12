@@ -39,6 +39,7 @@ using namespace mlir;
 using mlir::lvx::BcuCond;
 using mlir::lvx::FloatComp;
 using mlir::lvx::FloatMode;
+using mlir::lvx::FloatModeAttr;
 using mlir::lvx::IntComp;
 using mlir::lvx::RegisterType;
 using mlir::lvx::Register;
@@ -480,21 +481,41 @@ struct FloatUnaryModeToLVX : public OpConversionPattern<SourceOp> {
 // attribute -- so it uses the no-mode unary template, not the mode-carrying
 // one. Only frint's directed variants name a mode.
 using SqrtToLVX = FloatUnaryToLVX<math::SqrtOp, lvx::FsqrtdOp, lvx::FsqrtwOp>;
-// frint's directed modes give the whole round-to-integral family.
-using RoundEvenToLVX = FloatUnaryModeToLVX<math::RoundEvenOp, lvx::FrintdOp,
-                                           lvx::FrintwOp, FloatMode::rn>;
+// `fround`'s directed modes give the whole round-to-integral family, and the
+// family letter is load-bearing: **FROUND, not FRINT**.
+//
+// Both round to an integral value in the floating-point format and take the
+// direction from the `floatmode` modifier. They differ in one flag: FRINT is
+// IEEE-754's roundToIntegralExact and *raises inexact* when the rounding
+// changed the value, FROUND is roundToIntegral and does not
+// (`Instruction.yml`, FROUNDD: "FRINTD without the inexact exception").
+//
+// Every rounding op MLIR has is an exact operation that must not raise
+// inexact -- `math.floor`/`ceil`/`trunc`/`round`/`roundeven` are C's floor,
+// ceil, trunc, round and roundeven, and none of them is rint. So FRINT
+// implements none of them, and until FROUND* landed (lvx-mds d7116fb,
+// 2026-10-11) these five lowered to `frint*` with a directed mode and raised
+// a flag the source does not permit -- invisible on every input whose
+// rounding is exact, which is what made it survive.
+//
+// Nothing here is FRINT's: MLIR has no `rint`/`nearbyint` op (the pair would
+// be `frint` with the CS mode and `fround` with it), so `frint*` is modelled
+// in the dialect and unreachable from this lowering, like `cls`. lvx-gcc
+// draws the same line, pattern for pattern, in `scalar.md`'s `lvx_fround`.
+using RoundEvenToLVX = FloatUnaryModeToLVX<math::RoundEvenOp, lvx::FrounddOp,
+                                           lvx::FroundwOp, FloatMode::rn>;
 // Named for math.trunc (round toward zero) -- distinct from the existing
 // TruncFToLVX, which is arith.truncf, a width narrowing.
-using MathTruncToLVX = FloatUnaryModeToLVX<math::TruncOp, lvx::FrintdOp,
-                                           lvx::FrintwOp, FloatMode::rz>;
-using FloorToLVX     = FloatUnaryModeToLVX<math::FloorOp, lvx::FrintdOp,
-                                           lvx::FrintwOp, FloatMode::rd>;
-using CeilToLVX      = FloatUnaryModeToLVX<math::CeilOp, lvx::FrintdOp,
-                                           lvx::FrintwOp, FloatMode::ru>;
+using MathTruncToLVX = FloatUnaryModeToLVX<math::TruncOp, lvx::FrounddOp,
+                                           lvx::FroundwOp, FloatMode::rz>;
+using FloorToLVX     = FloatUnaryModeToLVX<math::FloorOp, lvx::FrounddOp,
+                                           lvx::FroundwOp, FloatMode::rd>;
+using CeilToLVX      = FloatUnaryModeToLVX<math::CeilOp, lvx::FrounddOp,
+                                           lvx::FroundwOp, FloatMode::ru>;
 // math.round is round-half-away-from-zero, which is `.rm` ("ties to max
 // magnitude"), not `.rn`.
-using RoundToLVX     = FloatUnaryModeToLVX<math::RoundOp, lvx::FrintdOp,
-                                           lvx::FrintwOp, FloatMode::rm>;
+using RoundToLVX     = FloatUnaryModeToLVX<math::RoundOp, lvx::FrounddOp,
+                                           lvx::FroundwOp, FloatMode::rm>;
 //===----------------------------------------------------------------------===//
 // Comparisons
 //===----------------------------------------------------------------------===//
@@ -1515,6 +1536,22 @@ template <> struct LaneUnary<NoLaneOp> {
   }
 };
 
+/// The same, for an op carrying a rounding-mode modifier: `fround*`, `frint*`
+/// and `fsqrt*` take a `floatmode` the lowering chooses, where `fneg`/`fabs`
+/// take none.
+template <typename Op> struct LaneUnaryMode {
+  static Value create(ConversionPatternRewriter &rewriter, Location loc,
+                      Type resultTy, Value operand, FloatModeAttr mode) {
+    return rewriter.create<Op>(loc, resultTy, operand, mode);
+  }
+};
+template <> struct LaneUnaryMode<NoLaneOp> {
+  static Value create(ConversionPatternRewriter &, Location, Type, Value,
+                      FloatModeAttr) {
+    return {};
+  }
+};
+
 /// The pair halves of a quad, as lane views (no instruction).
 static Value quadHalf(ConversionPatternRewriter &rewriter, Location loc,
                       Value quad, unsigned k) {
@@ -1544,6 +1581,20 @@ static Value byWidthUnary(unsigned bits, ConversionPatternRewriter &rewriter,
   case 16: return LaneUnary<H>::create(rewriter, loc, resultTy, operand);
   case 32: return LaneUnary<W>::create(rewriter, loc, resultTy, operand);
   case 64: return LaneUnary<D>::create(rewriter, loc, resultTy, operand);
+  }
+  return {};
+}
+
+template <typename B, typename H, typename W, typename D>
+static Value byWidthUnaryMode(unsigned bits,
+                              ConversionPatternRewriter &rewriter, Location loc,
+                              Type resultTy, Value operand,
+                              FloatModeAttr mode) {
+  switch (bits) {
+  case 8:  return LaneUnaryMode<B>::create(rewriter, loc, resultTy, operand, mode);
+  case 16: return LaneUnaryMode<H>::create(rewriter, loc, resultTy, operand, mode);
+  case 32: return LaneUnaryMode<W>::create(rewriter, loc, resultTy, operand, mode);
+  case 64: return LaneUnaryMode<D>::create(rewriter, loc, resultTy, operand, mode);
   }
   return {};
 }
@@ -1648,6 +1699,56 @@ struct VectorUnaryToLVX : public OpConversionPattern<SourceOp> {
     for (unsigned k = 0; k != 2; ++k) {
       half[k] = byWidthUnary<PB, PH, PW, PD>(
           bits, rewriter, loc, pairTy, quadHalf(rewriter, loc, operand, k));
+      if (!half[k])
+        return rewriter.notifyMatchFailure(op, "no instruction for this lane shape");
+    }
+    rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy,
+                                               ValueRange{half[0], half[1]});
+    return success();
+  }
+};
+
+/// `SourceOp` on a vector, lowered to a packed op that carries a rounding
+/// mode: the round-to-integral family (`fround*`) and `fsqrt*`.
+///
+/// Mode-carrying is the only difference from `VectorUnaryToLVX`; there is no
+/// composite attempt because the ISA stops at the 128-bit lane shapes for
+/// these -- no `frounddq`, no `fsqrtwo` -- so a quad is always two halves and
+/// an `lvx.concat`, which is what lvx-gcc's 256-bit expanders do as well
+/// (`vector.md`, "there is no frintdq/frintwo/frinthx").
+template <typename SourceOp, typename PB, typename PH, typename PW,
+          typename PD, FloatMode Mode>
+struct VectorUnaryModeToLVX : public OpConversionPattern<SourceOp> {
+  using OpConversionPattern<SourceOp>::OpConversionPattern;
+  using OpAdaptor = typename OpConversionPattern<SourceOp>::OpAdaptor;
+  LogicalResult
+  matchAndRewrite(SourceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto vecTy = dyn_cast<VectorType>(op.getType());
+    if (!vecTy)
+      return rewriter.notifyMatchFailure(op, "the scalar pattern handles this");
+    Type tupleTy = this->getTypeConverter()->convertType(vecTy);
+    unsigned units = tupleTy ? tupleWidth(tupleTy) : 0;
+    if (!units)
+      return rewriter.notifyMatchFailure(op, "vector shape has no register tuple");
+    unsigned bits = vecTy.getElementTypeBitWidth();
+    Location loc = op.getLoc();
+    auto mode = FloatModeAttr::get(rewriter.getContext(), Mode);
+    Value operand = adaptor.getOperands().front();
+    if (units == 2) {
+      Value result = byWidthUnaryMode<PB, PH, PW, PD>(bits, rewriter, loc,
+                                                      tupleTy, operand, mode);
+      if (!result)
+        return rewriter.notifyMatchFailure(op, "no instruction for this lane shape");
+      rewriter.replaceOp(op, result);
+      return success();
+    }
+    Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
+    Value half[2];
+    for (unsigned k = 0; k != 2; ++k) {
+      half[k] = byWidthUnaryMode<PB, PH, PW, PD>(
+          bits, rewriter, loc, pairTy, quadHalf(rewriter, loc, operand, k),
+          mode);
       if (!half[k])
         return rewriter.notifyMatchFailure(op, "no instruction for this lane shape");
     }
@@ -1931,6 +2032,40 @@ using VNegFToLVX = VectorUnaryToLVX<arith::NegFOp,
 using VAbsFToLVX = VectorUnaryToLVX<math::AbsFOp,
     NoLaneOp, lvx::FabshoOp, lvx::FabswqOp, lvx::FabsdpOp,
     NoLaneOp, lvx::FabshxOp, lvx::FabswoOp, lvx::FabsdqOp>;
+// The packed round-to-integral family (lvx-mds d7116fb, 2026-10-11) at every
+// lane shape the ISA has: `fround{ho,wq,dp}`, one instruction per 128 bits,
+// and a quad as two halves. FROUND and not FRINT for the reason the scalar
+// patterns give above -- these are exact operations and must not raise
+// inexact -- and the same five directions.
+//
+// Before these, a vectorized loop containing any of them did not lower at
+// all: §6's `math.floor`/`ceil`/`roundeven`/`trunc`/`round` rows were class D
+// at both f32x4 and f64x2, and ranked gap #5 ("SIMD `frint`", 8 rows).
+using VRoundEvenToLVX = VectorUnaryModeToLVX<math::RoundEvenOp,
+    NoLaneOp, lvx::FroundhoOp, lvx::FroundwqOp, lvx::FrounddpOp, FloatMode::rn>;
+using VMathTruncToLVX = VectorUnaryModeToLVX<math::TruncOp,
+    NoLaneOp, lvx::FroundhoOp, lvx::FroundwqOp, lvx::FrounddpOp, FloatMode::rz>;
+using VFloorToLVX = VectorUnaryModeToLVX<math::FloorOp,
+    NoLaneOp, lvx::FroundhoOp, lvx::FroundwqOp, lvx::FrounddpOp, FloatMode::rd>;
+using VCeilToLVX = VectorUnaryModeToLVX<math::CeilOp,
+    NoLaneOp, lvx::FroundhoOp, lvx::FroundwqOp, lvx::FrounddpOp, FloatMode::ru>;
+using VRoundToLVX = VectorUnaryModeToLVX<math::RoundOp,
+    NoLaneOp, lvx::FroundhoOp, lvx::FroundwqOp, lvx::FrounddpOp, FloatMode::rm>;
+// `fsqrt{ho,wq,dp}` (same commit) is a *true* square root, correctly rounded
+// -- not the `fsrsr*` seed -- so `math.sqrt` lowers to it with nothing to
+// qualify: it is the exact answer `math.sqrt` asks for, in one ALU_FULL
+// instruction. It takes the CS rounding mode, which is the absent modifier,
+// so it goes through the no-mode template exactly as scalar `fsqrtd` does.
+//
+// `math.rsqrt` and `arith.divf` stay class D on purpose: LVX has no packed
+// divide, and `fsrec*`/`fsrsr*` are *estimates*, so lowering an exactly
+// rounded op to one would answer it with an approximation the source never
+// authorised (VectorCoverage.md §7, "SIMD `fdiv`/`fsqrt`"). That the f64
+// seeds now exist (FSRECDP/FSRSRDP, lvx-mds b267594) changes the sequence
+// available, not the question of whether to emit it unasked.
+using VSqrtToLVX = VectorUnaryToLVX<math::SqrtOp,
+    NoLaneOp, lvx::FsqrthoOp, lvx::FsqrtwqOp, lvx::FsqrtdpOp,
+    NoLaneOp, NoLaneOp,       NoLaneOp,       NoLaneOp>;
 
 //===----------------------------------------------------------------------===//
 // Masks: the vector compares write one, `blend` reads one.
@@ -2095,6 +2230,14 @@ struct VectorCmpFToLVX : public OpConversionPattern<arith::CmpFOp> {
 /// when the ISA has no blend for it. The blend writes through its destination,
 /// so `no` is its tied operand and the preserving-copy pass covers a `no` that
 /// is live past it.
+///
+/// **A null `no` means "zero the inactive lanes"** and selects `blendz*`
+/// (lvx-mds e953588, 2026-10-12) instead: `blendz{bx,ho,wq,dp} $d = $a, $m`
+/// is `d[i] = m[i] ? a[i] : 0`, which does *not* read its destination. That
+/// is two savings and not one -- the all-zero operand never has to be
+/// materialised (a `make.q`/`splat*q` of its own), and with no tied operand
+/// there is nothing for the preserving-copy pass to copy. One `ALU_LITE`
+/// syllable either way.
 /// One `blend*`, which is a 128-bit instruction: the tuple must be a pair.
 /// There is no quad `blend*` and no composite for one -- it *reads* a mask,
 /// and two independent halves cannot pack lanes 4-7's bits above lanes 0-3's
@@ -2110,6 +2253,22 @@ static Value createBlend(ConversionPatternRewriter &rewriter, Location loc,
                          Value no) {
   if (!isa_and_nonnull<lvx::PairType>(tupleTy))
     return {};
+  // A null `no` asks for the zeroing twin: `blendz*` writes zero where the
+  // mask is clear, so it has no `no` operand at all -- see the comment above.
+  if (!no) {
+    switch (vecTy.getElementTypeBitWidth()) {
+    case 8:
+      return rewriter.create<lvx::BlendzbxOp>(loc, tupleTy, yes, mask);
+    case 16:
+      return rewriter.create<lvx::BlendzhoOp>(loc, tupleTy, yes, mask);
+    case 32:
+      return rewriter.create<lvx::BlendzwqOp>(loc, tupleTy, yes, mask);
+    case 64:
+      return rewriter.create<lvx::BlendzdpOp>(loc, tupleTy, yes, mask);
+    default:
+      return {};
+    }
+  }
   switch (vecTy.getElementTypeBitWidth()) {
   case 8:
     return rewriter.create<lvx::BlendbxOp>(loc, tupleTy, yes, mask, no);
@@ -2139,7 +2298,8 @@ static Value createBlend(ConversionPatternRewriter &rewriter, Location loc,
 /// needs and the blends pay a shift for it.
 ///
 /// Returns null when the lane width has no `blend*` or the tuple is neither a
-/// pair nor a quad.
+/// pair nor a quad. A null `no` asks for `blendz*` in each half, as in
+/// `createBlend`.
 static Value createWideBlend(ConversionPatternRewriter &rewriter, Location loc,
                              Type tupleTy, VectorType vecTy, Value yes,
                              Value mask, Value no) {
@@ -2159,7 +2319,7 @@ static Value createWideBlend(ConversionPatternRewriter &rewriter, Location loc,
                      loc, regTy, mask, rewriter.getI64IntegerAttr(halfLanes));
     half[k] = createBlend(rewriter, loc, pairTy, vecTy,
                           quadHalf(rewriter, loc, yes, k), halfMask,
-                          quadHalf(rewriter, loc, no, k));
+                          no ? quadHalf(rewriter, loc, no, k) : Value());
     if (!half[k])
       return {};
   }
@@ -2179,12 +2339,17 @@ static bool isZeroScalar(Value v) {
   return false;
 }
 
-/// Does a masked load's `pass_thru` of `v` need no restoring blend? Asked of
-/// the *original* operand, so a constant is still an `arith.constant` here.
+/// Are `v`'s lanes all zero -- or poison, which zeroes refine? Asked of the
+/// *original* operand, so a constant is still an `arith.constant` here.
 ///
-/// `maskm` zeroes the lanes it does not read -- it has no merge form, by
-/// design -- so the blend exists only to put the pass-thru back. Three
-/// spellings make it unnecessary, and a vectorised loop produces the third:
+/// Two callers, for the same reason in two shapes. A masked load's
+/// `pass_thru` needs no restoring blend when this holds: `maskm` zeroes the
+/// lanes it does not read -- it has no merge form, by design -- so the blend
+/// exists only to put the pass-thru back. And a lane-wise `arith.select`
+/// whose false value is this is one `blendz*` rather than a `blend*` with a
+/// zero vector built for it.
+///
+/// Three spellings make it hold, and a vectorised loop produces the third:
 ///
 ///   - an all-zero constant vector, `dense<0.0>`, which is what the masked
 ///     load already leaves behind. A hand-written kernel says this;
@@ -2199,7 +2364,7 @@ static bool isZeroScalar(Value v) {
 ///
 /// Missing these cost two ops per masked load -- a `splat*q` and a `blend*`
 /// -- to rebuild what the hardware had already produced.
-static bool passThruNeedsNoBlend(Value v) {
+static bool isZeroOrPoisonVector(Value v) {
   if (v.getDefiningOp<ub::PoisonOp>())
     return true;
   if (auto broadcast = v.getDefiningOp<vector::BroadcastOp>())
@@ -2278,12 +2443,20 @@ struct VectorSelectToLVX : public OpConversionPattern<arith::SelectOp> {
         condTy.getNumElements() != vecTy.getNumElements())
       return rewriter.notifyMatchFailure(op, "no register tuple for this shape");
     Location loc = op.getLoc();
+    // A false value of all zeroes -- or poison -- is `blendz*`, the zeroing
+    // twin, which needs no zero vector materialised and reads no destination.
+    // The masked loop idiom lands here: `-lvx-lower-vector-transfers` turns a
+    // masked reduction into `select(mask, v, identity)`, and the identity of
+    // `add`/`or`/`xor` is zero. Asked of the *original* false value, where a
+    // splat constant is still an `arith.constant` to read.
+    bool zeroing = isZeroOrPoisonVector(op.getFalseValue());
     // A pair is one `blend*`; a quad is two on the halves, with the high one
     // reading the mask shifted down. `createWideBlend` carries both, and the
     // reason there is no quad `blend*` to use instead.
-    Value result =
-        createWideBlend(rewriter, loc, tupleTy, vecTy, adaptor.getTrueValue(),
-                        adaptor.getCondition(), adaptor.getFalseValue());
+    Value result = createWideBlend(
+        rewriter, loc, tupleTy, vecTy, adaptor.getTrueValue(),
+        adaptor.getCondition(),
+        zeroing ? Value() : adaptor.getFalseValue());
     if (!result)
       return rewriter.notifyMatchFailure(op, "no blend for this shape");
     rewriter.replaceOp(op, result);
@@ -2473,7 +2646,7 @@ struct VectorMaskedLoadToLVX
         laneMaskToByteEnables(rewriter, loc, adaptor.getMask(), bytes);
     Value loaded = rewriter.create<lvx::MaskedLoadOp>(
         loc, tupleTy, enables, *address, rewriter.getI64IntegerAttr(0));
-    if (passThruNeedsNoBlend(op.getPassThru())) {
+    if (isZeroOrPoisonVector(op.getPassThru())) {
       rewriter.replaceOp(op, loaded);
       return success();
     }
@@ -3914,6 +4087,8 @@ void mlir::populateConvertToLVXPatterns(TypeConverter &typeConverter,
     VAddFToLVX, VSubFToLVX, VMulFToLVX,
     VMinimumFToLVX, VMaximumFToLVX, VMinNumFToLVX, VMaxNumFToLVX,
     VCopySignToLVX, VNegFToLVX, VAbsFToLVX,
+    VSqrtToLVX, VRoundEvenToLVX, VMathTruncToLVX, VFloorToLVX,
+    VCeilToLVX, VRoundToLVX,
     VectorShapeCastToLVX, VectorBitCastToLVX,
     MinimumFToLVX, MaximumFToLVX, MinNumFToLVX, MaxNumFToLVX,
     AbsFToLVX, CtlzToLVX, CttzToLVX, CtpopToLVX, AbsIToLVX,

@@ -363,12 +363,17 @@ func.func @mask_store_f32x4(%a: memref<8xf32>, %c: memref<8xf32>, %n: index) {
 // stops at the side-effecting ops, and the only consumer anywhere is
 // `ConvertVectorToLLVM`'s `llvm.intr.vp.reduce.*`. The bridge lowers it by
 // putting the reduction's identity in the lanes the mask clears and reducing
-// unmasked, so the cost is one `blend*` ahead of Phase 4's tree. The identity
+// unmasked, so the cost is one blend ahead of Phase 4's tree. The identity
 // comes from `arith::getIdentityValueAttr`, so the distinctions that are easy
 // to get wrong (`minnum` against `minimum`) stay upstream's.
+//
+// `add`'s identity is zero, so since 2026-10-12 that blend is `blendzwq`,
+// the zeroing twin: no zero vector is materialised and no destination is
+// read. A reduction whose identity is *not* zero -- `minsi`'s is INT_MAX --
+// still pays the splat and the destination-reading `blendwq`.
 // ROW: vector.mask(reduction) | i32x4
 // CHECK-LABEL: @mask_reduction_i32x4
-// CHECK: lvx.blendwq
+// CHECK: lvx.blendzwq
 // CHECK: lvx.evenwq
 // CHECK: lvx.addwq
 func.func @mask_reduction_i32x4(%a: memref<8xi32>, %c: memref<8xi32>, %n: index) {

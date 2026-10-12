@@ -69,30 +69,6 @@ func.func @math_ctpop_i8x16(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64x
 
 // -----
 
-// ROW: math.sqrt | f32x4
-func.func @math_sqrt_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
-  // expected-error @below {{failed to legalize operation 'math.sqrt'}}
-  %z = math.sqrt %x : vector<4xf32>
-  vector.store %z, %c[%i] : memref<64xf32>, vector<4xf32>
-  return
-}
-
-// -----
-
-// ROW: math.sqrt | f64x2
-func.func @math_sqrt_f64x2(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
-  // expected-error @below {{failed to legalize operation 'math.sqrt'}}
-  %z = math.sqrt %x : vector<2xf64>
-  vector.store %z, %c[%i] : memref<64xf64>, vector<2xf64>
-  return
-}
-
-// -----
-
 // ROW: math.rsqrt | f32x4
 func.func @math_rsqrt_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
   %i = arith.constant 0 : index
@@ -111,102 +87,6 @@ func.func @math_rsqrt_f64x2(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<6
   %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
   // expected-error @below {{failed to legalize operation 'math.rsqrt'}}
   %z = math.rsqrt %x : vector<2xf64>
-  vector.store %z, %c[%i] : memref<64xf64>, vector<2xf64>
-  return
-}
-
-// -----
-
-// ROW: math.floor | f32x4
-func.func @math_floor_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
-  // expected-error @below {{failed to legalize operation 'math.floor'}}
-  %z = math.floor %x : vector<4xf32>
-  vector.store %z, %c[%i] : memref<64xf32>, vector<4xf32>
-  return
-}
-
-// -----
-
-// ROW: math.floor | f64x2
-func.func @math_floor_f64x2(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
-  // expected-error @below {{failed to legalize operation 'math.floor'}}
-  %z = math.floor %x : vector<2xf64>
-  vector.store %z, %c[%i] : memref<64xf64>, vector<2xf64>
-  return
-}
-
-// -----
-
-// ROW: math.ceil | f32x4
-func.func @math_ceil_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
-  // expected-error @below {{failed to legalize operation 'math.ceil'}}
-  %z = math.ceil %x : vector<4xf32>
-  vector.store %z, %c[%i] : memref<64xf32>, vector<4xf32>
-  return
-}
-
-// -----
-
-// ROW: math.ceil | f64x2
-func.func @math_ceil_f64x2(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
-  // expected-error @below {{failed to legalize operation 'math.ceil'}}
-  %z = math.ceil %x : vector<2xf64>
-  vector.store %z, %c[%i] : memref<64xf64>, vector<2xf64>
-  return
-}
-
-// -----
-
-// ROW: math.roundeven | f32x4
-func.func @math_roundeven_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
-  // expected-error @below {{failed to legalize operation 'math.roundeven'}}
-  %z = math.roundeven %x : vector<4xf32>
-  vector.store %z, %c[%i] : memref<64xf32>, vector<4xf32>
-  return
-}
-
-// -----
-
-// ROW: math.roundeven | f64x2
-func.func @math_roundeven_f64x2(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
-  // expected-error @below {{failed to legalize operation 'math.roundeven'}}
-  %z = math.roundeven %x : vector<2xf64>
-  vector.store %z, %c[%i] : memref<64xf64>, vector<2xf64>
-  return
-}
-
-// -----
-
-// ROW: math.trunc | f32x4
-func.func @math_trunc_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
-  // expected-error @below {{failed to legalize operation 'math.trunc'}}
-  %z = math.trunc %x : vector<4xf32>
-  vector.store %z, %c[%i] : memref<64xf32>, vector<4xf32>
-  return
-}
-
-// -----
-
-// ROW: math.trunc | f64x2
-func.func @math_trunc_f64x2(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
-  // expected-error @below {{failed to legalize operation 'math.trunc'}}
-  %z = math.trunc %x : vector<2xf64>
   vector.store %z, %c[%i] : memref<64xf64>, vector<2xf64>
   return
 }
@@ -336,28 +216,6 @@ func.func @arith_remui_i64x2(%a: memref<64xi64>, %b: memref<64xi64>, %c: memref<
   // expected-error @below {{failed to legalize operation 'arith.remui'}}
   %z = arith.remui %x, %y : vector<2xi64>
   vector.store %z, %c[%i] : memref<64xi64>, vector<2xi64>
-  return
-}
-// -----
-
-// ROW: math.round | f32x4
-func.func @math_round_f32x4(%a: memref<64xf32>, %c: memref<64xf32>) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
-  // expected-error @below {{failed to legalize operation 'math.round'}}
-  %z = math.round %x : vector<4xf32>
-  vector.store %z, %c[%i] : memref<64xf32>, vector<4xf32>
-  return
-}
-// -----
-
-// ROW: math.round | f64x2
-func.func @math_round_f64x2(%a: memref<64xf64>, %c: memref<64xf64>) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
-  // expected-error @below {{failed to legalize operation 'math.round'}}
-  %z = math.round %x : vector<2xf64>
-  vector.store %z, %c[%i] : memref<64xf64>, vector<2xf64>
   return
 }
 // -----

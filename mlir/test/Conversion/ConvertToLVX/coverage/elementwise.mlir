@@ -1887,6 +1887,354 @@ func.func @math_absf_f64x4(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64
 
 // -----
 
+// ROW: math.sqrt | f32x4
+// CHECK-LABEL: @math_sqrt_f32x4
+// CHECK: lvx.fsqrtwq
+func.func @math_sqrt_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
+  // ROW-OP
+  %z = math.sqrt %x : vector<4xf32>
+  vector.store %z, %c[%i] : memref<64xf32>, vector<4xf32>
+  return
+}
+
+// -----
+
+// ROW: math.sqrt | f64x2
+// CHECK-LABEL: @math_sqrt_f64x2
+// CHECK: lvx.fsqrtdp
+func.func @math_sqrt_f64x2(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
+  // ROW-OP
+  %z = math.sqrt %x : vector<2xf64>
+  vector.store %z, %c[%i] : memref<64xf64>, vector<2xf64>
+  return
+}
+
+// -----
+
+// ROW: math.sqrt | f32x8
+// CHECK-LABEL: @math_sqrt_f32x8
+// CHECK: lvx.fsqrtwq
+// CHECK: lvx.fsqrtwq
+func.func @math_sqrt_f32x8(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<8xf32>
+  // ROW-OP
+  %z = math.sqrt %x : vector<8xf32>
+  vector.store %z, %c[%i] : memref<64xf32>, vector<8xf32>
+  return
+}
+
+// -----
+
+// ROW: math.sqrt | f64x4
+// CHECK-LABEL: @math_sqrt_f64x4
+// CHECK: lvx.fsqrtdp
+// CHECK: lvx.fsqrtdp
+func.func @math_sqrt_f64x4(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<4xf64>
+  // ROW-OP
+  %z = math.sqrt %x : vector<4xf64>
+  vector.store %z, %c[%i] : memref<64xf64>, vector<4xf64>
+  return
+}
+
+// -----
+
+// ROW: math.floor | f32x4
+// CHECK-LABEL: @math_floor_f32x4
+// CHECK: lvx.froundwq
+func.func @math_floor_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
+  // ROW-OP
+  %z = math.floor %x : vector<4xf32>
+  vector.store %z, %c[%i] : memref<64xf32>, vector<4xf32>
+  return
+}
+
+// -----
+
+// ROW: math.floor | f64x2
+// CHECK-LABEL: @math_floor_f64x2
+// CHECK: lvx.frounddp
+func.func @math_floor_f64x2(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
+  // ROW-OP
+  %z = math.floor %x : vector<2xf64>
+  vector.store %z, %c[%i] : memref<64xf64>, vector<2xf64>
+  return
+}
+
+// -----
+
+// ROW: math.floor | f32x8
+// CHECK-LABEL: @math_floor_f32x8
+// CHECK: lvx.froundwq
+// CHECK: lvx.froundwq
+func.func @math_floor_f32x8(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<8xf32>
+  // ROW-OP
+  %z = math.floor %x : vector<8xf32>
+  vector.store %z, %c[%i] : memref<64xf32>, vector<8xf32>
+  return
+}
+
+// -----
+
+// ROW: math.floor | f64x4
+// CHECK-LABEL: @math_floor_f64x4
+// CHECK: lvx.frounddp
+// CHECK: lvx.frounddp
+func.func @math_floor_f64x4(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<4xf64>
+  // ROW-OP
+  %z = math.floor %x : vector<4xf64>
+  vector.store %z, %c[%i] : memref<64xf64>, vector<4xf64>
+  return
+}
+
+// -----
+
+// ROW: math.ceil | f32x4
+// CHECK-LABEL: @math_ceil_f32x4
+// CHECK: lvx.froundwq
+func.func @math_ceil_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
+  // ROW-OP
+  %z = math.ceil %x : vector<4xf32>
+  vector.store %z, %c[%i] : memref<64xf32>, vector<4xf32>
+  return
+}
+
+// -----
+
+// ROW: math.ceil | f64x2
+// CHECK-LABEL: @math_ceil_f64x2
+// CHECK: lvx.frounddp
+func.func @math_ceil_f64x2(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
+  // ROW-OP
+  %z = math.ceil %x : vector<2xf64>
+  vector.store %z, %c[%i] : memref<64xf64>, vector<2xf64>
+  return
+}
+
+// -----
+
+// ROW: math.ceil | f32x8
+// CHECK-LABEL: @math_ceil_f32x8
+// CHECK: lvx.froundwq
+// CHECK: lvx.froundwq
+func.func @math_ceil_f32x8(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<8xf32>
+  // ROW-OP
+  %z = math.ceil %x : vector<8xf32>
+  vector.store %z, %c[%i] : memref<64xf32>, vector<8xf32>
+  return
+}
+
+// -----
+
+// ROW: math.ceil | f64x4
+// CHECK-LABEL: @math_ceil_f64x4
+// CHECK: lvx.frounddp
+// CHECK: lvx.frounddp
+func.func @math_ceil_f64x4(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<4xf64>
+  // ROW-OP
+  %z = math.ceil %x : vector<4xf64>
+  vector.store %z, %c[%i] : memref<64xf64>, vector<4xf64>
+  return
+}
+
+// -----
+
+// ROW: math.trunc | f32x4
+// CHECK-LABEL: @math_trunc_f32x4
+// CHECK: lvx.froundwq
+func.func @math_trunc_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
+  // ROW-OP
+  %z = math.trunc %x : vector<4xf32>
+  vector.store %z, %c[%i] : memref<64xf32>, vector<4xf32>
+  return
+}
+
+// -----
+
+// ROW: math.trunc | f64x2
+// CHECK-LABEL: @math_trunc_f64x2
+// CHECK: lvx.frounddp
+func.func @math_trunc_f64x2(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
+  // ROW-OP
+  %z = math.trunc %x : vector<2xf64>
+  vector.store %z, %c[%i] : memref<64xf64>, vector<2xf64>
+  return
+}
+
+// -----
+
+// ROW: math.trunc | f32x8
+// CHECK-LABEL: @math_trunc_f32x8
+// CHECK: lvx.froundwq
+// CHECK: lvx.froundwq
+func.func @math_trunc_f32x8(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<8xf32>
+  // ROW-OP
+  %z = math.trunc %x : vector<8xf32>
+  vector.store %z, %c[%i] : memref<64xf32>, vector<8xf32>
+  return
+}
+
+// -----
+
+// ROW: math.trunc | f64x4
+// CHECK-LABEL: @math_trunc_f64x4
+// CHECK: lvx.frounddp
+// CHECK: lvx.frounddp
+func.func @math_trunc_f64x4(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<4xf64>
+  // ROW-OP
+  %z = math.trunc %x : vector<4xf64>
+  vector.store %z, %c[%i] : memref<64xf64>, vector<4xf64>
+  return
+}
+
+// -----
+
+// ROW: math.round | f32x4
+// CHECK-LABEL: @math_round_f32x4
+// CHECK: lvx.froundwq
+func.func @math_round_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
+  // ROW-OP
+  %z = math.round %x : vector<4xf32>
+  vector.store %z, %c[%i] : memref<64xf32>, vector<4xf32>
+  return
+}
+
+// -----
+
+// ROW: math.round | f64x2
+// CHECK-LABEL: @math_round_f64x2
+// CHECK: lvx.frounddp
+func.func @math_round_f64x2(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
+  // ROW-OP
+  %z = math.round %x : vector<2xf64>
+  vector.store %z, %c[%i] : memref<64xf64>, vector<2xf64>
+  return
+}
+
+// -----
+
+// ROW: math.round | f32x8
+// CHECK-LABEL: @math_round_f32x8
+// CHECK: lvx.froundwq
+// CHECK: lvx.froundwq
+func.func @math_round_f32x8(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<8xf32>
+  // ROW-OP
+  %z = math.round %x : vector<8xf32>
+  vector.store %z, %c[%i] : memref<64xf32>, vector<8xf32>
+  return
+}
+
+// -----
+
+// ROW: math.round | f64x4
+// CHECK-LABEL: @math_round_f64x4
+// CHECK: lvx.frounddp
+// CHECK: lvx.frounddp
+func.func @math_round_f64x4(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<4xf64>
+  // ROW-OP
+  %z = math.round %x : vector<4xf64>
+  vector.store %z, %c[%i] : memref<64xf64>, vector<4xf64>
+  return
+}
+
+// -----
+
+// ROW: math.roundeven | f32x4
+// CHECK-LABEL: @math_roundeven_f32x4
+// CHECK: lvx.froundwq
+func.func @math_roundeven_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<4xf32>
+  // ROW-OP
+  %z = math.roundeven %x : vector<4xf32>
+  vector.store %z, %c[%i] : memref<64xf32>, vector<4xf32>
+  return
+}
+
+// -----
+
+// ROW: math.roundeven | f64x2
+// CHECK-LABEL: @math_roundeven_f64x2
+// CHECK: lvx.frounddp
+func.func @math_roundeven_f64x2(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<2xf64>
+  // ROW-OP
+  %z = math.roundeven %x : vector<2xf64>
+  vector.store %z, %c[%i] : memref<64xf64>, vector<2xf64>
+  return
+}
+
+// -----
+
+// ROW: math.roundeven | f32x8
+// CHECK-LABEL: @math_roundeven_f32x8
+// CHECK: lvx.froundwq
+// CHECK: lvx.froundwq
+func.func @math_roundeven_f32x8(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf32>, vector<8xf32>
+  // ROW-OP
+  %z = math.roundeven %x : vector<8xf32>
+  vector.store %z, %c[%i] : memref<64xf32>, vector<8xf32>
+  return
+}
+
+// -----
+
+// ROW: math.roundeven | f64x4
+// CHECK-LABEL: @math_roundeven_f64x4
+// CHECK: lvx.frounddp
+// CHECK: lvx.frounddp
+func.func @math_roundeven_f64x4(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<64xf64>, %s: f64) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xf64>, vector<4xf64>
+  // ROW-OP
+  %z = math.roundeven %x : vector<4xf64>
+  vector.store %z, %c[%i] : memref<64xf64>, vector<4xf64>
+  return
+}
+
+// -----
+
 // ROW: arith.shli | i8x16
 // CHECK-LABEL: @arith_shli_i8x16
 // CHECK: lvx.sllbx

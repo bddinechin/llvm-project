@@ -57,8 +57,15 @@ func.func @masked_store_only(%b: memref<8xi32>, %v: vector<4xi32>, %n: index) {
 // A masked reduction. `vector.reduction` is maskable, and the mask has to
 // reach it as an operand or the inactive lanes would join the fold; upstream's
 // lowering is what puts it there, and the reduction tree of Phase 4 follows.
+//
+// The bridge pads the inactive lanes with the fold's identity, which for
+// `add` is zero -- so this is one `blendzwq`, the zeroing blend (lvx-mds
+// e953588): no zero vector is built for it and it reads no destination, where
+// a `blendwq` would need both. One instruction against three.
 // CHECK-LABEL: @masked_reduce
 // CHECK-NOT: vector.mask
+// CHECK: lvx.blendzwq
+// CHECK-NOT: lvx.blendwq
 func.func @masked_reduce(%a: memref<8xi32>, %n: index) -> i32 {
   %i = arith.constant 0 : index
   %z = arith.constant 0 : i32
@@ -66,6 +73,26 @@ func.func @masked_reduce(%a: memref<8xi32>, %n: index) -> i32 {
   %m = vector.create_mask %n : vector<4xi1>
   %r = vector.mask %m {
     vector.reduction <add>, %x : vector<4xi32> into i32
+  } : vector<4xi1> -> i32
+  return %r : i32
+}
+
+// -----
+
+// The contrast, and why `blendz*` is a choice rather than the lowering of
+// every masked select: `min`'s identity is INT_MAX, not zero, so the padding
+// is a real vector and the select stays a destination-reading `blendwq`.
+// Only a zero (or poison) false value is a zeroing blend.
+// CHECK-LABEL: @masked_reduce_min
+// CHECK-NOT: vector.mask
+// CHECK: lvx.blendwq
+// CHECK-NOT: lvx.blendzwq
+func.func @masked_reduce_min(%a: memref<8xi32>, %n: index) -> i32 {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<8xi32>, vector<4xi32>
+  %m = vector.create_mask %n : vector<4xi1>
+  %r = vector.mask %m {
+    vector.reduction <minsi>, %x : vector<4xi32> into i32
   } : vector<4xi1> -> i32
   return %r : i32
 }

@@ -120,15 +120,19 @@ func.func @fp_scalar(%a: f64, %b: f64, %x: f32, %y: f32) -> f64 {
   // One instruction, five modifiers: rd=floor, ru=ceil, rn=roundeven,
   // rz=trunc, and rm ("ties to max magnitude") = round-half-away-from-zero,
   // which is what math.round means -- not rn.
-  // CHECK: lvx.frintd rd
+  //
+  // `froundd` and not `frintd`: all five are exact operations that must not
+  // raise inexact, and FRINT is roundToIntegralExact, which does. FRINT is
+  // rint, which MLIR has no op for.
+  // CHECK: lvx.froundd rd
   %7 = math.floor %6 : f64
-  // CHECK: lvx.frintd ru
+  // CHECK: lvx.froundd ru
   %8 = math.ceil %7 : f64
-  // CHECK: lvx.frintd rn
+  // CHECK: lvx.froundd rn
   %9 = math.roundeven %8 : f64
-  // CHECK: lvx.frintd rz
+  // CHECK: lvx.froundd rz
   %10 = math.trunc %9 : f64
-  // CHECK: lvx.frintd rm
+  // CHECK: lvx.froundd rm
   %11 = math.round %10 : f64
   // 32-bit forms go to the `w` instructions. Distinct operands on purpose:
   // `minimumf %x, %x` folds to %x upstream, before any conversion pattern
