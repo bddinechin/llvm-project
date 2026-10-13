@@ -20,6 +20,27 @@ using mlir::lvx::RegisterType;
 // ForOp
 //===----------------------------------------------------------------------===//
 
+// LoopLikeOpInterface. The body is the only region, and it is the one a
+// hoisted op leaves.
+SmallVector<Region *> ForOp::getLoopRegions() { return {&getRegion()}; }
+
+// The loop-carried accessors, which the interface's own verifier checks
+// against each other: the inits are the trailing variadic operands after the
+// three bounds, the yielded values are the terminator's operands, and the
+// results are this op's. Leaving these to their defaults (empty) makes that
+// verifier reject every loop that carries a value.
+MutableArrayRef<OpOperand> ForOp::getInitsMutable() {
+  return getOperation()->getOpOperands().drop_front(/*lb, ub, step=*/3);
+}
+
+std::optional<MutableArrayRef<OpOperand>> ForOp::getYieldedValuesMutable() {
+  return cast<YieldOp>(getBody()->getTerminator())
+      .getOperation()
+      ->getOpOperands();
+}
+
+std::optional<ResultRange> ForOp::getLoopResults() { return getResults(); }
+
 LogicalResult ForOp::verify() {
   if (getInitArgs().size() != getResults().size())
     return emitOpError("number of loop-carried init args (")

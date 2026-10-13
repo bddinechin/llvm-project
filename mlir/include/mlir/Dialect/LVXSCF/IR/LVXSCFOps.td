@@ -12,6 +12,7 @@
 include "mlir/Dialect/LVXSCF/IR/LVXSCFBase.td"
 include "mlir/Dialect/LVX/IR/LVXBase.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
+include "mlir/Interfaces/LoopLikeInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 class LVXSCF_Op<string mnemonic, list<Trait> traits = []> :
@@ -31,9 +32,37 @@ def LVXSCF_YieldOp : LVXSCF_Op<"yield",
 
 def LVXSCF_ForOp : LVXSCF_Op<"for",
     [RecursiveMemoryEffects,
+     DeclareOpInterfaceMethods<LoopLikeOpInterface,
+         ["getLoopRegions", "getInitsMutable", "getYieldedValuesMutable",
+          "getLoopResults"]>,
      SingleBlockImplicitTerminator<"YieldOp">]> {
   let summary = "structured counted loop over `!lvx.reg` bounds/step";
   let description = [{
+    `LoopLikeOpInterface` because `-loop-invariant-code-motion` is the only
+    thing that can hoist what `-convert-to-lvx` leaves inside a loop: the
+    conversion materializes a `lvx.li`/`muld`/`addd` address computation at
+    each access, and the part of it that does not depend on the induction
+    variable is loop-invariant work created *after* every upstream pass that
+    could have moved it. Without the interface the LICM pass does not
+    recognize this op as a loop at all and is a byte-for-byte no-op
+    (measured: `docs/Vectorization.md` §4). Only `getLoopRegions` is
+    implemented; every other interface method has a default, and nothing
+    needs more than the region to hoist out of.
+
+    Four methods, not one, and the other three are not optional: the
+    interface carries a verifier (`detail::verifyLoopLikeOpInterface`) that
+    checks inits against region iter_args, yielded values against iter_args,
+    and loop results against iter_args. Their defaults return empty, so
+    declaring the interface and implementing only `getLoopRegions` made that
+    verifier compare 0 inits against the 1 iter_arg our own
+    `getRegionIterArgs` reports -- every loop carrying a value failed to
+    verify, in 8 of 45 lit tests. The loop-carried accessors have to agree
+    with the shape this op actually has.
+
+    The bounds accessors (`getSingleInductionVar`, `getSingleLowerBound` and
+    friends) keep their defaults deliberately: nothing here consumes them,
+    and a wrong answer would be worse than no answer.
+
     Mirrors `scf.for`: the body region's entry block takes the induction
     variable followed by one block argument per loop-carried value
     (`initArgs`), and must end in an `lvx_scf.yield` producing values

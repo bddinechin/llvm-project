@@ -11,6 +11,7 @@ add_mlir_dialect_library(MLIRLVXSCFDialect
   LINK_LIBS PUBLIC
   MLIRDialect
   MLIRIR
+  MLIRLoopLikeInterface
   MLIRLVXDialect
   MLIRSideEffectInterfaces
 )
