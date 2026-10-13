@@ -1649,6 +1649,93 @@ func.func @math_absi_i64x4(%a: memref<64xi64>, %b: memref<64xi64>, %c: memref<64
 
 // -----
 
+// ROW: math.ctlz | i8x16
+// CHECK-LABEL: @math_ctlz_i8x16
+// CHECK: lvx.clzbx
+func.func @math_ctlz_i8x16(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64xi8>, %s: i8) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi8>, vector<16xi8>
+  // ROW-OP
+  %z = math.ctlz %x : vector<16xi8>
+  vector.store %z, %c[%i] : memref<64xi8>, vector<16xi8>
+  return
+}
+
+// -----
+
+// ROW: math.ctlz | i8x32
+// CHECK-LABEL: @math_ctlz_i8x32
+// CHECK: lvx.clzbx
+// CHECK: lvx.clzbx
+func.func @math_ctlz_i8x32(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64xi8>, %s: i8) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi8>, vector<32xi8>
+  // ROW-OP
+  %z = math.ctlz %x : vector<32xi8>
+  vector.store %z, %c[%i] : memref<64xi8>, vector<32xi8>
+  return
+}
+
+// -----
+
+// ROW: math.cttz | i8x16
+// CHECK-LABEL: @math_cttz_i8x16
+// CHECK: lvx.ctzbx
+func.func @math_cttz_i8x16(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64xi8>, %s: i8) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi8>, vector<16xi8>
+  // ROW-OP
+  %z = math.cttz %x : vector<16xi8>
+  vector.store %z, %c[%i] : memref<64xi8>, vector<16xi8>
+  return
+}
+
+// -----
+
+// ROW: math.cttz | i8x32
+// CHECK-LABEL: @math_cttz_i8x32
+// CHECK: lvx.ctzbx
+// CHECK: lvx.ctzbx
+func.func @math_cttz_i8x32(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64xi8>, %s: i8) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi8>, vector<32xi8>
+  // ROW-OP
+  %z = math.cttz %x : vector<32xi8>
+  vector.store %z, %c[%i] : memref<64xi8>, vector<32xi8>
+  return
+}
+
+// -----
+
+// ROW: math.ctpop | i8x16
+// CHECK-LABEL: @math_ctpop_i8x16
+// CHECK: lvx.cbsbx
+func.func @math_ctpop_i8x16(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64xi8>, %s: i8) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi8>, vector<16xi8>
+  // ROW-OP
+  %z = math.ctpop %x : vector<16xi8>
+  vector.store %z, %c[%i] : memref<64xi8>, vector<16xi8>
+  return
+}
+
+// -----
+
+// ROW: math.ctpop | i8x32
+// CHECK-LABEL: @math_ctpop_i8x32
+// CHECK: lvx.cbsbx
+// CHECK: lvx.cbsbx
+func.func @math_ctpop_i8x32(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64xi8>, %s: i8) {
+  %i = arith.constant 0 : index
+  %x = vector.load %a[%i] : memref<64xi8>, vector<32xi8>
+  // ROW-OP
+  %z = math.ctpop %x : vector<32xi8>
+  vector.store %z, %c[%i] : memref<64xi8>, vector<32xi8>
+  return
+}
+
+// -----
+
 // ROW: math.ctlz | i16x8
 // CHECK-LABEL: @math_ctlz_i16x8
 // CHECK: lvx.clzho

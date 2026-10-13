@@ -47,15 +47,15 @@ lvx_func.func @no_fold_scale3(%i: !lvx.reg<r0>, %base: !lvx.reg<r1>) -> !lvx.reg
   lvx_func.return %a : !lvx.reg<r0>
 }
 
-// 128 is a power of two but beyond the family (scales stop at 64), so no
-// ADDX -- but the shift pattern takes it, which is the better of what is
-// left: `slld` is a cycle shorter than `muld` and on the more plentiful
-// unit. (This case expected the multiply to survive until the shift pattern
-// existed.)
-// CHECK-LABEL: lvx_func.func @no_fold_scale128
-// CHECK: lvx.slld_i %arg0, 7
-// CHECK-NOT: lvx.addx
-lvx_func.func @no_fold_scale128(%i: !lvx.reg<r0>, %base: !lvx.reg<r1>) -> !lvx.reg<r0> {
+// 128 is in the family since the ISA upgrade of 2026-10-13, which added
+// ADDX128 and ADDX256 -- the scales a byte stride actually has. This case
+// has expected three different things as the ISA and the patterns moved: the
+// multiply surviving, then a shift, now the fused add.
+// CHECK-LABEL: lvx_func.func @fold_scale128
+// CHECK-NOT: lvx.muld
+// CHECK-NOT: lvx.slld_i
+// CHECK: lvx.addx128d %arg0, %arg1
+lvx_func.func @fold_scale128(%i: !lvx.reg<r0>, %base: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %c = lvx.li 128 : i64 : !lvx.reg
   %m = lvx.muld %i, %c : (!lvx.reg<r0>, !lvx.reg) -> !lvx.reg
   %a = lvx.addd %m, %base : (!lvx.reg, !lvx.reg<r1>) -> !lvx.reg<r0>
@@ -234,15 +234,30 @@ lvx_func.func @taild_unproven_offset(%base: !lvx.reg<r0>, %off: !lvx.reg<r1>) {
   lvx_func.return
 }
 
-// `muld(x, 2^n)` with a scale past the ADDX family becomes a shift. A byte
-// stride usually is past it: a row of 64 floats is 256. `slld` writes at
+// A scale past the ADDX family -- which now reaches 256, so this is 512, the
+// byte stride of a row of 128 floats -- becomes a shift. `slld` writes at
 // stage 2 where `muld` writes at 3 and reserves an ALU_TINY where the
-// multiply reserves an ALU_LITE, so this is a cycle off the dependence chain
+// multiply reserves an ALU_LITE, so it is a cycle off the dependence chain
 // and the more plentiful unit (lvx-mlir/docs/Vectorization.md §4).
 // CHECK-LABEL: lvx_func.func @fold_stride_to_shift
 // CHECK-NOT: lvx.muld
-// CHECK: lvx.slld_i %arg0, 8
+// CHECK: lvx.slld_i %arg0, 9
 lvx_func.func @fold_stride_to_shift(%i: !lvx.reg<r0>, %base: !lvx.reg<r1>)
+    -> !lvx.reg<r0> {
+  %c = lvx.li 512 : i64 : !lvx.reg
+  %m = lvx.muld %i, %c : (!lvx.reg<r0>, !lvx.reg) -> !lvx.reg
+  %a = lvx.addd %m, %base : (!lvx.reg, !lvx.reg<r1>) -> !lvx.reg<r0>
+  lvx_func.return %a : !lvx.reg<r0>
+}
+
+// -----
+
+// And 256 itself, the row of 64 floats that motivated the ISA addition: one
+// `addx256d`, where before the upgrade it was a shift and an add.
+// CHECK-LABEL: lvx_func.func @fold_scale256
+// CHECK-NOT: lvx.slld_i
+// CHECK: lvx.addx256d %arg0, %arg1
+lvx_func.func @fold_scale256(%i: !lvx.reg<r0>, %base: !lvx.reg<r1>)
     -> !lvx.reg<r0> {
   %c = lvx.li 256 : i64 : !lvx.reg
   %m = lvx.muld %i, %c : (!lvx.reg<r0>, !lvx.reg) -> !lvx.reg

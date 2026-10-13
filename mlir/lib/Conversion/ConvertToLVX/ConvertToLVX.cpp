@@ -2001,16 +2001,22 @@ using VShRUIToLVX = VectorShiftToLVX<arith::ShRUIOp,
 using VAbsIToLVX = VectorUnaryToLVX<math::AbsIOp,
     lvx::AbsbxOp, lvx::AbshoOp, lvx::AbswqOp, lvx::AbsdpOp,
     lvx::AbsbvOp, lvx::AbshxOp, lvx::AbswoOp, lvx::AbsdqOp>;
-// No 8-bit bit-counting: `clzbx`/`ctzbx`/`cbsbx` do not exist.
+// Bit-counting at every lane width, `bx` included since the ISA upgrade of
+// 2026-10-13 (`CLZBX`/`CTZBX`/`CBSBX`, which closed the last three class-D
+// rows of VectorCoverage.md §6's elementwise family). No quad composites --
+// there is no `clzbv` -- so a 256-bit vector is two halves.
+//
+// `CLSBX` came with them and is not here, for the reason the scalar `cls`
+// is not: counting leading *sign* bits has no MLIR op to match.
 using VCtlzToLVX = VectorUnaryToLVX<math::CountLeadingZerosOp,
-    NoLaneOp, lvx::ClzhoOp, lvx::ClzwqOp, lvx::ClzdpOp,
-    NoLaneOp, NoLaneOp,     NoLaneOp,     NoLaneOp>;
+    lvx::ClzbxOp, lvx::ClzhoOp, lvx::ClzwqOp, lvx::ClzdpOp,
+    NoLaneOp,     NoLaneOp,     NoLaneOp,     NoLaneOp>;
 using VCttzToLVX = VectorUnaryToLVX<math::CountTrailingZerosOp,
-    NoLaneOp, lvx::CtzhoOp, lvx::CtzwqOp, lvx::CtzdpOp,
-    NoLaneOp, NoLaneOp,     NoLaneOp,     NoLaneOp>;
+    lvx::CtzbxOp, lvx::CtzhoOp, lvx::CtzwqOp, lvx::CtzdpOp,
+    NoLaneOp,     NoLaneOp,     NoLaneOp,     NoLaneOp>;
 using VCtpopToLVX = VectorUnaryToLVX<math::CtPopOp,
-    NoLaneOp, lvx::CbshoOp, lvx::CbswqOp, lvx::CbsdpOp,
-    NoLaneOp, NoLaneOp,     NoLaneOp,     NoLaneOp>;
+    lvx::CbsbxOp, lvx::CbshoOp, lvx::CbswqOp, lvx::CbsdpOp,
+    NoLaneOp,     NoLaneOp,     NoLaneOp,     NoLaneOp>;
 
 // Float. There is no 8-bit float, and f16 (`ho`/`hx`) is out of scope for
 // now (VectorCoverage.md §1), but the ops are named here anyway: the type

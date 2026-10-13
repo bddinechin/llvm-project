@@ -39,8 +39,11 @@ using namespace mlir::lvx;
 namespace {
 
 /// If `v` is `lvx.li <constant>` with a positive power-of-two integer value
-/// in [2, 64], returns that value; otherwise nullopt. The range is the
-/// ADDX family's: scales 2, 4, 8, 16, 32, 64 (shifts 1..6).
+/// in [2, 256], returns that value; otherwise nullopt. The range is the
+/// ADDX family's: scales 2 .. 256 (shifts 1..8). 128 and 256 arrived with the
+/// ISA upgrade of 2026-10-13, and they are the ones that matter for real
+/// addressing -- a byte stride is the element size times the row length, so
+/// 256 is a row of 64 floats and was past the family until then.
 static std::optional<unsigned> matchAddxScale(Value v) {
   auto li = v.getDefiningOp<LiOp>();
   if (!li)
@@ -50,10 +53,10 @@ static std::optional<unsigned> matchAddxScale(Value v) {
     return std::nullopt;
   APInt value = intAttr.getValue();
   // Guard the width first: getZExtValue() asserts above 64 bits.
-  if (value.getActiveBits() > 7 || !value.isPowerOf2())
+  if (value.getActiveBits() > 9 || !value.isPowerOf2())
     return std::nullopt;
   unsigned scale = value.getZExtValue();
-  if (scale < 2 || scale > 64)
+  if (scale < 2 || scale > 256)
     return std::nullopt;
   return scale;
 }
@@ -96,12 +99,12 @@ struct FoldMulAddToAddx : public OpRewritePattern<AddOp> {
 
 private:
   /// Picks the AddxOp matching `scale` from the parameter pack, in the
-  /// order 2, 4, 8, 16, 32, 64.
+  /// order 2, 4, 8, 16, 32, 64, 128, 256.
   static LogicalResult build(PatternRewriter &rewriter, AddOp op,
                              unsigned scale, Value shifted, Value addend) {
-    static constexpr unsigned kScales[] = {2, 4, 8, 16, 32, 64};
+    static constexpr unsigned kScales[] = {2, 4, 8, 16, 32, 64, 128, 256};
     unsigned idx = 0;
-    for (unsigned i = 0; i < 6; ++i)
+    for (unsigned i = 0; i < 8; ++i)
       if (kScales[i] == scale)
         idx = i;
     Type ty = op.getResult().getType();
@@ -153,9 +156,8 @@ static std::optional<unsigned> matchShiftAmount(Value v, unsigned bits) {
 ///
 /// This is the common case in address arithmetic and it is what remains after
 /// `FoldMulAddToAddx`: that fold handles the scales the ADDX family encodes,
-/// 2 through 64, and an array's *byte* stride is usually past them -- 256 and
-/// 512 in the matmul of `examples/mymma.mlir`, which is a row of 64 or 128
-/// floats.
+/// 2 through 256, and a byte stride past 256 is what is left -- 512 in the
+/// matmul of `examples/mymma.mlir`, a row of 128 floats.
 ///
 /// It declines where `FoldMulAddToAddx` applies, because that fold is better:
 /// it removes the add as well as the multiply, where this removes neither.
@@ -195,7 +197,7 @@ struct FoldMulPow2ToShift : public OpRewritePattern<MulOp> {
 private:
   /// Whether `FoldMulAddToAddx` would take this multiply instead.
   static bool addxWouldFold(MulOp op, unsigned shift) {
-    if (shift < 1 || shift > 6) // the ADDX family: scales 2 .. 64
+    if (shift < 1 || shift > 8) // the ADDX family: scales 2 .. 256
       return false;
     if (!op->hasOneUse())
       return false;
@@ -207,10 +209,10 @@ private:
 
 using FoldMulAddToAddxD =
     FoldMulAddToAddx<AdddOp, MuldOp, Addx2dOp, Addx4dOp, Addx8dOp, Addx16dOp,
-                     Addx32dOp, Addx64dOp>;
+                     Addx32dOp, Addx64dOp, Addx128dOp, Addx256dOp>;
 using FoldMulAddToAddxW =
     FoldMulAddToAddx<AddwOp, MulwOp, Addx2wOp, Addx4wOp, Addx8wOp, Addx16wOp,
-                     Addx32wOp, Addx64wOp>;
+                     Addx32wOp, Addx64wOp, Addx128wOp, Addx256wOp>;
 
 /// The 32-bit ALU ops that carry the real `signextw` modifier. Spelled out
 /// rather than probed, because a unit attribute is *absent* when false --

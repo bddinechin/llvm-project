@@ -33,42 +33,6 @@ func.func @arith_divf_f64x2(%a: memref<64xf64>, %b: memref<64xf64>, %c: memref<6
 
 // -----
 
-// ROW: math.ctlz | i8x16
-func.func @math_ctlz_i8x16(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64xi8>, %s: i8) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xi8>, vector<16xi8>
-  // expected-error @below {{failed to legalize operation 'math.ctlz'}}
-  %z = math.ctlz %x : vector<16xi8>
-  vector.store %z, %c[%i] : memref<64xi8>, vector<16xi8>
-  return
-}
-
-// -----
-
-// ROW: math.cttz | i8x16
-func.func @math_cttz_i8x16(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64xi8>, %s: i8) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xi8>, vector<16xi8>
-  // expected-error @below {{failed to legalize operation 'math.cttz'}}
-  %z = math.cttz %x : vector<16xi8>
-  vector.store %z, %c[%i] : memref<64xi8>, vector<16xi8>
-  return
-}
-
-// -----
-
-// ROW: math.ctpop | i8x16
-func.func @math_ctpop_i8x16(%a: memref<64xi8>, %b: memref<64xi8>, %c: memref<64xi8>, %s: i8) {
-  %i = arith.constant 0 : index
-  %x = vector.load %a[%i] : memref<64xi8>, vector<16xi8>
-  // expected-error @below {{failed to legalize operation 'math.ctpop'}}
-  %z = math.ctpop %x : vector<16xi8>
-  vector.store %z, %c[%i] : memref<64xi8>, vector<16xi8>
-  return
-}
-
-// -----
-
 // ROW: math.rsqrt | f32x4
 func.func @math_rsqrt_f32x4(%a: memref<64xf32>, %b: memref<64xf32>, %c: memref<64xf32>, %s: f32) {
   %i = arith.constant 0 : index
