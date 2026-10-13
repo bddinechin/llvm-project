@@ -47,9 +47,13 @@ lvx_func.func @no_fold_scale3(%i: !lvx.reg<r0>, %base: !lvx.reg<r1>) -> !lvx.reg
   lvx_func.return %a : !lvx.reg<r0>
 }
 
-// NEGATIVE: 128 is a power of two but beyond the family (scales stop at 64).
+// 128 is a power of two but beyond the family (scales stop at 64), so no
+// ADDX -- but the shift pattern takes it, which is the better of what is
+// left: `slld` is a cycle shorter than `muld` and on the more plentiful
+// unit. (This case expected the multiply to survive until the shift pattern
+// existed.)
 // CHECK-LABEL: lvx_func.func @no_fold_scale128
-// CHECK: lvx.muld
+// CHECK: lvx.slld_i %arg0, 7
 // CHECK-NOT: lvx.addx
 lvx_func.func @no_fold_scale128(%i: !lvx.reg<r0>, %base: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %c = lvx.li 128 : i64 : !lvx.reg
@@ -58,10 +62,11 @@ lvx_func.func @no_fold_scale128(%i: !lvx.reg<r0>, %base: !lvx.reg<r1>) -> !lvx.r
   lvx_func.return %a : !lvx.reg<r0>
 }
 
-// NEGATIVE: the multiply feeds two adds, so folding it into either would
-// leave the muld live for the other -- one instruction more, not fewer.
+// The multiply feeds two adds, so folding it into either would leave the
+// muld live for the other -- one instruction more, not fewer, and no ADDX.
+// The shift pattern has no such problem: one shift serves both uses.
 // CHECK-LABEL: lvx_func.func @no_fold_multi_use
-// CHECK: lvx.muld
+// CHECK: lvx.slld_i %arg0, 2
 // CHECK-NOT: lvx.addx
 lvx_func.func @no_fold_multi_use(%i: !lvx.reg<r0>, %b1: !lvx.reg<r1>,
                                  %b2: !lvx.reg<r2>) -> !lvx.reg<r0> {
@@ -227,4 +232,65 @@ lvx_func.func @taild_unproven_offset(%base: !lvx.reg<r0>, %off: !lvx.reg<r1>) {
   %v = lvx.masked_load %e, %base, 0 : i64 : (!lvx.reg, !lvx.reg<r0>) -> !lvx.pair
   lvx.masked_store %v, %e, %base, 0 : i64 : (!lvx.pair, !lvx.reg, !lvx.reg<r0>)
   lvx_func.return
+}
+
+// `muld(x, 2^n)` with a scale past the ADDX family becomes a shift. A byte
+// stride usually is past it: a row of 64 floats is 256. `slld` writes at
+// stage 2 where `muld` writes at 3 and reserves an ALU_TINY where the
+// multiply reserves an ALU_LITE, so this is a cycle off the dependence chain
+// and the more plentiful unit (lvx-mlir/docs/Vectorization.md §4).
+// CHECK-LABEL: lvx_func.func @fold_stride_to_shift
+// CHECK-NOT: lvx.muld
+// CHECK: lvx.slld_i %arg0, 8
+lvx_func.func @fold_stride_to_shift(%i: !lvx.reg<r0>, %base: !lvx.reg<r1>)
+    -> !lvx.reg<r0> {
+  %c = lvx.li 256 : i64 : !lvx.reg
+  %m = lvx.muld %i, %c : (!lvx.reg<r0>, !lvx.reg) -> !lvx.reg
+  %a = lvx.addd %m, %base : (!lvx.reg, !lvx.reg<r1>) -> !lvx.reg<r0>
+  lvx_func.return %a : !lvx.reg<r0>
+}
+
+// -----
+
+// A scale the ADDX family *does* encode stays with that fold, which is the
+// better one: it removes the add as well. The shift pattern declines exactly
+// where the ADDX pattern applies -- one use, that use being the add.
+// CHECK-LABEL: lvx_func.func @addx_still_wins
+// CHECK-NOT: lvx.slld_i
+// CHECK: lvx.addx8d
+lvx_func.func @addx_still_wins(%i: !lvx.reg<r0>, %base: !lvx.reg<r1>)
+    -> !lvx.reg<r0> {
+  %c = lvx.li 8 : i64 : !lvx.reg
+  %m = lvx.muld %i, %c : (!lvx.reg<r0>, !lvx.reg) -> !lvx.reg
+  %a = lvx.addd %m, %base : (!lvx.reg, !lvx.reg<r1>) -> !lvx.reg<r0>
+  lvx_func.return %a : !lvx.reg<r0>
+}
+
+// -----
+
+// ...but a scale in the family whose multiply has a second use cannot go to
+// ADDX (folding would duplicate the multiply), and the shift takes it.
+// CHECK-LABEL: lvx_func.func @two_uses_take_the_shift
+// CHECK-NOT: lvx.muld
+// CHECK: lvx.slld_i %arg0, 3
+lvx_func.func @two_uses_take_the_shift(%i: !lvx.reg<r0>, %base: !lvx.reg<r1>)
+    -> !lvx.reg<r0> {
+  %c = lvx.li 8 : i64 : !lvx.reg
+  %m = lvx.muld %i, %c : (!lvx.reg<r0>, !lvx.reg) -> !lvx.reg
+  %a = lvx.addd %m, %base : (!lvx.reg, !lvx.reg<r1>) -> !lvx.reg<r0>
+  %b = lvx.addd %m, %a : (!lvx.reg, !lvx.reg<r0>) -> !lvx.reg<r0>
+  lvx_func.return %b : !lvx.reg<r0>
+}
+
+// -----
+
+// A multiply by a non-power-of-two is left alone, and so is one by 1 (an
+// identity fold, not this pattern's business).
+// CHECK-LABEL: lvx_func.func @not_a_power_of_two
+// CHECK: lvx.muld
+// CHECK-NOT: lvx.slld_i
+lvx_func.func @not_a_power_of_two(%i: !lvx.reg<r0>) -> !lvx.reg<r0> {
+  %c = lvx.li 24 : i64 : !lvx.reg
+  %m = lvx.muld %i, %c : (!lvx.reg<r0>, !lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %m : !lvx.reg<r0>
 }

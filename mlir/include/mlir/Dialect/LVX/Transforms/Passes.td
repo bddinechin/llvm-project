@@ -181,9 +181,14 @@ def LVXCombinePass : Pass<"lvx-combine"> {
     live). `-cse` afterwards is worthwhile: folding exposes new common
     subexpressions.
 
-    Currently one family of pattern: `addd(muld(x, 2^n), b)` becomes
-    `addx<2^n>d(x, b)`, and the 32-bit equivalent, which is the shape every
-    affine array index has.
+    Two families today, both on address arithmetic -- the shape every affine
+    array index has. `addd(muld(x, 2^n), b)` becomes `addx<2^n>d(x, b)` for
+    the scales the ADDX family encodes (2 through 64), removing the multiply
+    and the add. What that cannot reach, `muld(x, 2^n)` becomes `slld_i(x,
+    n)`: a byte stride is usually past 64, and the shift is a cycle shorter
+    than the multiply and on the more plentiful unit. The second declines
+    wherever the first applies, so the better fold always wins. Both have a
+    32-bit twin.
   }];
   let dependentDialects = ["::mlir::lvx::LVXDialect"];
 }

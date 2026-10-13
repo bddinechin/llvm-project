@@ -120,6 +120,91 @@ private:
   }
 };
 
+/// If `v` is `lvx.li <constant>` with a positive power-of-two value, returns
+/// its base-2 logarithm -- the shift that multiplies by it. Bounded by the
+/// shift's own width (`unsigned6`, and the operation's 32 or 64 bits).
+static std::optional<unsigned> matchShiftAmount(Value v, unsigned bits) {
+  auto li = v.getDefiningOp<LiOp>();
+  if (!li)
+    return std::nullopt;
+  auto intAttr = dyn_cast<IntegerAttr>(li.getValue());
+  if (!intAttr)
+    return std::nullopt;
+  APInt value = intAttr.getValue();
+  if (value.getActiveBits() > bits || !value.isStrictlyPositive() ||
+      !value.isPowerOf2())
+    return std::nullopt;
+  int shift = value.exactLogBase2();
+  // A shift of zero is a multiply by one, which is an identity fold and not
+  // this pattern's business.
+  if (shift < 1 || static_cast<unsigned>(shift) >= bits)
+    return std::nullopt;
+  return static_cast<unsigned>(shift);
+}
+
+/// `muld(x, 2^n)` -> `slld_i(x, n)`, and the `w` equivalent.
+///
+/// A multiply by a power of two is a shift, and on this machine the shift is
+/// strictly better on both axes: `slld` writes at stage 2 where `muld` writes
+/// at 3 (`LVXLatency.inc`), so a cycle comes off any dependence chain through
+/// it, and it reserves an `ALU_TINY` where the multiply reserves an
+/// `ALU_LITE` -- availability 4 against 2, the more plentiful unit
+/// (`LVXScheduling.inc`).
+///
+/// This is the common case in address arithmetic and it is what remains after
+/// `FoldMulAddToAddx`: that fold handles the scales the ADDX family encodes,
+/// 2 through 64, and an array's *byte* stride is usually past them -- 256 and
+/// 512 in the matmul of `examples/mymma.mlir`, which is a row of 64 or 128
+/// floats.
+///
+/// It declines where `FoldMulAddToAddx` applies, because that fold is better:
+/// it removes the add as well as the multiply, where this removes neither.
+/// The condition mirrors that pattern's exactly -- one use, that use being
+/// the matching add, and a scale the family encodes.
+///
+/// It also declines a `w` multiply carrying `signextw`. The value would be
+/// the same shifted (a 32-bit multiply by a power of two and a 32-bit shift
+/// agree before the extension), but the modifier would have to be carried
+/// across and no caller needs it yet.
+template <typename MulOp, typename ShiftImmOp, typename AddOp>
+struct FoldMulPow2ToShift : public OpRewritePattern<MulOp> {
+  using OpRewritePattern<MulOp>::OpRewritePattern;
+
+  FoldMulPow2ToShift(MLIRContext *ctx, unsigned bits)
+      : OpRewritePattern<MulOp>(ctx), bits(bits) {}
+
+  LogicalResult matchAndRewrite(MulOp op,
+                                PatternRewriter &rewriter) const override {
+    if (op->hasAttr("sx"))
+      return failure();
+    // The constant may be on either side.
+    for (unsigned j = 0; j < 2; ++j) {
+      std::optional<unsigned> shift = matchShiftAmount(op->getOperand(j), bits);
+      if (!shift)
+        continue;
+      if (addxWouldFold(op, *shift))
+        return failure();
+      rewriter.replaceOpWithNewOp<ShiftImmOp>(
+          op, op.getResult().getType(), op->getOperand(1 - j),
+          rewriter.getI64IntegerAttr(*shift));
+      return success();
+    }
+    return failure();
+  }
+
+private:
+  /// Whether `FoldMulAddToAddx` would take this multiply instead.
+  static bool addxWouldFold(MulOp op, unsigned shift) {
+    if (shift < 1 || shift > 6) // the ADDX family: scales 2 .. 64
+      return false;
+    if (!op->hasOneUse())
+      return false;
+    return isa<AddOp>(*op->getUsers().begin());
+  }
+
+  unsigned bits;
+};
+
 using FoldMulAddToAddxD =
     FoldMulAddToAddx<AdddOp, MuldOp, Addx2dOp, Addx4dOp, Addx8dOp, Addx16dOp,
                      Addx32dOp, Addx64dOp>;
@@ -416,6 +501,10 @@ struct LVXCombinePass
     : public lvx::impl::LVXCombinePassBase<LVXCombinePass> {
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
+    patterns.add<FoldMulPow2ToShift<MuldOp, SlldImmOp, AdddOp>>(&getContext(),
+                                                                /*bits=*/64);
+    patterns.add<FoldMulPow2ToShift<MulwOp, SllwImmOp, AddwOp>>(&getContext(),
+                                                                /*bits=*/32);
     patterns.add<FoldMulAddToAddxD, FoldMulAddToAddxW,
                  DropRedundantZxwd, FoldSxwdIntoW,
                  FoldEorToNotD, FoldEorToNotW,
