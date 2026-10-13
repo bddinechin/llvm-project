@@ -226,6 +226,69 @@ def : Pat<(smax GPR:$rY, GPR:$rZ), (MAXD_DWRR0  GPR:$rZ, GPR:$rY)>;
 def : Pat<(umin GPR:$rY, GPR:$rZ), (MINUD_DWRR0 GPR:$rZ, GPR:$rY)>;
 def : Pat<(umax GPR:$rY, GPR:$rZ), (MAXUD_DWRR0 GPR:$rZ, GPR:$rY)>;
 
+// ---- The complemented logic ------------------------------------------------
+//
+// LVX has all five of the one-sided and negated bitwise operations, at BOTH
+// widths, and nothing was reaching any of them -- `a & ~b' was NOTD + ANDD and
+// `~(a | b)' was IORD + NOTD. One instruction each now. The semantics are the
+// Behaviours' and the complement is on the FIRST printed source:
+//
+//     andnd $rW = $rZ, $rY      ~rZ & rY
+//     iornd $rW = $rZ, $rY      ~rZ | rY
+//     nandd $rW = $rZ, $rY      ~(rZ & rY)
+//     niord $rW = $rZ, $rY      ~(rZ | rY)
+//     neord $rW = $rZ, $rY      ~(rZ ^ rY)
+//
+// so the ANDN/IORN pair is not symmetric in its operands and the three negated
+// ones are. `and' and `or' are commutative nodes, so TableGen matches the
+// commuted operand order too and `b & ~a' needs no pattern of its own.
+//
+// The immediate forms are left alone deliberately: every one of these takes
+// ALU_DWRI/.X/.Y and a .M as well, but a constant operand folds into the
+// constant at compile time -- `a & ~7' is `a & -8', which the generated ANDD
+// immediate patterns already take -- so the register forms are the whole of
+// what the DAG can present.
+multiclass NotLogicPat<RegisterClass rc, Instruction andn, Instruction iorn,
+                       Instruction nand_, Instruction nior, Instruction neor> {
+  def : Pat<(and (not rc:$rZ), rc:$rY),  (andn  rc:$rZ, rc:$rY)>;
+  def : Pat<(or  (not rc:$rZ), rc:$rY),  (iorn  rc:$rZ, rc:$rY)>;
+  def : Pat<(not (and rc:$rZ, rc:$rY)),  (nand_ rc:$rZ, rc:$rY)>;
+  def : Pat<(not (or  rc:$rZ, rc:$rY)),  (nior  rc:$rZ, rc:$rY)>;
+  def : Pat<(not (xor rc:$rZ, rc:$rY)),  (neor  rc:$rZ, rc:$rY)>;
+  // ~(a ^ b) and a ^ ~b are the same function and the optimizer moves between
+  // them freely -- a loop-invariant ~b is hoisted and the use arrives as the
+  // second form, which is how this one was found. The complement is on a
+  // register in both, so neither can capture `xor x, -1' and shadow NOT.
+  def : Pat<(xor (not rc:$rZ), rc:$rY),  (neor  rc:$rZ, rc:$rY)>;
+}
+defm : NotLogicPat<GPR, ANDND_DWRR0, IORND_DWRR0, NANDD_DWRR0, NIORD_DWRR0,
+                   NEORD_DWRR0>;
+defm : NotLogicPat<GPR128, ANDNQ_QWRR0, IORNQ_QWRR0, NANDQ_QWRR0, NIORQ_QWRR0,
+                   NEORQ_QWRR0>;
+
+// ---- The scaled adds -------------------------------------------------------
+//
+// ADDX<n>D computes rY + (rZ << log2 n), one ALU_TINY syllable, and the family
+// runs x2 x4 x8 x16 x32 x64 and -- since the 2026-10-13 ISA change -- x128 and
+// x256. Nothing in the back end was using any of them, so every indexed address
+// `p[i]' paid a SLLD and an ADDD where it can pay one instruction: a scaled add
+// is exactly what the shift-then-add the DAG hands us is.
+//
+// The shift amount is matched as a LITERAL, one pattern per member, for the
+// reason the TAILD patterns below give at length: the scale is part of the
+// mnemonic, not an operand, so there is nothing to parameterize.
+multiclass AddXPat<int sh, Instruction insn> {
+  def : Pat<(add (shl GPR:$rZ, (i64 sh)), GPR:$rY), (insn GPR:$rZ, GPR:$rY)>;
+}
+defm : AddXPat<1, ADDX2D_DWRR1>;
+defm : AddXPat<2, ADDX4D_DWRR1>;
+defm : AddXPat<3, ADDX8D_DWRR1>;
+defm : AddXPat<4, ADDX16D_DWRR1>;
+defm : AddXPat<5, ADDX32D_DWRR1>;
+defm : AddXPat<6, ADDX64D_DWRR1>;
+defm : AddXPat<7, ADDX128D_DWRR1>;
+defm : AddXPat<8, ADDX256D_DWRR1>;
+
 // ---- Multiply -------------------------------------------------------------
 //
 // One instruction, MULD, covers the low and all three high multiplies; which
@@ -320,6 +383,18 @@ def : Pat<(i64 (trunc GPR128:$rP)), (EXTRACT_SUBREG GPR128:$rP, sub_hi)>;
 // build the constant pair, and the operation. Three instructions for one.
 def : Pat<(sub (i128 0), GPR128:$rP), (NEGQ_QBWR GPR128:$rP)>;
 def : Pat<(not GPR128:$rP),           (NOTQ_QBWR GPR128:$rP)>;
+
+// And since the 2026-10-13 ISA change the quadword ALU has the absolute value
+// and both min/max pairs, so these are one instruction too -- where `abs' was
+// four (SRAD of the sign, a COPYD to spread it over the pair, EORQ, SBFQ) and a
+// min was three (COMPQ, CMOVEQ, and a CATDQ to rebuild the pair). All four
+// min/max are commutative nodes, so the operand order is free; ABSQ sign-
+// extends from bit 127 as NEGQ does.
+def : Pat<(abs GPR128:$rP),              (ABSQ_QBWR GPR128:$rP)>;
+def : Pat<(smin GPR128:$rP, GPR128:$rO), (MINQ_QWRR0  GPR128:$rP, GPR128:$rO)>;
+def : Pat<(smax GPR128:$rP, GPR128:$rO), (MAXQ_QWRR0  GPR128:$rP, GPR128:$rO)>;
+def : Pat<(umin GPR128:$rP, GPR128:$rO), (MINUQ_QWRR0 GPR128:$rP, GPR128:$rO)>;
+def : Pat<(umax GPR128:$rP, GPR128:$rO), (MAXUQ_QWRR0 GPR128:$rP, GPR128:$rO)>;
 
 // ---- The 128-bit comparison, COMPQ ------------------------------------------
 //

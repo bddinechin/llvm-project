@@ -371,9 +371,17 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // the generic sequence over operations the pair does have.
   for (unsigned Op : {ISD::CTLZ, ISD::CTTZ, ISD::CTPOP, ISD::CTLZ_ZERO_POISON,
                       ISD::CTTZ_ZERO_POISON, ISD::BSWAP, ISD::BITREVERSE,
-                      ISD::ROTL, ISD::ROTR, ISD::ABS, ISD::SMIN, ISD::SMAX,
-                      ISD::UMIN, ISD::UMAX})
+                      ISD::ROTL, ISD::ROTR})
     setOperationAction(Op, MVT::i128, Expand);
+
+  // ABS and both min/max pairs, on the other hand, DO have a quadword
+  // instruction since the 2026-10-13 ISA change -- ABSQ, MINQ/MAXQ,
+  // MINUQ/MAXUQ -- and their patterns are in LVXInstrInfo.td. They were in the
+  // Expand list above for one day, which was the honest state of the ISA at the
+  // time and is why the line between the two lists is worth keeping: it is the
+  // list of what the hardware has, not of what seems to belong.
+  for (unsigned Op : {ISD::ABS, ISD::SMIN, ISD::SMAX, ISD::UMIN, ISD::UMAX})
+    setOperationAction(Op, MVT::i128, Legal);
 
   // A switch's jump table. LVX has no dedicated table-branch instruction, so
   // BR_JT is expanded into the generic sequence -- scale the index, add the

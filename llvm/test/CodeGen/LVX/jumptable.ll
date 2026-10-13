@@ -17,12 +17,15 @@
 ; CHECK: ccb.dltu
 
 ; Index scaled by the 8-byte entry size, added to the table base, loaded, and
-; branched through.
-; CHECK: slld $r{{[0-9]+}} = $r{{[0-9]+}}, 3
+; branched through -- and the scaling and the add are ONE instruction, which is
+; the whole point of ADDX8D. It was `slld $rN = $rM, 3' followed by an `addd'
+; until 2026-10-13, when the scaled-add family was first wired up; a jump table
+; is the shape it was made for, so this test is where the change shows first.
 ; The table base is a link-time symbol, so the widest MAKE form (maked, via
 ; MAKED_DWI_Y) materializes it -- "make" was the pre-rename spelling.
 ; CHECK: maked $r{{[0-9]+}} = .LJTI
-; CHECK: addd
+; CHECK-NOT: slld
+; CHECK: addx8d $r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
 ; CHECK: ld $r{{[0-9]+}} = 0[$r{{[0-9]+}}]
 ; CHECK: igoto $r{{[0-9]+}}
 
