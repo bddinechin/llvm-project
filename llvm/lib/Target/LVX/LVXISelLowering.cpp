@@ -383,6 +383,31 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   for (unsigned Op : {ISD::ABS, ISD::SMIN, ISD::SMAX, ISD::UMIN, ISD::UMAX})
     setOperationAction(Op, MVT::i128, Legal);
 
+  // ---- The 32-bit shifts ---------------------------------------------------
+  //
+  // i32 is not a legal type here, so a 32-bit shift arrives at the type
+  // legalizer to be promoted -- and promotion alone CANNOT express it. LVX's
+  // SRLW/SRAW/SLLW take the count modulo 32 (their Behavior masks it with
+  // _ZX_5), while the promoted i64 shift takes it modulo 64, so the two
+  // disagree for every count in [32, 63]. A selection pattern over the
+  // promoted form -- `(srl (and X, 0xffffffff), c)' -> SRLW -- is therefore a
+  // miscompile, and the source IR's poison for an out-of-range 32-bit shift
+  // does not save it: the same pattern also matches a GENUINE 64-bit shift of
+  // a masked value, where the count is in range and the answer defined.
+  //
+  // So the narrow shift becomes a target node here, while the width is still
+  // known, exactly as RV64 does with RISCVISD::SLLW/SRLW/SRAW. Each node means
+  // "the 32-bit shift, count taken modulo 32, result sign-extended to 64" --
+  // the sign extension being free in the instruction (`signextw') and the
+  // convention that makes (long)(int)(a >> b) cost nothing.
+  //
+  // A CONSTANT count is left to generic promotion on purpose: it is known
+  // smaller than 32, so the promoted 64-bit shift of a correctly extended
+  // value is exact, and the generated immediate patterns already select
+  // SRLD/SRAD/SLLD for it.
+  for (unsigned Op : {ISD::SHL, ISD::SRL, ISD::SRA})
+    setOperationAction(Op, MVT::i32, Custom);
+
   // A switch's jump table. LVX has no dedicated table-branch instruction, so
   // BR_JT is expanded into the generic sequence -- scale the index, add the
   // table base, load the entry, and branch indirectly through it -- and only
@@ -589,6 +614,60 @@ bool LVXTargetLowering::isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
     return true;
   default:
     return false;
+  }
+}
+
+// A 32-bit shift, turned into the target node that says so.
+//
+// This is the type legalizer's hook rather than LowerOperation's business: the
+// node's RESULT type is i32, which is illegal, so it is reached while being
+// promoted and not after. Both operands are ANY_EXTENDed -- the value's upper
+// half is discarded by the instruction and the count's is masked away by it --
+// and the i32 result is handed back as a TRUNCATE of the i64 node, which is
+// what the rest of promotion expects to find.
+void LVXTargetLowering::ReplaceNodeResults(SDNode *N,
+                                           SmallVectorImpl<SDValue> &Results,
+                                           SelectionDAG &DAG) const {
+  SDLoc DL(N);
+  switch (N->getOpcode()) {
+  default:
+    return;   // nothing to say: let the legalizer do what it would have done
+  case ISD::SHL:
+  case ISD::SRL:
+  case ISD::SRA: {
+    if (N->getValueType(0) != MVT::i32)
+      return;
+    // A constant count needs none of this; see the note on the actions.
+    if (isa<ConstantSDNode>(N->getOperand(1)))
+      return;
+    unsigned Opc = N->getOpcode() == ISD::SHL   ? LVXISD::SLLW
+                 : N->getOpcode() == ISD::SRL   ? LVXISD::SRLW
+                                                : LVXISD::SRAW;
+    SDValue Value = DAG.getNode(ISD::ANY_EXTEND, DL, MVT::i64, N->getOperand(0));
+    SDValue Count = DAG.getNode(ISD::ANY_EXTEND, DL, MVT::i64, N->getOperand(1));
+    SDValue Wide = DAG.getNode(Opc, DL, MVT::i64, Value, Count);
+    Results.push_back(DAG.getNode(ISD::TRUNCATE, DL, MVT::i32, Wide));
+    return;
+  }
+  }
+}
+
+// SLLW/SRLW/SRAW write a 32-bit result sign-extended into the register, so the
+// top 33 bits are copies of bit 31. Saying so is not an optimisation detail: the
+// IR that produced the node almost always extends its result again --
+// (long)(int)(a >> b), or just the next use of an `int' at 64 bits -- and
+// without this the extension is emitted a second time as an EXTFS, which costs
+// back exactly the instruction the W form was selected to save.
+unsigned LVXTargetLowering::ComputeNumSignBitsForTargetNode(
+    SDValue Op, const APInt &DemandedElts, const SelectionDAG &DAG,
+    unsigned Depth) const {
+  switch (Op.getOpcode()) {
+  case LVXISD::SLLW:
+  case LVXISD::SRLW:
+  case LVXISD::SRAW:
+    return 33;
+  default:
+    return 1;
   }
 }
 

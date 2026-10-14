@@ -86,6 +86,23 @@ def SDT_LVXBitsToF16 : SDTypeProfile<1, 1, [SDTCisVT<0, f16>, SDTCisVT<1, i64>]>
 def LVXf16tobits : SDNode<"LVXISD::F16_TO_BITS", SDT_LVXF16ToBits>;
 def LVXbitstof16 : SDNode<"LVXISD::BITS_TO_F16", SDT_LVXBitsToF16>;
 
+// The 32-bit shifts, as nodes rather than patterns.
+//
+// Each means "the 32-bit shift, count taken modulo 32, result sign-extended to
+// 64 bits" -- which is SLLW/SRLW/SRAW exactly, and which the promoted generic
+// DAG cannot say: the promoted shift takes its count modulo 64, so a pattern
+// over `(srl (and X, 0xffffffff), c)' answers differently for every count in
+// [32, 63] and matches a genuine 64-bit shift of a masked value as well as the
+// narrow one it was aimed at. LVXTargetLowering::ReplaceNodeResults builds
+// these while the width is still known; RV64 does the same thing with
+// RISCVISD::SLLW/SRLW/SRAW, for the same reason.
+def SDT_LVXShiftW : SDTypeProfile<1, 2, [SDTCisVT<0, i64>, SDTCisVT<1, i64>,
+                                         SDTCisVT<2, i64>]>;
+def LVXsllw : SDNode<"LVXISD::SLLW", SDT_LVXShiftW>;
+def LVXsrlw : SDNode<"LVXISD::SRLW", SDT_LVXShiftW>;
+def LVXsraw : SDNode<"LVXISD::SRAW", SDT_LVXShiftW>;
+
+
 //===----------------------------------------------------------------------===//
 // Call-frame pseudo instructions
 //
@@ -366,6 +383,35 @@ def : Pat<(rotr GPR:$rY, GPR:$rZ), (RORD_DSWRR GPR:$rY, GPR:$rZ)>;
 
 def : Pat<(rotl GPR:$rZ, uimm6imm:$imm), (ROLD_DSWRI GPR:$rZ, uimm6imm:$imm)>;
 def : Pat<(rotr GPR:$rZ, uimm6imm:$imm), (RORD_DSWRI GPR:$rZ, uimm6imm:$imm)>;
+
+// ---- The 32-bit shifts -----------------------------------------------------
+//
+// Selected from the target nodes LVXTargetLowering::ReplaceNodeResults builds
+// out of an i32 shift; the SDNode defs at the top of this file say why they are
+// nodes and not patterns over the promoted form (the promoted shift takes its
+// count modulo 64, the instruction modulo 32, and they disagree on every count
+// in [32, 63]).
+//
+// signextw = 1: the node's result is the sign-extended one, which is free in
+// the instruction and is the form a later (long)(int)x asks for. A consumer
+// that wants it zero-extended masks, and pays the andd it would have paid
+// anyway.
+def : Pat<(LVXsllw GPR:$rZ, GPR:$rY), (SLLW_WSWRR GPR:$rZ, GPR:$rY, 1)>;
+def : Pat<(LVXsrlw GPR:$rZ, GPR:$rY), (SRLW_WSWRR GPR:$rZ, GPR:$rY, 1)>;
+def : Pat<(LVXsraw GPR:$rZ, GPR:$rY), (SRAW_WSWRR GPR:$rZ, GPR:$rY, 1)>;
+
+// The count arrives masked to 32 bits -- it is an i32 promoted back, and
+// nothing has told the legalizer that only five bits of it will be read. The
+// instruction masks to five itself, so a mask to 32 in front of it is a no-op
+// and the ANDD that would compute it is dead. Matching it here is what removes
+// it; without these three the narrow shift costs an ANDD it does not need, and
+// stays the same length as the 64-bit sequence it replaced.
+def : Pat<(LVXsllw GPR:$rZ, (and GPR:$rY, 4294967295)),
+          (SLLW_WSWRR GPR:$rZ, GPR:$rY, 1)>;
+def : Pat<(LVXsrlw GPR:$rZ, (and GPR:$rY, 4294967295)),
+          (SRLW_WSWRR GPR:$rZ, GPR:$rY, 1)>;
+def : Pat<(LVXsraw GPR:$rZ, (and GPR:$rY, 4294967295)),
+          (SRAW_WSWRR GPR:$rZ, GPR:$rY, 1)>;
 
 // ---- 128-bit values ---------------------------------------------------------
 //

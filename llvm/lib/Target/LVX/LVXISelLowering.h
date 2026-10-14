@@ -35,6 +35,19 @@ public:
   // multiply (lowerMul128).
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
 
+  // The type legalizer's hook for a node whose RESULT type is illegal, which
+  // for LVX means every 32-bit shift: see the comment at its definition for
+  // why a shift is the one narrow operation a selection pattern cannot carry.
+  void ReplaceNodeResults(SDNode *N, SmallVectorImpl<SDValue> &Results,
+                          SelectionDAG &DAG) const override;
+
+  // What the W shift nodes guarantee about their upper half, without which the
+  // sign extension they perform for free is re-done by an explicit EXTFS.
+  unsigned ComputeNumSignBitsForTargetNode(SDValue Op,
+                                           const APInt &DemandedElts,
+                                           const SelectionDAG &DAG,
+                                           unsigned Depth) const override;
+
   // LVX has real fused multiply-add hardware (FFMAD/FFMAW), so llvm.fmuladd
   // should become a single ISD::FMA rather than a separate multiply and add.
   // The base class answers false, which is why "a*b + c" was still coming out
