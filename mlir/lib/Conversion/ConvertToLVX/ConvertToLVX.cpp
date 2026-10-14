@@ -2038,20 +2038,23 @@ using VAbsIToLVX = VectorUnaryToLVX<math::AbsIOp,
 // 2026-10-13 (`CLZBX`/`CTZBX`/`CBSBX`, which closed the last three class-D
 // rows of VectorCoverage.md §6's elementwise family), and the `bv` composites
 // a day later -- all three parts are `ALU_LITE`, so the two halves share a
-// bundle. The 16- and 32-bit shapes still have no quad form: there is no
-// `clzhx`/`clzwo` to split on.
+// bundle. The other three lane widths followed on 2026-10-14, from the audit
+// VectorCoverage.md §7 prescribes: `clzho`/`clzwq`/`clzdp` and their `ctz`
+// and `cbs` siblings were nobody's `part`, which is what a missing composite
+// looks like from the ISA's side. §6 could not see it -- it had no row for a
+// bit count at 256 bits other than the byte one.
 //
 // `CLSBX` came with them and is not here, for the reason the scalar `cls`
 // is not: counting leading *sign* bits has no MLIR op to match.
 using VCtlzToLVX = VectorUnaryToLVX<math::CountLeadingZerosOp,
     lvx::ClzbxOp, lvx::ClzhoOp, lvx::ClzwqOp, lvx::ClzdpOp,
-    lvx::ClzbvOp, NoLaneOp,     NoLaneOp,     NoLaneOp>;
+    lvx::ClzbvOp, lvx::ClzhxOp, lvx::ClzwoOp, lvx::ClzdqOp>;
 using VCttzToLVX = VectorUnaryToLVX<math::CountTrailingZerosOp,
     lvx::CtzbxOp, lvx::CtzhoOp, lvx::CtzwqOp, lvx::CtzdpOp,
-    lvx::CtzbvOp, NoLaneOp,     NoLaneOp,     NoLaneOp>;
+    lvx::CtzbvOp, lvx::CtzhxOp, lvx::CtzwoOp, lvx::CtzdqOp>;
 using VCtpopToLVX = VectorUnaryToLVX<math::CtPopOp,
     lvx::CbsbxOp, lvx::CbshoOp, lvx::CbswqOp, lvx::CbsdpOp,
-    lvx::CbsbvOp, NoLaneOp,     NoLaneOp,     NoLaneOp>;
+    lvx::CbsbvOp, lvx::CbshxOp, lvx::CbswoOp, lvx::CbsdqOp>;
 
 // Float. There is no 8-bit float, and f16 (`ho`/`hx`) is out of scope for
 // now (VectorCoverage.md §1), but the ops are named here anyway: the type
@@ -2473,9 +2476,13 @@ static bool isZeroOrPoisonVector(Value v) {
 /// at all -- the vector pattern wanted a vector condition and the scalar
 /// pattern rejects vector operands.
 ///
-/// `CMOVEQ` is pair-only, with no quad form and no composite, so a quad is two
-/// of them on the halves. The false value is the tied operand, as for `blend*`,
-/// so a false value live past the select is copied by the preserving-copy pass.
+/// A quad is `cmoveo`, the composite of two `cmoveq` (lvx-mds 2026-10-14, from
+/// the audit VectorCoverage.md §7 prescribes -- `CMOVEQ` was nobody's `part`).
+/// It is the first composite whose part carries a modifier *and* a scalar
+/// operand *and* a tie at once: the condition is a single register both parts
+/// read whole, which is what makes one op legal here. The false value is the
+/// tied operand, as for `blend*`, so a false value live past the select is
+/// copied by the preserving-copy pass.
 struct VectorSelectScalarCondToLVX
     : public OpConversionPattern<arith::SelectOp> {
   using OpConversionPattern::OpConversionPattern;
@@ -2490,7 +2497,6 @@ struct VectorSelectScalarCondToLVX
     unsigned units = tupleTy ? tupleWidth(tupleTy) : 0;
     if (!units)
       return rewriter.notifyMatchFailure(op, "vector shape has no register tuple");
-    Location loc = op.getLoc();
     Value cond = adaptor.getCondition();
     Value yes = adaptor.getTrueValue(), no = adaptor.getFalseValue();
     if (units == 2) {
@@ -2498,14 +2504,8 @@ struct VectorSelectScalarCondToLVX
                                                  cond, yes, no);
       return success();
     }
-    Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
-    Value half[2];
-    for (unsigned k = 0; k != 2; ++k)
-      half[k] = rewriter.create<lvx::CmoveqOp>(
-          loc, pairTy, BcuCond::wnez, cond, quadHalf(rewriter, loc, yes, k),
-          quadHalf(rewriter, loc, no, k));
-    rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy,
-                                               ValueRange{half[0], half[1]});
+    rewriter.replaceOpWithNewOp<lvx::CmoveoOp>(op, tupleTy, BcuCond::wnez,
+                                               cond, yes, no);
     return success();
   }
 };

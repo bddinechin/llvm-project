@@ -226,12 +226,11 @@ func.func @select_scalar_f32x4(%c: i1, %a: memref<8xf32>, %b: memref<8xf32>,
 
 // -----
 
-// CMOVEQ is pair-only, with no quad form and no composite, so a quad is two of
-// them on the halves.
+// A quad is `cmoveo`, the composite of two `cmoveq` (2026-10-14): the
+// condition is a single register both parts read whole, so one op is legal.
 // ROW: arith.select(scalar) | f32x8
 // CHECK-LABEL: @select_scalar_f32x8
-// CHECK: lvx.cmoveq wnez
-// CHECK: lvx.cmoveq wnez
+// CHECK: lvx.cmoveo wnez
 func.func @select_scalar_f32x8(%c: i1, %a: memref<16xf32>, %b: memref<16xf32>,
                                %o: memref<16xf32>) {
   %i = arith.constant 0 : index
