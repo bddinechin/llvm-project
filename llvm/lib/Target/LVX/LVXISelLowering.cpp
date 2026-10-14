@@ -1270,11 +1270,22 @@ SDValue LVXTargetLowering::LowerFormalArguments(
     EVT ArgVT = Ins[ValNo].ArgVT;
     SDValue ArgValue;
     if (Pieces.size() == 1) {
-      // Narrower than a slot means the convention promoted it on the way in,
-      // so getting it back is a truncation; a same-width type (f64) is a
-      // bitcast. Doing this unconditionally as a bitcast asserts on any
-      // i1/i8/i16/i32 argument.
-      ArgValue = truncateFromSlot(DAG, DL, Pieces[0], ArgVT);
+      // Back to the type the CONVENTION assigned -- Ins[ValNo].VT -- and not to
+      // the IR's own ArgVT, which for a narrow integer is not the same thing.
+      // i1/i8/i16/i32 are illegal here, so the convention promotes them to i64
+      // and SelectionDAGBuilder is the one that puts the value back to its IR
+      // type; LowerFormalArguments must hand it the i64. Truncating here as
+      // well produced a value of the wrong type for the contract -- caught by
+      // the LLVM_DEBUG verification in SelectionDAGBuilder::LowerArguments,
+      // "LowerFormalArguments emitted a value with the wrong type!", which runs
+      // only under -debug-only=isel and so had gone unnoticed; the builder then
+      // truncated the already-truncated value, which happened to come out
+      // right.
+      //
+      // For every type where the two agree the call is unchanged: f32 and f16
+      // are legal and still reinterpreted out of their slot in place, f64 is
+      // still a bitcast, and i64 is still itself.
+      ArgValue = truncateFromSlot(DAG, DL, Pieces[0], Ins[ValNo].VT);
     } else if (Pieces.size() == 2) {
       // i128: a genuine wide integer split across two i64 halves.
       // BUILD_PAIR is the standard node for this (low half first, per
