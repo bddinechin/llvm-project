@@ -98,6 +98,25 @@ def LVXbitstof16 : SDNode<"LVXISD::BITS_TO_F16", SDT_LVXBitsToF16>;
 // RISCVISD::SLLW/SRLW/SRAW, for the same reason.
 def SDT_LVXShiftW : SDTypeProfile<1, 2, [SDTCisVT<0, i64>, SDTCisVT<1, i64>,
                                          SDTCisVT<2, i64>]>;
+
+// The 32-bit divide, likewise a node and for a sharper reason than the shifts:
+// DIVMODW does not merely take its operands narrow, it ANSWERS DIFFERENTLY from
+// the 64-bit divide on an input the 64-bit one handles fine. Instruction.yml
+// spells it out -- for 0x80000000 / 0xFFFFFFFF the quotient is 0x80000000,
+// the 32-bit wrap, where `sdiv i64 -2147483648, -1' is +2147483648. That is
+// undefined in C but perfectly defined in IR, so a pattern over the promoted
+// form -- (sdiv (sext_inreg X, i32), (sext_inreg Y, i32)) -> divmodw -- would
+// miscompile valid input. Built during type legalization instead, where the
+// operation is known to BE a 32-bit divide.
+//
+// TWO results, quotient and remainder, because the instruction computes both:
+// the DAG CSEs two identical nodes into one, so an adjacent `a / b' and `a % b'
+// still cost a single instruction, which is the sharing the i64 path gets from
+// ISD::SDIVREM and would otherwise be lost here.
+def SDT_LVXDivModW : SDTypeProfile<2, 2, [SDTCisVT<0, i64>, SDTCisVT<1, i64>,
+                                          SDTCisVT<2, i64>, SDTCisVT<3, i64>]>;
+def LVXdivmodw  : SDNode<"LVXISD::DIVMODW",  SDT_LVXDivModW>;
+def LVXdivmoduw : SDNode<"LVXISD::DIVMODUW", SDT_LVXDivModW>;
 def LVXsllw : SDNode<"LVXISD::SLLW", SDT_LVXShiftW>;
 def LVXsrlw : SDNode<"LVXISD::SRLW", SDT_LVXShiftW>;
 def LVXsraw : SDNode<"LVXISD::SRAW", SDT_LVXShiftW>;

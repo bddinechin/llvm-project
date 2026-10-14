@@ -7,6 +7,7 @@
 #include "LVXISelLowering.h"
 #include "LVXMachineFunctionInfo.h"
 #include "LVXSubtarget.h"
+#include "llvm/Support/KnownBits.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -408,6 +409,21 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   for (unsigned Op : {ISD::SHL, ISD::SRL, ISD::SRA})
     setOperationAction(Op, MVT::i32, Custom);
 
+  // ---- The 32-bit divide ---------------------------------------------------
+  //
+  // Same hook and a stronger reason. DIVMODW is not the 64-bit divide with
+  // narrow operands: on 0x80000000 / 0xFFFFFFFF it gives the 32-bit wrap,
+  // 0x80000000, where `sdiv i64 -2147483648, -1' gives +2147483648 -- which is
+  // undefined in C and perfectly defined in IR, so only something that knows
+  // the operation was a 32-bit divide may use the instruction. Promotion plus a
+  // pattern does not know that; this does.
+  //
+  // Unsigned needs no such care (a 32-bit unsigned quotient always fits, so the
+  // promoted form is exact) but goes the same way for one shape of code.
+  for (unsigned Op : {ISD::SDIV, ISD::UDIV, ISD::SREM, ISD::UREM,
+                      ISD::SDIVREM, ISD::UDIVREM})
+    setOperationAction(Op, MVT::i32, Custom);
+
   // A switch's jump table. LVX has no dedicated table-branch instruction, so
   // BR_JT is expanded into the generic sequence -- scale the index, add the
   // table base, load the entry, and branch indirectly through it -- and only
@@ -632,6 +648,38 @@ void LVXTargetLowering::ReplaceNodeResults(SDNode *N,
   switch (N->getOpcode()) {
   default:
     return;   // nothing to say: let the legalizer do what it would have done
+  case ISD::SDIV:
+  case ISD::UDIV:
+  case ISD::SREM:
+  case ISD::UREM:
+  case ISD::SDIVREM:
+  case ISD::UDIVREM: {
+    if (N->getValueType(0) != MVT::i32)
+      return;
+    unsigned Opc = N->getOpcode();
+    bool IsSigned = Opc == ISD::SDIV || Opc == ISD::SREM || Opc == ISD::SDIVREM;
+    bool IsRem    = Opc == ISD::SREM || Opc == ISD::UREM;
+    // The instruction reads the low word of each operand and extends the two
+    // results itself, so how the operands got into their registers does not
+    // matter: ANY_EXTEND, and let whatever produced them stand.
+    SDValue A = DAG.getNode(ISD::ANY_EXTEND, DL, MVT::i64, N->getOperand(0));
+    SDValue B = DAG.getNode(ISD::ANY_EXTEND, DL, MVT::i64, N->getOperand(1));
+    SDVTList VTs = DAG.getVTList(MVT::i64, MVT::i64);
+    SDValue Both = SDValue(
+        DAG.getNode(IsSigned ? LVXISD::DIVMODW : LVXISD::DIVMODUW, DL, VTs,
+                    {A, B}).getNode(), 0);
+    SDNode *Node = Both.getNode();
+    if (Opc == ISD::SDIVREM || Opc == ISD::UDIVREM) {
+      Results.push_back(DAG.getNode(ISD::TRUNCATE, DL, MVT::i32,
+                                    SDValue(Node, 0)));
+      Results.push_back(DAG.getNode(ISD::TRUNCATE, DL, MVT::i32,
+                                    SDValue(Node, 1)));
+      return;
+    }
+    Results.push_back(DAG.getNode(ISD::TRUNCATE, DL, MVT::i32,
+                                  SDValue(Node, IsRem ? 1 : 0)));
+    return;
+  }
   case ISD::SHL:
   case ISD::SRL:
   case ISD::SRA: {
@@ -666,8 +714,31 @@ unsigned LVXTargetLowering::ComputeNumSignBitsForTargetNode(
   case LVXISD::SRLW:
   case LVXISD::SRAW:
     return 33;
+  case LVXISD::DIVMODW:
+    // Both halves are the 32-bit result sign-extended (signextw = 1), so the
+    // quotient and the remainder each carry 33 sign bits -- which is what stops
+    // a following (long)(a / b) emitting the extension a second time.
+    return 33;
   default:
     return 1;
+  }
+}
+
+// DIVMODUW writes each 32-bit result ZERO-extended into its half of the pair
+// (Instruction.yml: result1.64[i] = _ZX_32(...)), so the top 32 bits are known
+// zero. Stating it is what removes the ANDD a zero-extending consumer would
+// otherwise emit -- the unsigned mirror of the 33 sign bits reported above, and
+// the same instruction saved.
+void LVXTargetLowering::computeKnownBitsForTargetNode(
+    const SDValue Op, KnownBits &Known, const APInt &DemandedElts,
+    const SelectionDAG &DAG, unsigned Depth) const {
+  Known.resetAll();
+  switch (Op.getOpcode()) {
+  case LVXISD::DIVMODUW:
+    Known.Zero.setBitsFrom(32);
+    return;
+  default:
+    return;
   }
 }
 

@@ -782,6 +782,33 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     return;
   }
 
+  // LVXISD::DIVMODW / DIVMODUW -> DIVMODW / DIVMODUW, the same shape one width
+  // down. The node carries both results because the instruction computes both
+  // (see its SDNode def for why it is a node and not a pattern), so this is the
+  // SDIVREM case above with a signextw to choose and a 32-bit meaning:
+  //
+  //   signextw = 1  the two 32-bit results sign-extended into their halves,
+  //                 which is what a promoted i32 sdiv/srem wants
+  //   signextw = 0  zero-extended, which is what udiv/urem wants
+  //
+  // and the halves are laid out as DIVMODD's are -- quotient in .64[0], which
+  // is sub_hi. ComputeNumSignBitsForTargetNode reports 33 for the signed node
+  // so that a following (long)(a / b) does not extend the result again.
+  if (N->getOpcode() == LVXISD::DIVMODW || N->getOpcode() == LVXISD::DIVMODUW) {
+    bool IsSigned = N->getOpcode() == LVXISD::DIVMODW;
+    unsigned Opc = IsSigned ? LVX::DIVMODW_WDMWRR : LVX::DIVMODUW_WDMWRR;
+    SDValue Ops[] = {N->getOperand(0), N->getOperand(1),
+                     CurDAG->getTargetConstant(IsSigned ? 1 : 0, DL, MVT::i32)};
+    SDNode *Pair = CurDAG->getMachineNode(Opc, DL, MVT::i128, Ops);
+    SDValue PairVal(Pair, 0);
+    ReplaceUses(SDValue(N, 0),
+                CurDAG->getTargetExtractSubreg(sub_hi, DL, MVT::i64, PairVal));
+    ReplaceUses(SDValue(N, 1),
+                CurDAG->getTargetExtractSubreg(sub_lo, DL, MVT::i64, PairVal));
+    CurDAG->RemoveDeadNode(N);
+    return;
+  }
+
   // ISD::JumpTable -> MAKED_DWI_Y of the table's base address. The table
   // symbol is a link-time address whose value is unknown at compile time, so
   // the widest MAKE form is used unconditionally -- the same reasoning as the

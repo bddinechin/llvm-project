@@ -48,6 +48,13 @@ public:
                                            const SelectionDAG &DAG,
                                            unsigned Depth) const override;
 
+  // The unsigned counterpart: DIVMODUW zero-extends both of its results, so the
+  // upper half is known zero and a following mask is dead.
+  void computeKnownBitsForTargetNode(const SDValue Op, KnownBits &Known,
+                                     const APInt &DemandedElts,
+                                     const SelectionDAG &DAG,
+                                     unsigned Depth) const override;
+
   // LVX has real fused multiply-add hardware (FFMAD/FFMAW), so llvm.fmuladd
   // should become a single ISD::FMA rather than a separate multiply and add.
   // The base class answers false, which is why "a*b + c" was still coming out

@@ -57,19 +57,23 @@ define i64 @divmod_shared(i64 %a, i64 %b) {
   ret i64 %r
 }
 
-; i32 division has no legal type of its own here, so it is promoted to i64 --
-; sign-extended for the signed form, zero-extended for the unsigned one. The
-; extension is what makes the promoted 64-bit divide give the right 32-bit
-; answer, so check the correct opcode still follows it.
+; i32 division has no legal type of its own here, and until 2026-10-14 that meant
+; promotion to i64 -- sign- or zero-extending both operands and using the 64-bit
+; divide, three instructions, the extension being what made the wider divide give
+; the right 32-bit answer. It has its own instruction now, built as a target node
+; during type legalization (divide32.ll says why it cannot be a pattern over the
+; promoted form), so what follows is one instruction and no extension at all.
 ; CHECK-LABEL: sdiv32:
-; CHECK: divmodd $r{{[0-9]+}}r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
+; CHECK-NOT: extfsd
+; CHECK: divmodw.sx $r{{[0-9]+}}r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
 define i32 @sdiv32(i32 %a, i32 %b) {
   %r = sdiv i32 %a, %b
   ret i32 %r
 }
 
 ; CHECK-LABEL: udiv32:
-; CHECK: divmodud $r{{[0-9]+}}r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
+; CHECK-NOT: andd
+; CHECK: divmoduw $r{{[0-9]+}}r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
 define i32 @udiv32(i32 %a, i32 %b) {
   %r = udiv i32 %a, %b
   ret i32 %r
