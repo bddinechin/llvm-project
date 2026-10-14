@@ -1102,10 +1102,10 @@ struct LVXAllocateRegistersPass
           fixedRanges[u].push_back({item.start, item.end});
 
     // Registers an item of range [start, end) must not take: those a fixed
-    // range claims while this item is still live. The boundary is the same one
-    // `expireOldIntervals` uses for a fixed item -- an item whose last use is
-    // the very op defining the fixed value does not contend, it dies being
-    // read there -- so the tests are strict.
+    // range claims while this item is still live. Both tests are strict,
+    // which is the corrected lifetime convention below: a value occupies its
+    // register over [start + 1, end], so two items contend only when each
+    // one's definition precedes the other's last use.
     auto blockedByFixed = [&](unsigned start, unsigned end,
                               bool out[kRegisterIdBound]) {
       std::fill(out, out + kRegisterIdBound, false);
@@ -1118,21 +1118,25 @@ struct LVXAllocateRegistersPass
       }
     };
 
-    // `includeBoundary`: whether an active item ending *exactly* at `start`
-    // should also be expired. Fig. 1's own rule (`end < start`, strict) is
-    // what we want for ordinary items -- it's what forces e.g. an op's
-    // result into a different register than an operand it still reads at
-    // the same op, matching this dialect's "no operand/result register
-    // reuse" stance. But that same strictness is wrong when checking a
-    // *fixed* item's register for a real conflict: an operand whose last
-    // use is the very op that produces the fixed value (e.g. `%x` in
-    // `lvx.mv %x : (...) -> !lvx.reg<r0>`) has `end == start` and does not
-    // actually contend for the register -- it dies being read by that same
-    // op. So fixed-item processing expires with `end <= start` instead.
-    auto expireOldIntervals = [&](unsigned start, bool includeBoundary) {
-      while (!active.empty() &&
-             (includeBoundary ? items[active.front()].end <= start
-                              : items[active.front()].end < start)) {
+    // An item whose last use is exactly the op defining the next one is
+    // expired: a value occupies its register from *one cycle after* its
+    // defining op to the op that last reads it, so an operand dying at op n
+    // and the result of op n may share a register. On LVX every read in a
+    // bundle precedes every write -- the rule the composite ops are built on,
+    // and the reason `ffma` can take its accumulator as its own destination
+    // -- and the ISA has no early-clobber operation, so there is no case
+    // where a destination is claimed before its sources are read.
+    //
+    // Until 2026-10-14 this was Fig. 1's own strict rule (`end < start`) for
+    // ordinary items, with `end <= start` carved out for *fixed* ones so that
+    // `%x` dying into `lvx.mv %x : (...) -> !lvx.reg<r0>` would not contend.
+    // That had the exception the wrong way round: it modelled every
+    // definition as an early clobber and made the ordinary case special,
+    // costing a register at every op that consumes a dying value. The
+    // conventions give the same lifetime *lengths* either way, which is why
+    // nothing measured it -- what differs is the interference relation.
+    auto expireOldIntervals = [&](unsigned start) {
+      while (!active.empty() && items[active.front()].end <= start) {
         markInUse(inUse, items[active.front()].loc(), false);
         active.erase(active.begin());
       }
@@ -1157,7 +1161,7 @@ struct LVXAllocateRegistersPass
     };
     for (unsigned idx = 0, e = items.size(); idx != e; ++idx) {
       AllocItem &item = items[idx];
-      expireOldIntervals(item.start, item.isFixed());
+      expireOldIntervals(item.start);
 
       if (item.isFixed()) {
         if (anyInUse(inUse, *item.fixed)) {

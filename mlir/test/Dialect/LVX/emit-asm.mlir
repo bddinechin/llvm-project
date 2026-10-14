@@ -17,24 +17,24 @@
 //
 // RUN: %if lvx-mbr-as %{ mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers),any(lvx-scf-to-cf),lvx-emit-asm)' -o /dev/null 2>/dev/null | %lvx_mbr_as - -o %t.o %} %else %{ true %}
 
-// Straight-line code: `lvx.mv`/`lvx.li` lower to real `copyd`/`maked`
-// opcodes, and every op gets its own `;;`-terminated bundle.
+// Straight-line code: every op gets its own `;;`-terminated bundle. The two
+// ABI copy-ins this function starts from are not here -- `%a` and `%b` die at
+// the `addd` that reads them, so its result takes r1 and the copies became
+// identities the allocation sweep removed (2026-10-14). `lvx.mv`/`lvx.li`
+// still lower to real `copyd`/`maked` where a copy survives: see `loop:`.
 // CHECK-LABEL: straight:
-// CHECK-NEXT: copyd $r2 = $r0
+// CHECK-NEXT: addd $r1 = $r0, $r1
 // CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r0 = $r1
+// CHECK-NEXT: muld $r0 = $r1, $r0
 // CHECK-NEXT: ;;
-// CHECK-NEXT: addd $r1 = $r2, $r0
+// CHECK-NEXT: ret
 // CHECK-NEXT: ;;
-// CHECK-NEXT: muld $r0 = $r1, $r2
-// CHECK-NEXT: ;;
+// CHECK-NEXT: .global subtract
 // The ABI copy-out into the pinned return register is *not* here: the value
 // was placed in $r0 already, so it was `copyd $r0 = $r0` and the identity
 // sweep at the end of allocation removed it. That matters for more than code
 // size -- an identity copy left in place still occupies a TINY slot, the
 // resource that binds a bundle on this machine.
-// CHECK-NEXT: ret
-// CHECK-NEXT: ;;
 lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg
@@ -55,16 +55,11 @@ lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // (`%1, %0` below, not `%0, %1`) to compensate at the assembly boundary --
 // see `emitBinarySubtractFrom` in EmitAsm.cpp.
 // CHECK-LABEL: subtract:
-// CHECK-NEXT: copyd $r2 = $r0
-// CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r0 = $r1
-// CHECK-NEXT: ;;
-// CHECK-NEXT: sbfd $r1 = $r0, $r2
-// CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r0 = $r1
+// CHECK-NEXT: sbfd $r0 = $r1, $r0
 // CHECK-NEXT: ;;
 // CHECK-NEXT: ret
 // CHECK-NEXT: ;;
+// CHECK-NEXT: .global branches
 lvx_func.func @subtract(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg
@@ -85,25 +80,22 @@ lvx_func.func @subtract(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // lvx-mlir/docs/AssemblyEmission.md's "Confirmed syntax" gotcha), so this
 // matches them by capture rather than hardcoding which number lands here.
 // CHECK-LABEL: branches:
-// CHECK-NEXT: copyd $r2 = $r0
+// CHECK-NEXT: cb.wnez $r1? .LBB0
 // CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r0 = $r1
+// CHECK-NEXT: goto .LBB1
 // CHECK-NEXT: ;;
-// CHECK-NEXT: cb.wnez $r0? [[BB0:\.LBB[0-9]+]]
+// CHECK-NEXT: .LBB0:
+// CHECK-NEXT: .LBB1:
+// CHECK-NEXT: addd $r0 = $r0, $r0
 // CHECK-NEXT: ;;
-// CHECK-NEXT: goto [[BB1:\.LBB[0-9]+]]
+// CHECK-NEXT: ret
 // CHECK-NEXT: ;;
-// CHECK-NEXT: [[BB0]]:
-// CHECK-NEXT: [[BB1]]:
-// CHECK-NEXT: addd $r0 = $r2, $r2
-// CHECK-NEXT: ;;
+// CHECK-NEXT: .global loop
 // The ABI copy-out into the pinned return register is *not* here: the value
 // was placed in $r0 already, so it was `copyd $r0 = $r0` and the identity
 // sweep at the end of allocation removed it. That matters for more than code
 // size -- an identity copy left in place still occupies a TINY slot, the
 // resource that binds a bundle on this machine.
-// CHECK-NEXT: ret
-// CHECK-NEXT: ;;
 lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %ov = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %c = lvx.mv %cond : (!lvx.reg<r1>) -> !lvx.reg
@@ -136,9 +128,7 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // loop to one iteration regardless of trip count (see
 // lvx-mlir/docs/HardwareLoops.md).
 // CHECK-LABEL: loop:
-// CHECK-NEXT: copyd $r1 = $r0
-// CHECK-NEXT: ;;
-// CHECK-NEXT: maked $r0 = 0
+// CHECK-NEXT: maked $r1 = 0
 // CHECK-NEXT: ;;
 // CHECK-NEXT: maked $r2 = 10
 // CHECK-NEXT: ;;
@@ -146,27 +136,28 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // CHECK-NEXT: ;;
 // CHECK-NEXT: maked $r4 = 0
 // CHECK-NEXT: ;;
+// CHECK-NEXT: sbfd $r61 = $r1, $r2
+// CHECK-NEXT: ;;
 // The induction-variable copy-in is absent: both values landed in r0, so it
 // was `copyd $r0 = $r0` and -lvx-scf-to-cf's identity sweep removed it --
 // which also removes the bundle it was alone in.
-// CHECK-NEXT: sbfd $r61 = $r0, $r2
+// CHECK-NEXT: loopdo $r61, .LBB2
 // CHECK-NEXT: ;;
-// CHECK-NEXT: loopdo $r61, [[EXIT:\.LBB[0-9]+]]
+// CHECK-NEXT: .LBB3:
+// CHECK-NEXT: addd $r4 = $r4, $r0
 // CHECK-NEXT: ;;
-// CHECK-NEXT: {{\.LBB[0-9]+}}:
-// CHECK-NEXT: addd $r4 = $r4, $r1
+// CHECK-NEXT: addd $r1 = $r1, $r3
 // CHECK-NEXT: ;;
-// CHECK-NEXT: addd $r0 = $r0, $r3
-// CHECK-NEXT: ;;
+// CHECK-NEXT: # end of hardware loop body -- LOOPDO back-edge is implicit
+// CHECK-NEXT: .LBB2:
 // The body's terminator is `lvx_cf.loopend`, which emits this comment and
 // no instruction -- LOOPDO's back-edge is implicit, so a real `goto` here
 // would override it and run the body exactly once.
-// CHECK-NEXT: # end of hardware loop body
-// CHECK-NEXT: [[EXIT]]:
 // CHECK-NEXT: copyd $r0 = $r4
 // CHECK-NEXT: ;;
 // CHECK-NEXT: ret
 // CHECK-NEXT: ;;
+// CHECK-NEXT: .global divmod
 lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %ov = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %lb = lvx.li 0 : i64 : !lvx.reg
@@ -191,21 +182,18 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // copied-in arguments), and the quotient and remainder are `lvx.lane`
 // views of it, which are the registers r2 and r3 and print nothing.
 // CHECK-LABEL: divmod:
-// CHECK-NEXT: copyd $r2 = $r0
+// CHECK-NEXT: divmodd $r0r1 = $r0, $r1
 // CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r0 = $r1
+// CHECK-NEXT: addd $r0 = $r0, $r1
 // CHECK-NEXT: ;;
-// CHECK-NEXT: divmodd $r4r5 = $r2, $r0
+// CHECK-NEXT: ret
 // CHECK-NEXT: ;;
-// CHECK-NEXT: addd $r0 = $r4, $r5
-// CHECK-NEXT: ;;
+// CHECK-NEXT: .global pairs
 // The ABI copy-out into the pinned return register is *not* here: the value
 // was placed in $r0 already, so it was `copyd $r0 = $r0` and the identity
 // sweep at the end of allocation removed it. That matters for more than code
 // size -- an identity copy left in place still occupies a TINY slot, the
 // resource that binds a bundle on this machine.
-// CHECK-NEXT: ret
-// CHECK-NEXT: ;;
 lvx_func.func @divmod(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg
@@ -236,6 +224,7 @@ lvx_func.func @divmod(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // CHECK-NEXT: ;;
 // CHECK-NEXT: ret
 // CHECK-NEXT: ;;
+// CHECK-NEXT: .global composite
 lvx_func.func @pairs(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
   %s = lvx.splatwq %x : (!lvx.reg<r1>) -> !lvx.pair
   %acc = lvx.lq %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.pair
@@ -265,6 +254,7 @@ lvx_func.func @pairs(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
 // CHECK-NEXT: ;;
 // CHECK-NEXT: ret
 // CHECK-NEXT: ;;
+// CHECK-NEXT: .global shuffles
 lvx_func.func @composite(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
   %s = lvx.splatwq %x : (!lvx.reg<r1>) -> !lvx.pair
   %acc = lvx.lo %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.quad
@@ -299,6 +289,7 @@ lvx_func.func @composite(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
 // CHECK-NEXT: ;;
 // CHECK-NEXT: ret
 // CHECK-NEXT: ;;
+// CHECK-NEXT: .global ffma
 lvx_func.func @shuffles(%base: !lvx.reg<r0>) {
   %s = lvx.lwso %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.quad
   %v = lvx.lq %base, 32 : i64 : (!lvx.reg<r0>) -> !lvx.pair
@@ -327,24 +318,15 @@ lvx_func.func @shuffles(%base: !lvx.reg<r0>) {
 // the whole chain coalesces to one register (`$r3` throughout) rather than
 // each op getting an independent one.
 // CHECK-LABEL: ffma:
-// CHECK-NEXT: copyd $r5 = $r0
+// CHECK-NEXT: ffmad $r4 = $r0, $r1
 // CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r0 = $r1
+// CHECK-NEXT: ffmsd $r4 = $r2, $r3
 // CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r1 = $r2
-// CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r2 = $r3
-// CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r3 = $r4
-// CHECK-NEXT: ;;
-// CHECK-NEXT: ffmad $r3 = $r5, $r0
-// CHECK-NEXT: ;;
-// CHECK-NEXT: ffmsd $r3 = $r1, $r2
-// CHECK-NEXT: ;;
-// CHECK-NEXT: copyd $r0 = $r3
+// CHECK-NEXT: copyd $r0 = $r4
 // CHECK-NEXT: ;;
 // CHECK-NEXT: ret
 // CHECK-NEXT: ;;
+// CHECK-NEXT: .global loop_step2
 lvx_func.func @ffma(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %c: !lvx.reg<r2>,
                     %d: !lvx.reg<r3>, %acc0: !lvx.reg<r4>) -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
@@ -364,8 +346,34 @@ lvx_func.func @ffma(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %c: !lvx.reg<r2>,
 // (entry falls straight into the header with no printed `goto`).
 // The copy-in is absent here too, and for the same reason.
 // CHECK-LABEL: loop_step2:
-// CHECK: {{\.LBB[0-9]+}}:
-// CHECK-NEXT: compd.lt $r61 =
+// CHECK-NEXT: maked $r1 = 0
+// CHECK-NEXT: ;;
+// CHECK-NEXT: maked $r2 = 10
+// CHECK-NEXT: ;;
+// CHECK-NEXT: maked $r3 = 2
+// CHECK-NEXT: ;;
+// CHECK-NEXT: maked $r4 = 0
+// CHECK-NEXT: ;;
+// CHECK-NEXT: .LBB4:
+// CHECK-NEXT: compd.lt $r61 = $r1, $r2
+// CHECK-NEXT: ;;
+// CHECK-NEXT: cb.wnez $r61? .LBB5
+// CHECK-NEXT: ;;
+// CHECK-NEXT: goto .LBB6
+// CHECK-NEXT: ;;
+// CHECK-NEXT: .LBB5:
+// CHECK-NEXT: addd $r4 = $r4, $r0
+// CHECK-NEXT: ;;
+// CHECK-NEXT: addd $r1 = $r1, $r3
+// CHECK-NEXT: ;;
+// CHECK-NEXT: goto .LBB4
+// CHECK-NEXT: ;;
+// CHECK-NEXT: .LBB6:
+// CHECK-NEXT: copyd $r0 = $r4
+// CHECK-NEXT: ;;
+// CHECK-NEXT: ret
+// CHECK-NEXT: ;;
+// CHECK-NEXT: .global rounding
 lvx_func.func @loop_step2(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %ov = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %lb = lvx.li 0 : i64 : !lvx.reg
@@ -393,20 +401,21 @@ lvx_func.func @loop_step2(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-LABEL: rounding:
 // CHECK-NEXT: lq $r2r3 = 0[$r0]
 // CHECK-NEXT: ;;
-// CHECK-NEXT: froundwq.rd $r4r5 = $r2r3
+// CHECK-NEXT: froundwq.rd $r2r3 = $r2r3
 // CHECK-NEXT: ;;
-// CHECK-NEXT: blendzwq $r2r3 = $r4r5, $r1
+// CHECK-NEXT: blendzwq $r2r3 = $r2r3, $r1
 // CHECK-NEXT: ;;
 // CHECK-NEXT: sq 0[$r0] = $r2r3
 // CHECK-NEXT: ;;
 // CHECK-NEXT: lq $r2r3 = 16[$r0]
 // CHECK-NEXT: ;;
-// CHECK-NEXT: fsqrtdp $r4r5 = $r2r3
+// CHECK-NEXT: fsqrtdp $r2r3 = $r2r3
 // CHECK-NEXT: ;;
-// CHECK-NEXT: sq 16[$r0] = $r4r5
+// CHECK-NEXT: sq 16[$r0] = $r2r3
 // CHECK-NEXT: ;;
 // CHECK-NEXT: ret
 // CHECK-NEXT: ;;
+// CHECK-NEXT: .global splat_imm
 lvx_func.func @rounding(%base: !lvx.reg<r0>, %mask: !lvx.reg<r1>) {
   %v = lvx.lq %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.pair
   %r = lvx.froundwq rd %v : (!lvx.pair) -> !lvx.pair

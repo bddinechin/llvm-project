@@ -28,6 +28,7 @@
 // CHECK-NEXT: %9 = lvx.li 16 : i64 : !lvx.reg<r61>
 // CHECK-NEXT: %10 = lvx.addd %2, %9 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
 // CHECK-NEXT: lvx_func.return
+// CHECK-NEXT: }
 lvx_func.func @pair_evicts(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
   %a = lvx.addd %x, %x : (!lvx.reg<r1>, !lvx.reg<r1>) -> !lvx.reg
   %b = lvx.addd %x, %a : (!lvx.reg<r1>, !lvx.reg) -> !lvx.reg
@@ -43,18 +44,12 @@ lvx_func.func @pair_evicts(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
 // scratch pair r62r63 right after its def (16-byte slot, 16-byte aligned)
 // and reloaded with `lq` into the same scratch at its use.
 // CHECK-LABEL: lvx_func.func @single_evicts_pair
-// CHECK-NEXT: %0 = lvx.sp : !lvx.reg<r12>
-// CHECK-NEXT: %1 = lvx.li 16 : i64 : !lvx.reg<r61>
-// CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
-// CHECK-NEXT: %3 = lvx.splatwq %arg1 : (!lvx.reg<r1>) -> !lvx.pair<r62r63>
-// CHECK-NEXT: lvx.sq %3, %2, 0 : i64 : (!lvx.pair<r62r63>, !lvx.reg<r12>)
-// CHECK-NEXT: %4 = lvx.addd %arg1, %arg1 : (!lvx.reg<r1>, !lvx.reg<r1>) -> !lvx.reg<r2>
-// CHECK-NEXT: lvx.sd %4, %arg0, 16 : i64 : (!lvx.reg<r2>, !lvx.reg<r0>)
-// CHECK-NEXT: %5 = lvx.lq %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.pair<r62r63>
-// CHECK-NEXT: lvx.sq %5, %arg0, 0 : i64 : (!lvx.pair<r62r63>, !lvx.reg<r0>)
-// CHECK-NEXT: %6 = lvx.li 16 : i64 : !lvx.reg<r61>
-// CHECK-NEXT: %7 = lvx.addd %2, %6 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
+// CHECK-NEXT: %0 = lvx.splatwq %arg1 : (!lvx.reg<r1>) -> !lvx.pair<r2r3>
+// CHECK-NEXT: %1 = lvx.addd %arg1, %arg1 : (!lvx.reg<r1>, !lvx.reg<r1>) -> !lvx.reg<r1>
+// CHECK-NEXT: lvx.sd %1, %arg0, 16 : i64 : (!lvx.reg<r1>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %0, %arg0, 0 : i64 : (!lvx.pair<r2r3>, !lvx.reg<r0>)
 // CHECK-NEXT: lvx_func.return
+// CHECK-NEXT: }
 lvx_func.func @single_evicts_pair(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
   %p = lvx.splatwq %x : (!lvx.reg<r1>) -> !lvx.pair
   %a = lvx.addd %x, %x : (!lvx.reg<r1>, !lvx.reg<r1>) -> !lvx.reg
@@ -77,9 +72,9 @@ lvx_func.func @single_evicts_pair(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
 // CHECK-NEXT: %3 = lvx.divmodd %arg1, %arg1 : (!lvx.reg<r1>, !lvx.reg<r1>) -> !lvx.pair<r62r63>
 // CHECK-NEXT: lvx.sq %3, %2, 0 : i64 : (!lvx.pair<r62r63>, !lvx.reg<r12>)
 // CHECK-NEXT: %4 = lvx.addd %arg1, %arg1 : (!lvx.reg<r1>, !lvx.reg<r1>) -> !lvx.reg<r2>
-// CHECK-NEXT: %5 = lvx.addd %arg1, %4 : (!lvx.reg<r1>, !lvx.reg<r2>) -> !lvx.reg<r3>
+// CHECK-NEXT: %5 = lvx.addd %arg1, %4 : (!lvx.reg<r1>, !lvx.reg<r2>) -> !lvx.reg<r1>
 // CHECK-NEXT: lvx.sd %4, %arg0, 32 : i64 : (!lvx.reg<r2>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sd %5, %arg0, 40 : i64 : (!lvx.reg<r3>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sd %5, %arg0, 40 : i64 : (!lvx.reg<r1>, !lvx.reg<r0>)
 // CHECK-NEXT: %6 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
 // CHECK-NEXT: lvx.sd %6, %arg0, 16 : i64 : (!lvx.reg<r61>, !lvx.reg<r0>)
 // CHECK-NEXT: %7 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
@@ -91,6 +86,8 @@ lvx_func.func @single_evicts_pair(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
 // CHECK-NEXT: %11 = lvx.li 16 : i64 : !lvx.reg<r61>
 // CHECK-NEXT: %12 = lvx.addd %2, %11 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
 // CHECK-NEXT: lvx_func.return
+// CHECK-NEXT: }
+// CHECK-NEXT: }
 lvx_func.func @lane_group_spills(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
   %qr = lvx.divmodd %x, %x : (!lvx.reg<r1>, !lvx.reg<r1>) -> !lvx.pair
   %q = lvx.lane %qr[0] : (!lvx.pair) -> !lvx.reg

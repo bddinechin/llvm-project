@@ -13,13 +13,17 @@
 // out: the pair is now an ordinary allocation, first free pair in the
 // caller pool, and no copy is needed.
 
-// Both lanes used: the pair lands in r2r3 (r0/r1 hold the arguments), the
-// views are typed r2 and r3, and the sum reads them directly.
+// Both lanes used: the pair lands in r0r1 -- the two arguments die at the
+// `divmodd` that reads them, and since every read in a bundle precedes every
+// write, the result may take their registers (2026-10-14). The views are
+// typed r0 and r1, and the sum reads them directly.
 // CHECK-LABEL: lvx_func.func @both
-// CHECK-NEXT: %[[QR:.*]] = lvx.divmodd %arg0, %arg1 : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.pair<r2r3>
-// CHECK-NEXT: %[[Q:.*]] = lvx.lane %[[QR]][0] : (!lvx.pair<r2r3>) -> !lvx.reg<r2>
-// CHECK-NEXT: %[[R:.*]] = lvx.lane %[[QR]][1] : (!lvx.pair<r2r3>) -> !lvx.reg<r3>
-// CHECK-NEXT: lvx.addd %[[Q]], %[[R]] : (!lvx.reg<r2>, !lvx.reg<r3>) -> !lvx.reg<r0>
+// CHECK-NEXT: %0 = lvx.divmodd %arg0, %arg1 : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.pair<r0r1>
+// CHECK-NEXT: %1 = lvx.lane %0[0] : (!lvx.pair<r0r1>) -> !lvx.reg<r0>
+// CHECK-NEXT: %2 = lvx.lane %0[1] : (!lvx.pair<r0r1>) -> !lvx.reg<r1>
+// CHECK-NEXT: %3 = lvx.addd %1, %2 : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %3 : !lvx.reg<r0>
+// CHECK-NEXT: }
 lvx_func.func @both(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %qr = lvx.divmodd %a, %b : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.pair
   %q = lvx.lane %qr[0] : (!lvx.pair) -> !lvx.reg
@@ -31,9 +35,10 @@ lvx_func.func @both(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // `arith.divsi`/`remsi` each lower to their own full `lvx.divmodd`, so it is
 // common for only one lane to be read. The pair is still a pair.
 // CHECK-LABEL: lvx_func.func @quotient_only
-// CHECK-NEXT: %[[QR:.*]] = lvx.divmodd %arg0, %arg1 : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.pair<r2r3>
-// CHECK-NEXT: %[[Q:.*]] = lvx.lane %[[QR]][0] : (!lvx.pair<r2r3>) -> !lvx.reg<r2>
-// CHECK-NEXT: lvx.mv %[[Q]] : (!lvx.reg<r2>) -> !lvx.reg<r0>
+// CHECK-NEXT: %0 = lvx.divmodd %arg0, %arg1 : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.pair<r0r1>
+// CHECK-NEXT: %1 = lvx.lane %0[0] : (!lvx.pair<r0r1>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %1 : !lvx.reg<r0>
+// CHECK-NEXT: }
 lvx_func.func @quotient_only(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %qr = lvx.divmodd %a, %b : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.pair
   %q = lvx.lane %qr[0] : (!lvx.pair) -> !lvx.reg
@@ -42,9 +47,11 @@ lvx_func.func @quotient_only(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0>
 }
 
 // CHECK-LABEL: lvx_func.func @remainder_only
-// CHECK-NEXT: %[[QR:.*]] = lvx.divmodd %arg0, %arg1 : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.pair<r2r3>
-// CHECK-NEXT: %[[R:.*]] = lvx.lane %[[QR]][1] : (!lvx.pair<r2r3>) -> !lvx.reg<r3>
-// CHECK-NEXT: lvx.mv %[[R]] : (!lvx.reg<r3>) -> !lvx.reg<r0>
+// CHECK-NEXT: %0 = lvx.divmodd %arg0, %arg1 : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.pair<r0r1>
+// CHECK-NEXT: %1 = lvx.lane %0[1] : (!lvx.pair<r0r1>) -> !lvx.reg<r1>
+// CHECK-NEXT: %2 = lvx.mv %1 : (!lvx.reg<r1>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %2 : !lvx.reg<r0>
+// CHECK-NEXT: }
 lvx_func.func @remainder_only(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %qr = lvx.divmodd %a, %b : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.pair
   %r = lvx.lane %qr[1] : (!lvx.pair) -> !lvx.reg
@@ -55,8 +62,10 @@ lvx_func.func @remainder_only(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0
 // A view of a *pinned* tuple: the group is fixed at the tuple's block, and
 // the view is typed from it -- here lane 1 of the argument pair r0r1 is r1.
 // CHECK-LABEL: lvx_func.func @of_pinned
-// CHECK-NEXT: %[[HI:.*]] = lvx.lane %arg0[1] : (!lvx.pair<r0r1>) -> !lvx.reg<r1>
-// CHECK-NEXT: lvx.mv %[[HI]] : (!lvx.reg<r1>) -> !lvx.reg<r0>
+// CHECK-NEXT: %0 = lvx.lane %arg0[1] : (!lvx.pair<r0r1>) -> !lvx.reg<r1>
+// CHECK-NEXT: %1 = lvx.mv %0 : (!lvx.reg<r1>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %1 : !lvx.reg<r0>
+// CHECK-NEXT: }
 lvx_func.func @of_pinned(%p: !lvx.pair<r0r1>) -> !lvx.reg<r0> {
   %hi = lvx.lane %p[1] : (!lvx.pair<r0r1>) -> !lvx.reg
   %out = lvx.mv %hi : (!lvx.reg) -> !lvx.reg<r0>
@@ -67,10 +76,13 @@ lvx_func.func @of_pinned(%p: !lvx.pair<r0r1>) -> !lvx.reg<r0> {
 // block. The quad takes the first free quad in the caller pool, r4r5r6r7
 // (r0r1r2r3 holds the arguments' units r0 and r1).
 // CHECK-LABEL: lvx_func.func @nested
-// CHECK-NEXT: %[[Q:.*]] = lvx.lo %arg0, 0 : i64 : (!lvx.reg<r0>) -> !lvx.quad<r4r5r6r7>
-// CHECK-NEXT: %[[HI:.*]] = lvx.lane %[[Q]][2] : (!lvx.quad<r4r5r6r7>) -> !lvx.pair<r6r7>
-// CHECK-NEXT: %[[T:.*]] = lvx.lane %[[HI]][1] : (!lvx.pair<r6r7>) -> !lvx.reg<r7>
-// CHECK-NEXT: lvx.mv %[[T]] : (!lvx.reg<r7>) -> !lvx.reg<r0>
+// CHECK-NEXT: %0 = lvx.lo %arg0, 0 : i64 : (!lvx.reg<r0>) -> !lvx.quad<r0r1r2r3>
+// CHECK-NEXT: %1 = lvx.lane %0[2] : (!lvx.quad<r0r1r2r3>) -> !lvx.pair<r2r3>
+// CHECK-NEXT: %2 = lvx.lane %1[1] : (!lvx.pair<r2r3>) -> !lvx.reg<r3>
+// CHECK-NEXT: %3 = lvx.mv %2 : (!lvx.reg<r3>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %3 : !lvx.reg<r0>
+// CHECK-NEXT: }
+// CHECK-NEXT: }
 lvx_func.func @nested(%base: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %q = lvx.lo %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.quad
   %hi = lvx.lane %q[2] : (!lvx.quad) -> !lvx.pair

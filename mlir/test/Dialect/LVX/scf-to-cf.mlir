@@ -14,20 +14,20 @@
 // deleted it. The sweep runs here as well as in the allocator because this
 // pass creates such copies after the allocator's own sweep has finished.
 // CHECK-LABEL: lvx_func.func @loop
-// CHECK-NEXT: %0 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r1>
-// CHECK-NEXT: %1 = lvx.li 0 : i64 : !lvx.reg<r0>
-// CHECK-NEXT: %2 = lvx.li 10 : i64 : !lvx.reg<r2>
-// CHECK-NEXT: %3 = lvx.li 1 : i64 : !lvx.reg<r3>
-// CHECK-NEXT: %4 = lvx.li 0 : i64 : !lvx.reg<r4>
-// CHECK-NEXT: %5 = lvx.sbfd %2, %1 : (!lvx.reg<r2>, !lvx.reg<r0>) -> !lvx.reg<r61>
-// CHECK-NEXT: lvx_cf.loopdo %5 : !lvx.reg<r61>, ^bb1(%1, %4 : !lvx.reg<r0>, !lvx.reg<r4>), ^bb2(%4 : !lvx.reg<r4>)
-// CHECK-NEXT: ^bb1(%6: !lvx.reg<r0>, %7: !lvx.reg<r4>):
-// CHECK-NEXT: %8 = lvx.addd %7, %0 : (!lvx.reg<r4>, !lvx.reg<r1>) -> !lvx.reg<r4>
-// CHECK-NEXT: %9 = lvx.addd %6, %3 : (!lvx.reg<r0>, !lvx.reg<r3>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_cf.loopend ^bb2(%8 : !lvx.reg<r4>)
-// CHECK-NEXT: ^bb2(%10: !lvx.reg<r4>):
-// CHECK-NEXT: %11 = lvx.mv %10 : (!lvx.reg<r4>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_func.return %11 : !lvx.reg<r0>
+// CHECK-NEXT: %0 = lvx.li 0 : i64 : !lvx.reg<r1>
+// CHECK-NEXT: %1 = lvx.li 10 : i64 : !lvx.reg<r2>
+// CHECK-NEXT: %2 = lvx.li 1 : i64 : !lvx.reg<r3>
+// CHECK-NEXT: %3 = lvx.li 0 : i64 : !lvx.reg<r4>
+// CHECK-NEXT: %4 = lvx.sbfd %1, %0 : (!lvx.reg<r2>, !lvx.reg<r1>) -> !lvx.reg<r61>
+// CHECK-NEXT: lvx_cf.loopdo %4 : !lvx.reg<r61>, ^bb1(%0, %3 : !lvx.reg<r1>, !lvx.reg<r4>), ^bb2(%3 : !lvx.reg<r4>)
+// CHECK-NEXT: ^bb1(%5: !lvx.reg<r1>, %6: !lvx.reg<r4>):  // pred: ^bb0
+// CHECK-NEXT: %7 = lvx.addd %6, %arg0 : (!lvx.reg<r4>, !lvx.reg<r0>) -> !lvx.reg<r4>
+// CHECK-NEXT: %8 = lvx.addd %5, %2 : (!lvx.reg<r1>, !lvx.reg<r3>) -> !lvx.reg<r1>
+// CHECK-NEXT: lvx_cf.loopend ^bb2(%7 : !lvx.reg<r4>)
+// CHECK-NEXT: ^bb2(%9: !lvx.reg<r4>):  // 2 preds: ^bb0, ^bb1
+// CHECK-NEXT: %10 = lvx.mv %9 : (!lvx.reg<r4>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %10 : !lvx.reg<r0>
+// CHECK-NEXT: }
 lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %ov = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %lb = lvx.li 0 : i64 : !lvx.reg
@@ -50,22 +50,22 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // induction-variable copy-in for the same reason -- also absent below, and
 // for the same reason as in `@loop`: it came out an identity.
 // CHECK-LABEL: lvx_func.func @loop_step2
-// CHECK-NEXT: %0 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r1>
-// CHECK-NEXT: %1 = lvx.li 0 : i64 : !lvx.reg<r0>
-// CHECK-NEXT: %2 = lvx.li 10 : i64 : !lvx.reg<r2>
-// CHECK-NEXT: %3 = lvx.li 2 : i64 : !lvx.reg<r3>
-// CHECK-NEXT: %4 = lvx.li 0 : i64 : !lvx.reg<r4>
-// CHECK-NEXT: lvx_cf.br ^bb1(%1, %4 : !lvx.reg<r0>, !lvx.reg<r4>)
-// CHECK-NEXT: ^bb1(%5: !lvx.reg<r0>, %6: !lvx.reg<r4>):
-// CHECK-NEXT: %7 = lvx.compd lt %5, %2 : (!lvx.reg<r0>, !lvx.reg<r2>) -> !lvx.reg<r61>
-// CHECK-NEXT: lvx_cf.cond_br wnez %7 : !lvx.reg<r61>, ^bb2(%5, %6 : !lvx.reg<r0>, !lvx.reg<r4>), ^bb3(%6 : !lvx.reg<r4>)
-// CHECK-NEXT: ^bb2(%8: !lvx.reg<r0>, %9: !lvx.reg<r4>):
-// CHECK-NEXT: %10 = lvx.addd %9, %0 : (!lvx.reg<r4>, !lvx.reg<r1>) -> !lvx.reg<r4>
-// CHECK-NEXT: %11 = lvx.addd %5, %3 : (!lvx.reg<r0>, !lvx.reg<r3>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_cf.br ^bb1(%11, %10 : !lvx.reg<r0>, !lvx.reg<r4>)
-// CHECK-NEXT: ^bb3(%12: !lvx.reg<r4>):
-// CHECK-NEXT: %13 = lvx.mv %12 : (!lvx.reg<r4>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_func.return %13 : !lvx.reg<r0>
+// CHECK-NEXT: %0 = lvx.li 0 : i64 : !lvx.reg<r1>
+// CHECK-NEXT: %1 = lvx.li 10 : i64 : !lvx.reg<r2>
+// CHECK-NEXT: %2 = lvx.li 2 : i64 : !lvx.reg<r3>
+// CHECK-NEXT: %3 = lvx.li 0 : i64 : !lvx.reg<r4>
+// CHECK-NEXT: lvx_cf.br ^bb1(%0, %3 : !lvx.reg<r1>, !lvx.reg<r4>)
+// CHECK-NEXT: ^bb1(%4: !lvx.reg<r1>, %5: !lvx.reg<r4>):  // 2 preds: ^bb0, ^bb2
+// CHECK-NEXT: %6 = lvx.compd lt %4, %1 : (!lvx.reg<r1>, !lvx.reg<r2>) -> !lvx.reg<r61>
+// CHECK-NEXT: lvx_cf.cond_br wnez %6 : !lvx.reg<r61>, ^bb2(%4, %5 : !lvx.reg<r1>, !lvx.reg<r4>), ^bb3(%5 : !lvx.reg<r4>)
+// CHECK-NEXT: ^bb2(%7: !lvx.reg<r1>, %8: !lvx.reg<r4>):  // pred: ^bb1
+// CHECK-NEXT: %9 = lvx.addd %8, %arg0 : (!lvx.reg<r4>, !lvx.reg<r0>) -> !lvx.reg<r4>
+// CHECK-NEXT: %10 = lvx.addd %4, %2 : (!lvx.reg<r1>, !lvx.reg<r3>) -> !lvx.reg<r1>
+// CHECK-NEXT: lvx_cf.br ^bb1(%10, %9 : !lvx.reg<r1>, !lvx.reg<r4>)
+// CHECK-NEXT: ^bb3(%11: !lvx.reg<r4>):  // pred: ^bb1
+// CHECK-NEXT: %12 = lvx.mv %11 : (!lvx.reg<r4>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %12 : !lvx.reg<r0>
+// CHECK-NEXT: }
 lvx_func.func @loop_step2(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %ov = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %lb = lvx.li 0 : i64 : !lvx.reg
@@ -114,23 +114,24 @@ lvx_func.func @loop_step2(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: %3 = lvx.li 0 : i64 : !lvx.reg<r3>
 // CHECK-NEXT: %4 = lvx.mv %0 : (!lvx.reg<r0>) -> !lvx.reg<r4>
 // CHECK-NEXT: lvx_cf.br ^bb1(%4, %3 : !lvx.reg<r4>, !lvx.reg<r3>)
-// CHECK-NEXT: ^bb1(%5: !lvx.reg<r4>, %6: !lvx.reg<r3>):
+// CHECK-NEXT: ^bb1(%5: !lvx.reg<r4>, %6: !lvx.reg<r3>):  // 2 preds: ^bb0, ^bb4
 // CHECK-NEXT: %7 = lvx.compd lt %5, %1 : (!lvx.reg<r4>, !lvx.reg<r1>) -> !lvx.reg<r61>
 // CHECK-NEXT: lvx_cf.cond_br wnez %7 : !lvx.reg<r61>, ^bb2(%5, %6 : !lvx.reg<r4>, !lvx.reg<r3>), ^bb5(%6 : !lvx.reg<r3>)
-// CHECK-NEXT: ^bb2(%8: !lvx.reg<r4>, %9: !lvx.reg<r3>):
+// CHECK-NEXT: ^bb2(%8: !lvx.reg<r4>, %9: !lvx.reg<r3>):  // pred: ^bb1
 // CHECK-NEXT: %10 = lvx.sbfd %1, %0 : (!lvx.reg<r1>, !lvx.reg<r0>) -> !lvx.reg<r61>
 // CHECK-NEXT: %11 = lvx.mv %0 : (!lvx.reg<r0>) -> !lvx.reg<r5>
 // CHECK-NEXT: lvx_cf.loopdo %10 : !lvx.reg<r61>, ^bb3(%11, %9 : !lvx.reg<r5>, !lvx.reg<r3>), ^bb4(%9 : !lvx.reg<r3>)
-// CHECK-NEXT: ^bb3(%12: !lvx.reg<r5>, %13: !lvx.reg<r3>):
+// CHECK-NEXT: ^bb3(%12: !lvx.reg<r5>, %13: !lvx.reg<r3>):  // pred: ^bb2
 // CHECK-NEXT: %14 = lvx.addd %13, %12 : (!lvx.reg<r3>, !lvx.reg<r5>) -> !lvx.reg<r3>
 // CHECK-NEXT: %15 = lvx.addd %12, %2 : (!lvx.reg<r5>, !lvx.reg<r2>) -> !lvx.reg<r5>
 // CHECK-NEXT: lvx_cf.loopend ^bb4(%14 : !lvx.reg<r3>)
-// CHECK-NEXT: ^bb4(%16: !lvx.reg<r3>):
+// CHECK-NEXT: ^bb4(%16: !lvx.reg<r3>):  // 2 preds: ^bb2, ^bb3
 // CHECK-NEXT: %17 = lvx.addd %5, %2 : (!lvx.reg<r4>, !lvx.reg<r2>) -> !lvx.reg<r4>
 // CHECK-NEXT: lvx_cf.br ^bb1(%17, %16 : !lvx.reg<r4>, !lvx.reg<r3>)
-// CHECK-NEXT: ^bb5(%18: !lvx.reg<r3>):
+// CHECK-NEXT: ^bb5(%18: !lvx.reg<r3>):  // pred: ^bb1
 // CHECK-NEXT: %19 = lvx.mv %18 : (!lvx.reg<r3>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_func.return %19 : !lvx.reg<r0>
+// CHECK-NEXT: }
 lvx_func.func @nested(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %lb = lvx.li 0 : i64 : !lvx.reg
   %ub = lvx.li 10 : i64 : !lvx.reg
@@ -202,27 +203,28 @@ lvx_func.func @nested(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: %2 = lvx.li 1 : i64 : !lvx.reg<r2>
 // CHECK-NEXT: %3 = lvx.li 0 : i64 : !lvx.reg<r3>
 // CHECK-NEXT: lvx_cf.br ^bb1(%0, %3 : !lvx.reg<r0>, !lvx.reg<r3>)
-// CHECK-NEXT: ^bb1(%4: !lvx.reg<r0>, %5: !lvx.reg<r3>):
+// CHECK-NEXT: ^bb1(%4: !lvx.reg<r0>, %5: !lvx.reg<r3>):  // 2 preds: ^bb0, ^bb4
 // CHECK-NEXT: %6 = lvx.compd lt %4, %1 : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.reg<r61>
 // CHECK-NEXT: lvx_cf.cond_br wnez %6 : !lvx.reg<r61>, ^bb2(%4, %5 : !lvx.reg<r0>, !lvx.reg<r3>), ^bb5(%5 : !lvx.reg<r3>)
-// CHECK-NEXT: ^bb2(%7: !lvx.reg<r0>, %8: !lvx.reg<r3>):
+// CHECK-NEXT: ^bb2(%7: !lvx.reg<r0>, %8: !lvx.reg<r3>):  // pred: ^bb1
 // CHECK-NEXT: %9 = lvx.li 0 : i64 : !lvx.reg<r4>
 // CHECK-NEXT: %10 = lvx.li 10 : i64 : !lvx.reg<r5>
 // CHECK-NEXT: %11 = lvx.li 1 : i64 : !lvx.reg<r6>
 // CHECK-NEXT: %12 = lvx.mv %8 : (!lvx.reg<r3>) -> !lvx.reg<r7>
 // CHECK-NEXT: %13 = lvx.sbfd %10, %9 : (!lvx.reg<r5>, !lvx.reg<r4>) -> !lvx.reg<r61>
 // CHECK-NEXT: lvx_cf.loopdo %13 : !lvx.reg<r61>, ^bb3(%9, %8 : !lvx.reg<r4>, !lvx.reg<r3>), ^bb4(%8 : !lvx.reg<r3>)
-// CHECK-NEXT: ^bb3(%14: !lvx.reg<r4>, %15: !lvx.reg<r3>):
+// CHECK-NEXT: ^bb3(%14: !lvx.reg<r4>, %15: !lvx.reg<r3>):  // pred: ^bb2
 // CHECK-NEXT: %16 = lvx.addd %15, %14 : (!lvx.reg<r3>, !lvx.reg<r4>) -> !lvx.reg<r3>
 // CHECK-NEXT: %17 = lvx.addd %14, %11 : (!lvx.reg<r4>, !lvx.reg<r6>) -> !lvx.reg<r4>
 // CHECK-NEXT: lvx_cf.loopend ^bb4(%16 : !lvx.reg<r3>)
-// CHECK-NEXT: ^bb4(%18: !lvx.reg<r3>):
+// CHECK-NEXT: ^bb4(%18: !lvx.reg<r3>):  // 2 preds: ^bb2, ^bb3
 // CHECK-NEXT: %19 = lvx.addd %12, %18 : (!lvx.reg<r7>, !lvx.reg<r3>) -> !lvx.reg<r3>
 // CHECK-NEXT: %20 = lvx.addd %4, %2 : (!lvx.reg<r0>, !lvx.reg<r2>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_cf.br ^bb1(%20, %19 : !lvx.reg<r0>, !lvx.reg<r3>)
-// CHECK-NEXT: ^bb5(%21: !lvx.reg<r3>):
+// CHECK-NEXT: ^bb5(%21: !lvx.reg<r3>):  // pred: ^bb1
 // CHECK-NEXT: %22 = lvx.mv %21 : (!lvx.reg<r3>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_func.return %22 : !lvx.reg<r0>
+// CHECK-NEXT: }
 lvx_func.func @nested_combined_accumulator(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %lb = lvx.li 0 : i64 : !lvx.reg
   %ub = lvx.li 10 : i64 : !lvx.reg
@@ -269,15 +271,17 @@ lvx_func.func @nested_combined_accumulator(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: %3 = lvx.li 0 : i64 : !lvx.reg<r3>
 // CHECK-NEXT: %4 = lvx.sbfd %1, %0 : (!lvx.reg<r1>, !lvx.reg<r0>) -> !lvx.reg<r61>
 // CHECK-NEXT: lvx_cf.loopdo %4 : !lvx.reg<r61>, ^bb1(%0, %3 : !lvx.reg<r0>, !lvx.reg<r3>), ^bb2(%3 : !lvx.reg<r3>)
-// CHECK-NEXT: ^bb1(%5: !lvx.reg<r0>, %6: !lvx.reg<r3>):
+// CHECK-NEXT: ^bb1(%5: !lvx.reg<r0>, %6: !lvx.reg<r3>):  // pred: ^bb0
 // CHECK-NEXT: %7 = lvx.mv %5 : (!lvx.reg<r0>) -> !lvx.reg<r4>
-// CHECK-NEXT: %8 = lvx.muld %7, %7 : (!lvx.reg<r4>, !lvx.reg<r4>) -> !lvx.reg<r5>
-// CHECK-NEXT: %9 = lvx.addd %6, %8 : (!lvx.reg<r3>, !lvx.reg<r5>) -> !lvx.reg<r3>
+// CHECK-NEXT: %8 = lvx.muld %7, %7 : (!lvx.reg<r4>, !lvx.reg<r4>) -> !lvx.reg<r4>
+// CHECK-NEXT: %9 = lvx.addd %6, %8 : (!lvx.reg<r3>, !lvx.reg<r4>) -> !lvx.reg<r3>
 // CHECK-NEXT: %10 = lvx.addd %5, %2 : (!lvx.reg<r0>, !lvx.reg<r2>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_cf.loopend ^bb2(%9 : !lvx.reg<r3>)
-// CHECK-NEXT: ^bb2(%11: !lvx.reg<r3>):
+// CHECK-NEXT: ^bb2(%11: !lvx.reg<r3>):  // 2 preds: ^bb0, ^bb1
 // CHECK-NEXT: %12 = lvx.mv %11 : (!lvx.reg<r3>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_func.return %12 : !lvx.reg<r0>
+// CHECK-NEXT: }
+// CHECK-NEXT: }
 lvx_func.func @loop_reads_iv(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %lb = lvx.li 0 : i64 : !lvx.reg
   %ub = lvx.li 10 : i64 : !lvx.reg

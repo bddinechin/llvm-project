@@ -1,22 +1,22 @@
 // RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-allocate-registers))' | FileCheck %s
 
-// Straight-line code. `%3`'s last use is as the operand of the very `mv`
-// that defines the pinned return value `%4` (fixed r0) -- this exercises
-// the fixed-interval boundary fix (see lvx-mlir/docs/RegisterAllocation.md,
-// "Bail-out semantics"): %3 must not spuriously conflict with %4's r0 just
-// because it's still nominally "active" at that exact instruction.
+// Straight-line code, and what it exercises is the lifetime convention: a
+// value occupies its register from one cycle *after* its defining op to the
+// op that last reads it, so an operand dying at op n and the result of op n
+// share a register (lvx-mlir/docs/RegisterAllocation.md, "The lifetime
+// convention"). Every copy in this function is therefore gone -- both ABI
+// copy-ins and the copy into the pinned return register became identities
+// and the sweep deleted them, leaving `addd` and `muld` over r0/r1 alone.
 //
-// The copy into the pinned return register is then *absent* from the output:
-// %3 was placed in r0, so it was `copyd $r0 = $r0` and the identity sweep at
-// the end of allocation deleted it. Its removability is the proof the
-// boundary fix worked -- a spurious conflict would have put %3 elsewhere and
-// left a real copy behind.
+// Until 2026-10-14 that reuse happened only against a *fixed* interval, the
+// rest of the allocator modelling every definition as an early clobber; LVX
+// has no early-clobber operation, and every read in a bundle precedes every
+// write, so the exception became the rule.
 // CHECK-LABEL: lvx_func.func @straight
-// CHECK-NEXT: %0 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r2>
-// CHECK-NEXT: %1 = lvx.mv %arg1 : (!lvx.reg<r1>) -> !lvx.reg<r0>
-// CHECK-NEXT: %2 = lvx.addd %0, %1 : (!lvx.reg<r2>, !lvx.reg<r0>) -> !lvx.reg<r1>
-// CHECK-NEXT: %3 = lvx.muld %2, %0 : (!lvx.reg<r1>, !lvx.reg<r2>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_func.return %3 : !lvx.reg<r0>
+// CHECK-NEXT: %0 = lvx.addd %arg0, %arg1 : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.reg<r1>
+// CHECK-NEXT: %1 = lvx.muld %0, %arg0 : (!lvx.reg<r1>, !lvx.reg<r0>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %1 : !lvx.reg<r0>
+// CHECK-NEXT: }
 lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg
@@ -29,12 +29,13 @@ lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // A branch diamond: `%ov`/`%0` passes through `^bb1` with no direct
 // reference in it and must keep one register the whole way through.
 // CHECK-LABEL: lvx_func.func @branches
-// CHECK-NEXT: %0 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r2>
-// CHECK-NEXT: %1 = lvx.mv %arg1 : (!lvx.reg<r1>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_cf.cond_br wnez %1 : !lvx.reg<r0>, ^bb1, ^bb2
-// CHECK: ^bb2:
-// CHECK-NEXT: %2 = lvx.addd %0, %0 : (!lvx.reg<r2>, !lvx.reg<r2>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_func.return %2 : !lvx.reg<r0>
+// CHECK-NEXT: lvx_cf.cond_br wnez %arg1 : !lvx.reg<r1>, ^bb1, ^bb2
+// CHECK-NEXT: ^bb1:  // pred: ^bb0
+// CHECK-NEXT: lvx_cf.br ^bb2
+// CHECK-NEXT: ^bb2:  // 2 preds: ^bb0, ^bb1
+// CHECK-NEXT: %0 = lvx.addd %arg0, %arg0 : (!lvx.reg<r0>, !lvx.reg<r0>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %0 : !lvx.reg<r0>
+// CHECK-NEXT: }
 lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %ov = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %c = lvx.mv %cond : (!lvx.reg<r1>) -> !lvx.reg
@@ -61,11 +62,10 @@ lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // end (lvx-mlir/docs/EndToEndValidation.md) -- every prior hand-written test
 // happened to only use argument-less blocks for `lvx_cf.br`.
 // CHECK-LABEL: lvx_func.func @branch_args
-// CHECK-NEXT: %0 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r1>
-// CHECK-NEXT: lvx_cf.br ^bb1(%0 : !lvx.reg<r1>)
-// CHECK-NEXT: ^bb1(%1: !lvx.reg<r1>):
-// CHECK-NEXT: %2 = lvx.mv %1 : (!lvx.reg<r1>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_func.return %2 : !lvx.reg<r0>
+// CHECK-NEXT: lvx_cf.br ^bb1(%arg0 : !lvx.reg<r0>)
+// CHECK-NEXT: ^bb1(%0: !lvx.reg<r0>):  // pred: ^bb0
+// CHECK-NEXT: lvx_func.return %0 : !lvx.reg<r0>
+// CHECK-NEXT: }
 lvx_func.func @branch_args(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   lvx_cf.br ^bb1(%0 : !lvx.reg)
@@ -79,12 +79,19 @@ lvx_func.func @branch_args(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // register, per `ForOp`'s own verifier -- this is the coalescing rule from
 // lvx-mlir/docs/RegisterAllocation.md ("Loop-carried register coalescing").
 // CHECK-LABEL: lvx_func.func @loop
-// CHECK: %4 = lvx.li 0 : i64 : !lvx.reg<r4>
-// CHECK-NEXT: %5 = lvx_scf.for %1 : !lvx.reg<r0> to %2 : !lvx.reg<r2> step %3 : !lvx.reg<r3> iter_args(%4) : (!lvx.reg<r4>) -> (!lvx.reg<r4>)
-// CHECK-NEXT: ^bb0(%arg1: !lvx.reg<r0>, %arg2: !lvx.reg<r4>):
-// CHECK-NEXT: %7 = lvx.addd %arg2, %0 : (!lvx.reg<r4>, !lvx.reg<r1>) -> !lvx.reg<r4>
-// CHECK-NEXT: lvx_scf.yield %7 : !lvx.reg<r4>
-// CHECK: %6 = lvx.mv %5 : (!lvx.reg<r4>) -> !lvx.reg<r0>
+// CHECK-NEXT: %0 = lvx.li 0 : i64 : !lvx.reg<r1>
+// CHECK-NEXT: %1 = lvx.li 10 : i64 : !lvx.reg<r2>
+// CHECK-NEXT: %2 = lvx.li 1 : i64 : !lvx.reg<r3>
+// CHECK-NEXT: %3 = lvx.li 0 : i64 : !lvx.reg<r4>
+// CHECK-NEXT: %4 = lvx_scf.for %0 : !lvx.reg<r1> to %1 : !lvx.reg<r2> step %2 : !lvx.reg<r3> iter_args(%3) : (!lvx.reg<r4>) -> (!lvx.reg<r4>) {
+// CHECK-NEXT: ^bb0(%arg1: !lvx.reg<r1>, %arg2: !lvx.reg<r4>):
+// CHECK-NEXT: %6 = lvx.addd %arg2, %arg0 : (!lvx.reg<r4>, !lvx.reg<r0>) -> !lvx.reg<r4>
+// CHECK-NEXT: lvx_scf.yield %6 : !lvx.reg<r4>
+// CHECK-NEXT: }
+// CHECK-NEXT: %5 = lvx.mv %4 : (!lvx.reg<r4>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %5 : !lvx.reg<r0>
+// CHECK-NEXT: }
+// CHECK-NEXT: lvx_func.func private @callee(!lvx.reg<r0>) -> !lvx.reg<r0>
 lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %ov = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %lb = lvx.li 0 : i64 : !lvx.reg
@@ -141,15 +148,15 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: lvx.sd %5, %2, 8 : i64 : (!lvx.reg<r14>, !lvx.reg<r12>)
 // CHECK-NEXT: %6 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r14>
 // CHECK-NEXT: %7 = lvx_func.call @callee(%arg0) : (!lvx.reg<r0>) -> !lvx.reg<r0>
-// CHECK-NEXT: %8 = lvx.addd %6, %7 : (!lvx.reg<r14>, !lvx.reg<r0>) -> !lvx.reg<r1>
-// CHECK-NEXT: %9 = lvx.mv %8 : (!lvx.reg<r1>) -> !lvx.reg<r0>
-// CHECK-NEXT: %10 = lvx.ld %2, 8 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r14>
-// CHECK-NEXT: lvx.reg_live_out %10 : !lvx.reg<r14>
-// CHECK-NEXT: %11 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
-// CHECK-NEXT: %12 = lvx.set %11 : (!lvx.reg<r61>) -> !lvx.reg<ra>
-// CHECK-NEXT: %13 = lvx.li 16 : i64 : !lvx.reg<r61>
-// CHECK-NEXT: %14 = lvx.addd %2, %13 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
-// CHECK-NEXT: lvx_func.return %9 : !lvx.reg<r0>
+// CHECK-NEXT: %8 = lvx.addd %6, %7 : (!lvx.reg<r14>, !lvx.reg<r0>) -> !lvx.reg<r0>
+// CHECK-NEXT: %9 = lvx.ld %2, 8 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r14>
+// CHECK-NEXT: lvx.reg_live_out %9 : !lvx.reg<r14>
+// CHECK-NEXT: %10 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
+// CHECK-NEXT: %11 = lvx.set %10 : (!lvx.reg<r61>) -> !lvx.reg<ra>
+// CHECK-NEXT: %12 = lvx.li 16 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %13 = lvx.addd %2, %12 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
+// CHECK-NEXT: lvx_func.return %8 : !lvx.reg<r0>
+// CHECK-NEXT: }
 lvx_func.func private @callee(!lvx.reg<r0>) -> !lvx.reg<r0>
 lvx_func.func @caller(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %live = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
@@ -179,13 +186,11 @@ lvx_func.func @caller(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // So `%3`/`%4` share `r2` -- accumulator and result, as the hardware
 // requires -- while `%5` still reads `%2` in `r1`, the pre-ffma value.
 // CHECK-LABEL: lvx_func.func @ffma_preserve
-// CHECK-NEXT: %0 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r3>
-// CHECK-NEXT: %1 = lvx.mv %arg1 : (!lvx.reg<r1>) -> !lvx.reg<r0>
-// CHECK-NEXT: %2 = lvx.mv %arg2 : (!lvx.reg<r2>) -> !lvx.reg<r1>
-// CHECK-NEXT: %3 = lvx.mv %2 : (!lvx.reg<r1>) -> !lvx.reg<r2>
-// CHECK-NEXT: %4 = lvx.ffmad %0, %1, %3 : (!lvx.reg<r3>, !lvx.reg<r0>, !lvx.reg<r2>) -> !lvx.reg<r2>
-// CHECK-NEXT: %5 = lvx.addd %4, %2 : (!lvx.reg<r2>, !lvx.reg<r1>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx_func.return %5 : !lvx.reg<r0>
+// CHECK-NEXT: %0 = lvx.mv %arg2 : (!lvx.reg<r2>) -> !lvx.reg<r3>
+// CHECK-NEXT: %1 = lvx.ffmad %arg0, %arg1, %0 : (!lvx.reg<r0>, !lvx.reg<r1>, !lvx.reg<r3>) -> !lvx.reg<r3>
+// CHECK-NEXT: %2 = lvx.addd %1, %arg2 : (!lvx.reg<r3>, !lvx.reg<r2>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %2 : !lvx.reg<r0>
+// CHECK-NEXT: }
 lvx_func.func @ffma_preserve(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %acc: !lvx.reg<r2>) -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %1 = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg
@@ -202,9 +207,11 @@ lvx_func.func @ffma_preserve(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %acc: !lvx.reg<
 // `operand #1 does not dominate this use` and the pass failed outright.
 // Copying into the ffma instead leaves the earlier reader alone.
 // CHECK-LABEL: lvx_func.func @ffma_accumulator_read_earlier
-// CHECK: lvx.faddd %{{[0-9]+}}, %[[ACC:[0-9]+]]
-// CHECK: %[[CP:[0-9]+]] = lvx.mv %[[ACC]]
-// CHECK: lvx.ffmad %{{[0-9]+}}, %{{[0-9]+}}, %[[CP]]
+// CHECK-NEXT: %0 = lvx.faddd %arg0, %arg1 : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.reg<r2>
+// CHECK-NEXT: %1 = lvx.ffmad %0, %arg0, %arg1 : (!lvx.reg<r2>, !lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.reg<r1>
+// CHECK-NEXT: %2 = lvx.mv %1 : (!lvx.reg<r1>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %2 : !lvx.reg<r0>
+// CHECK-NEXT: }
 lvx_func.func @ffma_accumulator_read_earlier(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>)
     -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
@@ -222,7 +229,11 @@ lvx_func.func @ffma_accumulator_read_earlier(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>)
 // in the result's register -- the same tie `ffma`'s accumulator has, and for
 // the same reason. Before this, `cmoved` was declared but not emittable at all.
 // CHECK-LABEL: lvx_func.func @cmove_tied
-// CHECK: %[[SEL:[0-9]+]] = lvx.cmoved dnez %{{[0-9]+}}, %{{[0-9]+}}, %[[F:[0-9]+]] : (!lvx.reg<r3>, !lvx.reg<r0>, !lvx.reg<[[R:r[0-9]+]]>) -> !lvx.reg<[[R]]>
+// CHECK-NEXT: %0 = lvx.cmoved dnez %arg0, %arg1, %arg2 : (!lvx.reg<r0>, !lvx.reg<r1>, !lvx.reg<r2>) -> !lvx.reg<r2>
+// CHECK-NEXT: %1 = lvx.mv %0 : (!lvx.reg<r2>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %1 : !lvx.reg<r0>
+// CHECK-NEXT: }
+// CHECK-NEXT: }
 lvx_func.func @cmove_tied(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %c: !lvx.reg<r2>)
     -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
