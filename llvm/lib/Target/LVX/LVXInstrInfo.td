@@ -451,7 +451,6 @@ def : Pat<(i64 (trunc GPR128:$rP)), (EXTRACT_SUBREG GPR128:$rP, sub_hi)>;
 // `sub 0, x` and `xor x, -1` -- and the generated SBFQ/EORQ patterns match
 // that happily, so without these the i128 forms cost a MAKED, a COPYD to
 // build the constant pair, and the operation. Three instructions for one.
-def : Pat<(sub (i128 0), GPR128:$rP), (NEGQ_QBWR GPR128:$rP)>;
 
 // And since the 2026-10-13 ISA change the quadword ALU has the absolute value
 // and both min/max pairs, so these are one instruction too -- where `abs' was
@@ -459,7 +458,6 @@ def : Pat<(sub (i128 0), GPR128:$rP), (NEGQ_QBWR GPR128:$rP)>;
 // min was three (COMPQ, CMOVEQ, and a CATDQ to rebuild the pair). All four
 // min/max are commutative nodes, so the operand order is free; ABSQ sign-
 // extends from bit 127 as NEGQ does.
-def : Pat<(abs GPR128:$rP),              (ABSQ_QBWR GPR128:$rP)>;
 
 // ---- The 128-bit comparison, COMPQ ------------------------------------------
 //
@@ -580,8 +578,10 @@ def : Pat<(sext_inreg GPR:$rZ, i32), (EXTFSD_BFWR GPR:$rZ, 32, 0)>;
 
 // ---- Unary integer --------------------------------------------------------
 
-def : Pat<(ineg  GPR:$rZ), (NEGD_DBWR GPR:$rZ)>;
-def : Pat<(abs   GPR:$rZ), (ABSD_DBWR GPR:$rZ)>;
+// `ineg' and `abs' are GENERATED now, at i64, i128 and -- on lvx-2 -- all four
+// lane widths (lvx-mds, 2026-10-14). The generator reads NEG and ABS as the
+// unary operations they are, and reads the SX/ZX on their operand at the LANE
+// width rather than the register's, which is what let the packed forms in.
 def : Pat<(ctlz  GPR:$rZ), (CLZD_DBWR GPR:$rZ)>;
 def : Pat<(cttz  GPR:$rZ), (CTZD_DBWR GPR:$rZ)>;
 def : Pat<(ctpop GPR:$rZ), (CBSD_DBWR GPR:$rZ)>;
