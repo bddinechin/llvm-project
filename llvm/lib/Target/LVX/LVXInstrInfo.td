@@ -221,10 +221,14 @@ def : Pat<(wimm64imm:$imm), (MAKED_DWI_Y wimm64imm:$imm)>;
 // machine description now -- see LVXInstrPatterns.td.  They were the ones
 // whose operand placement is invisible in the assembly syntax, and the
 // hand-written "sub" here had it backwards (100 - 7 evaluated to -93).
-def : Pat<(smin GPR:$rY, GPR:$rZ), (MIND_DWRR0  GPR:$rZ, GPR:$rY)>;
-def : Pat<(smax GPR:$rY, GPR:$rZ), (MAXD_DWRR0  GPR:$rZ, GPR:$rY)>;
-def : Pat<(umin GPR:$rY, GPR:$rZ), (MINUD_DWRR0 GPR:$rZ, GPR:$rY)>;
-def : Pat<(umax GPR:$rY, GPR:$rZ), (MAXUD_DWRR0 GPR:$rZ, GPR:$rY)>;
+// The register-register integer min/max are GENERATED now, at i64 and i128
+// both: MIN/MAX state their signedness on the operands -- (SX.w x) for signed,
+// (ZX.w x) for unsigned -- which the generator reads exactly as it reads the
+// lane-wise forms, once it stopped insisting the operation be lane-wise
+// (lvx-mds, 2026-10-14). What is NOT generated is the immediate forms below:
+// the .M and ALU_DWRI encodings take a 32- or 37-bit immediate, and the
+// generator declines an immediate paired with a register wider than 64 bits,
+// so the i128 ones cannot come from there at all.
 
 // ---- The complemented logic ------------------------------------------------
 //
@@ -350,15 +354,16 @@ defm : BinOpImm<umax, MAXUD_DWRI, MAXUD_DWRI_X, MAXUD_DWRI_Y>;
 
 // ---- Shifts and rotates ---------------------------------------------------
 
-def : Pat<(shl  GPR:$rY, GPR:$rZ), (SLLD_DSWRR GPR:$rY, GPR:$rZ)>;
-def : Pat<(sra  GPR:$rY, GPR:$rZ), (SRAD_DSWRR GPR:$rY, GPR:$rZ)>;
-def : Pat<(srl  GPR:$rY, GPR:$rZ), (SRLD_DSWRR GPR:$rY, GPR:$rZ)>;
+// The three shifts are GENERATED now, register and immediate, at i64 and i128
+// (lvx-mds, 2026-10-14). Two things in the Behavior had to be read rather than
+// ignored before they could be: the VALUE's extension is what tells SRLD from
+// SRAD -- one Behavior operator, two LLVM nodes, exactly as for MIN/MAX -- and
+// the COUNT's (ZX.6 n) is the modulo LLVM already takes as licence, an
+// out-of-range shift amount being poison. The rotates stay here: ROL/ROR have
+// no entry in the generator's operator table yet.
 def : Pat<(rotl GPR:$rY, GPR:$rZ), (ROLD_DSWRR GPR:$rY, GPR:$rZ)>;
 def : Pat<(rotr GPR:$rY, GPR:$rZ), (RORD_DSWRR GPR:$rY, GPR:$rZ)>;
 
-def : Pat<(shl  GPR:$rZ, uimm6imm:$imm), (SLLD_DSWRI GPR:$rZ, uimm6imm:$imm)>;
-def : Pat<(sra  GPR:$rZ, uimm6imm:$imm), (SRAD_DSWRI GPR:$rZ, uimm6imm:$imm)>;
-def : Pat<(srl  GPR:$rZ, uimm6imm:$imm), (SRLD_DSWRI GPR:$rZ, uimm6imm:$imm)>;
 def : Pat<(rotl GPR:$rZ, uimm6imm:$imm), (ROLD_DSWRI GPR:$rZ, uimm6imm:$imm)>;
 def : Pat<(rotr GPR:$rZ, uimm6imm:$imm), (RORD_DSWRI GPR:$rZ, uimm6imm:$imm)>;
 
@@ -382,7 +387,6 @@ def : Pat<(i64 (trunc GPR128:$rP)), (EXTRACT_SUBREG GPR128:$rP, sub_hi)>;
 // that happily, so without these the i128 forms cost a MAKED, a COPYD to
 // build the constant pair, and the operation. Three instructions for one.
 def : Pat<(sub (i128 0), GPR128:$rP), (NEGQ_QBWR GPR128:$rP)>;
-def : Pat<(not GPR128:$rP),           (NOTQ_QBWR GPR128:$rP)>;
 
 // And since the 2026-10-13 ISA change the quadword ALU has the absolute value
 // and both min/max pairs, so these are one instruction too -- where `abs' was
@@ -391,10 +395,6 @@ def : Pat<(not GPR128:$rP),           (NOTQ_QBWR GPR128:$rP)>;
 // min/max are commutative nodes, so the operand order is free; ABSQ sign-
 // extends from bit 127 as NEGQ does.
 def : Pat<(abs GPR128:$rP),              (ABSQ_QBWR GPR128:$rP)>;
-def : Pat<(smin GPR128:$rP, GPR128:$rO), (MINQ_QWRR0  GPR128:$rP, GPR128:$rO)>;
-def : Pat<(smax GPR128:$rP, GPR128:$rO), (MAXQ_QWRR0  GPR128:$rP, GPR128:$rO)>;
-def : Pat<(umin GPR128:$rP, GPR128:$rO), (MINUQ_QWRR0 GPR128:$rP, GPR128:$rO)>;
-def : Pat<(umax GPR128:$rP, GPR128:$rO), (MAXUQ_QWRR0 GPR128:$rP, GPR128:$rO)>;
 
 // ---- The 128-bit comparison, COMPQ ------------------------------------------
 //
@@ -488,9 +488,10 @@ def : Pat<(mul (i128 (sext GPR:$rZ)), (i128 (zext GPR:$rY))),
 // Shifts: by a register, or by an immediate below 64 (the field is 6 bits).
 // A constant amount of 64 or more never reaches here -- lowerShift128 in
 // LVXISelLowering.cpp turns it into subregister reads and a 64-bit shift.
-def : Pat<(shl GPR128:$rP, GPR:$rY), (SLLQ_QSWRR GPR128:$rP, GPR:$rY)>;
-def : Pat<(sra GPR128:$rP, GPR:$rY), (SRAQ_QSWRR GPR128:$rP, GPR:$rY)>;
-def : Pat<(srl GPR128:$rP, GPR:$rY), (SRLQ_QSWRR GPR128:$rP, GPR:$rY)>;
+// The register forms are generated; only the IMMEDIATE ones are left here,
+// because the generator declines an immediate operand on a register wider than
+// 64 bits -- uimm6imm is an ImmLeaf<i64> and TableGen rejects a pattern whose
+// operands no single type satisfies.
 def : Pat<(shl GPR128:$rP, uimm6imm:$imm), (SLLQ_QSWRI GPR128:$rP, uimm6imm:$imm)>;
 def : Pat<(sra GPR128:$rP, uimm6imm:$imm), (SRAQ_QSWRI GPR128:$rP, uimm6imm:$imm)>;
 def : Pat<(srl GPR128:$rP, uimm6imm:$imm), (SRLQ_QSWRI GPR128:$rP, uimm6imm:$imm)>;
@@ -519,7 +520,6 @@ def : Pat<(abs   GPR:$rZ), (ABSD_DBWR GPR:$rZ)>;
 def : Pat<(ctlz  GPR:$rZ), (CLZD_DBWR GPR:$rZ)>;
 def : Pat<(cttz  GPR:$rZ), (CTZD_DBWR GPR:$rZ)>;
 def : Pat<(ctpop GPR:$rZ), (CBSD_DBWR GPR:$rZ)>;
-def : Pat<(not   GPR:$rZ), (NOTD_DBWR GPR:$rZ)>;
 
 // ---- Conditional move -----------------------------------------------------
 //

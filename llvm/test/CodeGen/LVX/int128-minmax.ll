@@ -9,6 +9,13 @@
 ; The signedness is the thing to check: a min done with the wrong extension
 ; agrees with the right answer on every pair of small positive values, which is
 ; most of them, so the mnemonic is checked by name.
+;
+; The operand ORDER is deliberately not pinned for the min/max four. They are
+; commutative, and since lvx-mds generates these patterns (2026-10-14) the order
+; is the Behavior's -- _MIN(_SX_128(argument3), _SX_128(argument2)), which prints
+; the second source first. That is the description's statement rather than a
+; choice, and pinning it here would make the test fail on a change that cannot
+; be wrong. ABSQ is unary and stays pinned.
 
 define i128 @q_abs(i128 %a) {
 ; CHECK-LABEL: q_abs:
@@ -23,7 +30,7 @@ define i128 @q_abs(i128 %a) {
 define i128 @q_smin(i128 %a, i128 %b) {
 ; CHECK-LABEL: q_smin:
 ; CHECK-NOT:     compq
-; CHECK:         minq $r0r1 = $r0r1, $r2r3
+; CHECK:         minq $r0r1 = $r{{[02]}}r{{[13]}}, $r{{[02]}}r{{[13]}}
   %c = icmp slt i128 %a, %b
   %r = select i1 %c, i128 %a, i128 %b
   ret i128 %r
@@ -31,7 +38,7 @@ define i128 @q_smin(i128 %a, i128 %b) {
 
 define i128 @q_smax(i128 %a, i128 %b) {
 ; CHECK-LABEL: q_smax:
-; CHECK:         maxq $r0r1 = $r0r1, $r2r3
+; CHECK:         maxq $r0r1 = $r{{[02]}}r{{[13]}}, $r{{[02]}}r{{[13]}}
   %c = icmp sgt i128 %a, %b
   %r = select i1 %c, i128 %a, i128 %b
   ret i128 %r
@@ -39,7 +46,7 @@ define i128 @q_smax(i128 %a, i128 %b) {
 
 define i128 @q_umin(i128 %a, i128 %b) {
 ; CHECK-LABEL: q_umin:
-; CHECK:         minuq $r0r1 = $r0r1, $r2r3
+; CHECK:         minuq $r0r1 = $r{{[02]}}r{{[13]}}, $r{{[02]}}r{{[13]}}
   %c = icmp ult i128 %a, %b
   %r = select i1 %c, i128 %a, i128 %b
   ret i128 %r
@@ -47,7 +54,7 @@ define i128 @q_umin(i128 %a, i128 %b) {
 
 define i128 @q_umax(i128 %a, i128 %b) {
 ; CHECK-LABEL: q_umax:
-; CHECK:         maxuq $r0r1 = $r0r1, $r2r3
+; CHECK:         maxuq $r0r1 = $r{{[02]}}r{{[13]}}, $r{{[02]}}r{{[13]}}
   %c = icmp ugt i128 %a, %b
   %r = select i1 %c, i128 %a, i128 %b
   ret i128 %r
@@ -58,7 +65,7 @@ declare i128 @llvm.smin.i128(i128, i128)
 declare i128 @llvm.abs.i128(i128, i1)
 define i128 @q_smin_intrinsic(i128 %a, i128 %b) {
 ; CHECK-LABEL: q_smin_intrinsic:
-; CHECK:         minq $r0r1 = $r0r1, $r2r3
+; CHECK:         minq $r0r1 = $r{{[02]}}r{{[13]}}, $r{{[02]}}r{{[13]}}
   %r = call i128 @llvm.smin.i128(i128 %a, i128 %b)
   ret i128 %r
 }
