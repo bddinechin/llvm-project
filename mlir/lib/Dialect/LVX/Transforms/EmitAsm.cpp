@@ -531,6 +531,22 @@ private:
         // Likewise: only states that a register is live out. See its
         // description for why the restore before it needs saying so.
         .Case([&](RegLiveOutOp) { return success(); })
+        // `makedp <imm>` has no register operand at all, so the arity rule
+        // cannot reach it (zero printed operands, one result). It prints like
+        // `maked`, which is what it is at pair width: one immediate into both
+        // double words.
+        .Case([&](MakedpImmOp op) {
+          FailureOr<std::string> rd = reg(op.getResult());
+          if (failed(rd))
+            return failure();
+          auto value = dyn_cast<IntegerAttr>(op.getSigned16());
+          if (!value) {
+            op->emitError("lvx-emit-asm: makedp without an integer immediate");
+            return failure();
+          }
+          os << "\tmakedp " << *rd << " = " << value.getValue() << endOfOp();
+          return success();
+        })
         .Case([&](LiOp li) {
           FailureOr<std::string> rd = reg(li.getResult());
           if (failed(rd))

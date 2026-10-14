@@ -1087,6 +1087,39 @@ struct VectorSplatConstantToLVX : public OpConversionPattern<arith::ConstantOp> 
     Location loc = op.getLoc();
     Type regTy = RegisterType::get(rewriter.getContext(), std::nullopt);
     unsigned elemBits = vecTy.getElementTypeBitWidth();
+
+    // 64-bit lanes: `makedp` **is** the splat constant. It writes one
+    // sign-extended immediate into both double words of a pair, so neither
+    // the `li` nor the `splatdq` is needed -- one instruction where this used
+    // to take two, and `.X`/`.Y` carry up to 64 bits exactly as `maked` does,
+    // so an f64 bit pattern fits as well as a small integer. (lvx-mds,
+    // 2026-10-13. `LVXImmediates.inc` has the entry `chooseFormat` needs to
+    // pick the width, so the IMMX accounting is the ordinary one.)
+    //
+    // A quad is two of them, for the reason the splat path below gives: the
+    // concat places its parts at offsets and needs them distinct.
+    if (elemBits == 64) {
+      std::optional<int64_t> bits;
+      if (auto i = dyn_cast<IntegerAttr>(scalarAttr))
+        bits = i.getValue().getSExtValue();
+      else if (auto f = dyn_cast<FloatAttr>(scalarAttr))
+        bits = f.getValue().bitcastToAPInt().getSExtValue();
+      if (bits) {
+        auto imm = rewriter.getI64IntegerAttr(*bits);
+        if (units == 2) {
+          rewriter.replaceOpWithNewOp<lvx::MakedpImmOp>(op, tupleTy, imm);
+          return success();
+        }
+        Type pairTy = lvx::PairType::get(rewriter.getContext(), std::nullopt);
+        Value part[2];
+        for (unsigned k = 0; k != 2; ++k)
+          part[k] = rewriter.create<lvx::MakedpImmOp>(loc, pairTy, imm);
+        rewriter.replaceOpWithNewOp<lvx::ConcatOp>(op, tupleTy,
+                                                   ValueRange{part[0], part[1]});
+        return success();
+      }
+    }
+
     Value scalar = rewriter.create<lvx::LiOp>(loc, regTy, scalarAttr);
     if (units == 2) {
       Value result = createSplat(rewriter, loc, tupleTy, elemBits, scalar);
@@ -2003,20 +2036,22 @@ using VAbsIToLVX = VectorUnaryToLVX<math::AbsIOp,
     lvx::AbsbvOp, lvx::AbshxOp, lvx::AbswoOp, lvx::AbsdqOp>;
 // Bit-counting at every lane width, `bx` included since the ISA upgrade of
 // 2026-10-13 (`CLZBX`/`CTZBX`/`CBSBX`, which closed the last three class-D
-// rows of VectorCoverage.md §6's elementwise family). No quad composites --
-// there is no `clzbv` -- so a 256-bit vector is two halves.
+// rows of VectorCoverage.md §6's elementwise family), and the `bv` composites
+// a day later -- all three parts are `ALU_LITE`, so the two halves share a
+// bundle. The 16- and 32-bit shapes still have no quad form: there is no
+// `clzhx`/`clzwo` to split on.
 //
 // `CLSBX` came with them and is not here, for the reason the scalar `cls`
 // is not: counting leading *sign* bits has no MLIR op to match.
 using VCtlzToLVX = VectorUnaryToLVX<math::CountLeadingZerosOp,
     lvx::ClzbxOp, lvx::ClzhoOp, lvx::ClzwqOp, lvx::ClzdpOp,
-    NoLaneOp,     NoLaneOp,     NoLaneOp,     NoLaneOp>;
+    lvx::ClzbvOp, NoLaneOp,     NoLaneOp,     NoLaneOp>;
 using VCttzToLVX = VectorUnaryToLVX<math::CountTrailingZerosOp,
     lvx::CtzbxOp, lvx::CtzhoOp, lvx::CtzwqOp, lvx::CtzdpOp,
-    NoLaneOp,     NoLaneOp,     NoLaneOp,     NoLaneOp>;
+    lvx::CtzbvOp, NoLaneOp,     NoLaneOp,     NoLaneOp>;
 using VCtpopToLVX = VectorUnaryToLVX<math::CtPopOp,
     lvx::CbsbxOp, lvx::CbshoOp, lvx::CbswqOp, lvx::CbsdpOp,
-    NoLaneOp,     NoLaneOp,     NoLaneOp,     NoLaneOp>;
+    lvx::CbsbvOp, NoLaneOp,     NoLaneOp,     NoLaneOp>;
 
 // Float. There is no 8-bit float, and f16 (`ho`/`hx`) is out of scope for
 // now (VectorCoverage.md §1), but the ops are named here anyway: the type
