@@ -72,7 +72,12 @@ struct PipelineTask {
 /// two makes every requirement divide every larger one, so the answer is a
 /// single power of two below `2 * max`, where taking the least common multiple
 /// would be a product -- three and five names would force fifteen copies of
-/// the body rather than eight. See SoftwarePipelining.md §5.
+/// the body rather than eight.
+///
+/// The names the rounding adds cost no registers: a value wanting three names
+/// still has only three live at once, so the fourth takes a register one of
+/// them has finished with. Interference is the live ranges, not the spelling.
+/// See SoftwarePipelining.md §5.
 unsigned computePipelineUnroll(llvm::ArrayRef<int64_t> lifetimes,
                                int64_t period);
 
