@@ -22,6 +22,7 @@
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
 #include "mlir/Dialect/LVX/Transforms/IdentityCopies.h"
+#include "mlir/Dialect/LVX/Transforms/RegisterAllocation.h"
 #include "mlir/Dialect/LVX/Transforms/ScratchRegisters.h"
 #include "mlir/Dialect/LVX/IR/LVXConvention.h"
 #include "mlir/Dialect/LVX/IR/LVXTiedOperands.h"
@@ -1044,20 +1045,26 @@ static LogicalResult rewriteSpills(MLIRContext *ctx, ArrayRef<AllocItem> items,
 // see lvx-mlir/docs/RegisterAllocation.md, "Step 3").
 //===----------------------------------------------------------------------===//
 
-struct LVXAllocateRegistersPass
-    : public lvx::impl::LVXAllocateRegistersPassBase<
-          LVXAllocateRegistersPass> {
-  using LVXAllocateRegistersPassBase::LVXAllocateRegistersPassBase;
+} // namespace
 
-  void runOnOperation() override {
-    lvx_func::FuncOp func = getOperation();
+namespace mlir {
+namespace lvx {
+
+/// Allocates physical registers in `func`, emitting diagnostics on it and
+/// returning failure when it cannot be done -- a conflicting pin, or more
+/// pressure than `maxRegisters` can hold.
+///
+/// Exposed as a function rather than left inside the pass because the software
+/// pipeliner has to allocate a *clone* and discard it when allocation fails
+/// (lvx-mlir/docs/SoftwarePipelining.md §1): modulo variable expansion raises
+/// register demand, the bail-out is "keep the unpipelined version", and a pass
+/// cannot run another pass.
+LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters) {
     if (func.isExternal())
-      return;
-
+      return success();
     insertLoopCarriedPreservingCopies(func);
     splitRepeatedConcatParts(func);
     insertFmaAccumulatorPreservingCopies(func);
-
     LVXLiveIntervals live(func);
     bool conflictingFixedGroup = false, conflictingLaneGroup = false;
     SmallVector<AllocItem> items = buildAllocItems(
@@ -1066,21 +1073,19 @@ struct LVXAllocateRegistersPass
       func.emitError("a value is placed at two different lanes of one "
                      "register tuple (lvx.lane views or lvx.concat parts "
                      "joined by a loop-carried channel, branch edge or tie)");
-      return signalPassFailure();
+      return failure();
     }
     if (conflictingFixedGroup) {
       func.emitError("a coalesced register group (lvx_scf.for loop-carried "
                       "channel, lvx_cf branch edge, or ffma/ffms "
                       "accumulator) has members pinned to different "
                       "physical registers");
-      return signalPassFailure();
+      return failure();
     }
     markCallCrossings(func, live, items);
-
     bool inUse[kRegisterIdBound] = {};
     // active: indices into `items`, kept sorted by increasing `end`.
     SmallVector<unsigned> active;
-
     // Every fixed item's range, per physical register. A fixed item cannot be
     // moved -- it *is* a named ABI register -- so a free register that some
     // later fixed range needs is not free for an item that outlives that
@@ -1100,7 +1105,6 @@ struct LVXAllocateRegistersPass
       if (item.isFixed())
         for (unsigned u = item.fixed->base; u != item.fixed->end(); ++u)
           fixedRanges[u].push_back({item.start, item.end});
-
     // Registers an item of range [start, end) must not take: those a fixed
     // range claims while this item is still live. Both tests are strict,
     // which is the corrected lifetime convention below: a value occupies its
@@ -1117,7 +1121,6 @@ struct LVXAllocateRegistersPass
           }
       }
     };
-
     // An item whose last use is exactly the op defining the next one is
     // expired: a value occupies its register from *one cycle after* its
     // defining op to the op that last reads it, so an operand dying at op n
@@ -1148,7 +1151,6 @@ struct LVXAllocateRegistersPass
                                    });
       active.insert(pos, idx);
     };
-
     unsigned frameSize = 0;
     // A slot is 8 * width bytes, aligned to its own size: `sq`/`so` want
     // their natural alignment, and the frame's base is 32-byte aligned.
@@ -1162,33 +1164,29 @@ struct LVXAllocateRegistersPass
     for (unsigned idx = 0, e = items.size(); idx != e; ++idx) {
       AllocItem &item = items[idx];
       expireOldIntervals(item.start);
-
       if (item.isFixed()) {
         if (anyInUse(inUse, *item.fixed)) {
           mlir::emitError(item.frontValue().getLoc())
               << "register " << spellingOf(*item.fixed)
               << " is already in use by an overlapping live range";
-          return signalPassFailure();
+          return failure();
         }
         markInUse(inUse, *item.fixed, true);
         insertActive(idx);
         continue;
       }
-
       // In use now, plus what a fixed range will need before this item dies.
       bool unavailable[kRegisterIdBound];
       blockedByFixed(item.start, item.end, unavailable);
       for (unsigned u = 0; u != kRegisterIdBound; ++u)
         unavailable[u] = unavailable[u] || inUse[u];
-
       if (std::optional<unsigned> base = pickFree(
-              item.width, item.crossesCall, this->maxRegisters, unavailable)) {
+              item.width, item.crossesCall, maxRegisters, unavailable)) {
         item.assigned = *base;
         markInUse(inUse, item.loc(), true);
         insertActive(idx);
         continue;
       }
-
       // SpillAtInterval (Fig. 1), over blocks (lvx-mlir/docs/
       // RegisterAllocation.md, "Step 4", "The scan"): for each candidate
       // block of `item`'s width in its pool, the occupants are the active
@@ -1206,7 +1204,7 @@ struct LVXAllocateRegistersPass
       SmallVector<unsigned, 4> bestOccupants, occupants;
       for (unsigned base : orderFor(item.width)) {
         PhysLoc loc{base, item.width};
-        if (!inPool(loc, item.crossesCall, this->maxRegisters))
+        if (!inPool(loc, item.crossesCall, maxRegisters))
           continue;
         occupants.clear();
         unsigned cost = ~0u, last = 0;
@@ -1238,7 +1236,6 @@ struct LVXAllocateRegistersPass
           bestOccupants = occupants;
         }
       }
-
       if (bestBase && bestCost > item.end) {
         for (unsigned victimIdx : bestOccupants) {
           AllocItem &victim = items[victimIdx];
@@ -1255,7 +1252,6 @@ struct LVXAllocateRegistersPass
         insertActive(idx);
         continue;
       }
-
       if (item.isGroup()) {
         mlir::emitError(item.frontValue().getLoc())
             << "linear scan register allocation failed: spilling a "
@@ -1263,7 +1259,7 @@ struct LVXAllocateRegistersPass
                "channel, lvx_cf branch edge, or ffma/ffms accumulator) is "
                "not yet implemented (live range [" << item.start << ", "
             << item.end << "])";
-        return signalPassFailure();
+        return failure();
       }
       if (!item.isSpillable()) {
         mlir::emitError(item.frontValue().getLoc())
@@ -1271,12 +1267,11 @@ struct LVXAllocateRegistersPass
                "quadruple, and a quad cannot be spilled -- the scratch set "
                "has no quad to reload it into (live range [" << item.start
             << ", " << item.end << "])";
-        return signalPassFailure();
+        return failure();
       }
       allocateSpillSlot(item);
       // Not inserted into `active`: a spilled item holds no register.
     }
-
     // Rewrite: every item holding a block updates all of its member values'
     // types in place -- a fixed item too, since a lane view of a pinned
     // tuple is a member whose own type is not yet pinned. (Re-setting the
@@ -1287,10 +1282,9 @@ struct LVXAllocateRegistersPass
         continue;
       for (const AllocMember &m : item.members) {
         Value v = m.value;
-        v.setType(typeFor(&getContext(), item.locOf(m)));
+        v.setType(typeFor(func.getContext(), item.locOf(m)));
       }
     }
-
     // Drop every `lvx.mv` that allocation turned into a copy of a register
     // into itself -- `copyd $r0 = $r0`, or `catdq $r0r1 = $r0, $r1`.
     //
@@ -1317,7 +1311,6 @@ struct LVXAllocateRegistersPass
     // another reader, so one assigned its source's register would already be
     // a miscompile, upstream of this. Deleting it changes nothing about that.
     eraseIdentityCopies(func);
-
     // A function that itself executes a call clobbers its own $ra before
     // its own `ret` gets to use it (lvx-mlir/docs/RegisterAllocation.md,
     // "Return-address save/restore") -- reserve one more frame slot and
@@ -1329,7 +1322,6 @@ struct LVXAllocateRegistersPass
       raOffset = frameSize;
       frameSize += 8;
     }
-
     // Every callee-saved register this function actually used must be given
     // back to the caller unchanged (`Convention.table`'s `callee` set), so
     // reserve a frame slot per distinct one and save/restore it around the
@@ -1359,7 +1351,6 @@ struct LVXAllocateRegistersPass
       for (Block &b : func.getBody())
         for (BlockArgument a : b.getArguments())
           note(a.getType());
-
       SmallVector<Register> sorted(used.begin(), used.end());
       llvm::sort(sorted, [](Register a, Register b) {
         return static_cast<unsigned>(a) < static_cast<unsigned>(b);
@@ -1369,13 +1360,29 @@ struct LVXAllocateRegistersPass
         frameSize += 8;
       }
     }
-
     if (frameSize > 0) {
       Value spBase = insertPrologueEpilogue(func, frameSize, raOffset,
-                                            calleeSaved, &getContext());
-      if (failed(rewriteSpills(&getContext(), items, spBase)))
-        return signalPassFailure();
+                                            calleeSaved, func.getContext());
+      if (failed(rewriteSpills(func.getContext(), items, spBase)))
+        return failure();
     }
+  return success();
+}
+
+} // namespace lvx
+} // namespace mlir
+
+namespace {
+
+
+struct LVXAllocateRegistersPass
+    : public lvx::impl::LVXAllocateRegistersPassBase<
+          LVXAllocateRegistersPass> {
+  using LVXAllocateRegistersPassBase::LVXAllocateRegistersPassBase;
+
+  void runOnOperation() override {
+    if (failed(lvx::allocateRegisters(getOperation(), this->maxRegisters)))
+      signalPassFailure();
   }
 };
 
