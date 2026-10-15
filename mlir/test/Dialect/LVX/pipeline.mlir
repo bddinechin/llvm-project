@@ -30,10 +30,10 @@ lvx_func.func @acc(%base: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %r = lvx_scf.for %lo : !lvx.reg to %hi : !lvx.reg step %st : !lvx.reg
        iter_args(%z) : (!lvx.reg) -> (!lvx.reg) {
   ^bb0(%i: !lvx.reg, %a: !lvx.reg):
-    %v = lvx.ld %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.reg
-    %s = lvx.addd %a, %v : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    %v = lvx.ld %base, 0 : i64 {lvx.stage = 0 : i64} : (!lvx.reg<r0>) -> !lvx.reg
+    %s = lvx.addd %a, %v {lvx.stage = 1 : i64} : (!lvx.reg, !lvx.reg) -> !lvx.reg
     lvx_scf.yield %s : !lvx.reg
-  } {lvx.stages = [0, 1]}
+  }
   %out = lvx.mv %r : (!lvx.reg) -> !lvx.reg<r0>
   lvx_func.return %out : !lvx.reg<r0>
 }
@@ -60,11 +60,11 @@ lvx_func.func @three(%base: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %r = lvx_scf.for %lo : !lvx.reg to %hi : !lvx.reg step %st : !lvx.reg
        iter_args(%z) : (!lvx.reg) -> (!lvx.reg) {
   ^bb0(%i: !lvx.reg, %a: !lvx.reg):
-    %v = lvx.ld %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.reg
-    %w = lvx.muld %v, %i : (!lvx.reg, !lvx.reg) -> !lvx.reg
-    %s = lvx.addd %a, %w : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    %v = lvx.ld %base, 0 : i64 {lvx.stage = 0 : i64} : (!lvx.reg<r0>) -> !lvx.reg
+    %w = lvx.muld %v, %i {lvx.stage = 1 : i64} : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    %s = lvx.addd %a, %w {lvx.stage = 2 : i64} : (!lvx.reg, !lvx.reg) -> !lvx.reg
     lvx_scf.yield %s : !lvx.reg
-  } {lvx.stages = [0, 1, 2]}
+  }
   %out = lvx.mv %r : (!lvx.reg) -> !lvx.reg<r0>
   lvx_func.return %out : !lvx.reg<r0>
 }
@@ -81,9 +81,9 @@ lvx_func.func @flat(%base: !lvx.reg<r0>, %n: !lvx.reg<r1>) {
   %st = lvx.li 1 : i64 : !lvx.reg
   lvx_scf.for %lo : !lvx.reg to %hi : !lvx.reg step %st : !lvx.reg {
   ^bb0(%i: !lvx.reg):
-    %v = lvx.ld %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.reg
-    lvx.sd %v, %base, 8 : i64 : (!lvx.reg, !lvx.reg<r0>)
+    %v = lvx.ld %base, 0 : i64 {lvx.stage = 0 : i64} : (!lvx.reg<r0>) -> !lvx.reg
+    lvx.sd %v, %base, 8 : i64 {lvx.stage = 0 : i64} : (!lvx.reg, !lvx.reg<r0>)
     lvx_scf.yield
-  } {lvx.stages = [0, 0]}
+  }
   lvx_func.return
 }

@@ -43,6 +43,13 @@ using namespace mlir::lvx;
 
 namespace {
 
+/// The stage an operation belongs to, as a discardable attribute -- the same
+/// per-operation shape as `cycle`, and for the same reason: it has to survive
+/// the body being reordered. Discardable rather than declared because the ops
+/// are generated from the machine description, and a pass-produced annotation
+/// does not belong in the ISA's definition of an instruction.
+constexpr llvm::StringLiteral kStageAttr = "lvx.stage";
+
 /// Where a value a body operation reads comes from, and how many kernel trips
 /// back the reader needs it.
 ///
@@ -362,19 +369,38 @@ struct LVXPipelinePass : public lvx::impl::LVXPipelinePassBase<LVXPipelinePass> 
     lvx_func::FuncOp func = getOperation();
     SmallVector<lvx_scf::ForOp> loops;
     func.walk([&](lvx_scf::ForOp loop) {
-      if (loop->hasAttrOfType<ArrayAttr>("lvx.stages"))
-        loops.push_back(loop);
+      for (Operation &op : loop.getBody()->without_terminator())
+        if (op.hasAttr(kStageAttr)) {
+          loops.push_back(loop);
+          return;
+        }
     });
 
     for (lvx_scf::ForOp loop : loops) {
+      // Per operation, like `cycle`, so the assignment survives anything that
+      // reorders the body. A positional list on the loop would not.
       SmallVector<unsigned> stages;
-      for (Attribute a : loop->getAttrOfType<ArrayAttr>("lvx.stages"))
-        stages.push_back(cast<IntegerAttr>(a).getInt());
+      bool complete = true;
+      for (Operation &op : loop.getBody()->without_terminator()) {
+        auto a = op.getAttrOfType<IntegerAttr>(kStageAttr);
+        if (!a) {
+          complete = false;
+          break;
+        }
+        stages.push_back(a.getInt());
+      }
+      if (!complete) {
+        loop.emitError("some body operations carry `" + Twine(kStageAttr) +
+                       "` and some do not: a partial stage assignment is not "
+                       "a schedule");
+        return signalPassFailure();
+      }
 
       CrossStageValues csv(loop, stages);
       if (!csv.isValid()) {
-        loop.emitError("`lvx.stages` is not a feasible stage assignment: a "
-                       "value is read before the stage that computes it");
+        loop.emitError("`" + Twine(kStageAttr) +
+                       "` is not a feasible stage assignment: a value is read "
+                       "before the stage that computes it");
         return signalPassFailure();
       }
       std::optional<Bounds> bounds = boundsOf(loop);
@@ -383,7 +409,8 @@ struct LVXPipelinePass : public lvx::impl::LVXPipelinePassBase<LVXPipelinePass> 
                        "now: the guard and remainder loop are not emitted");
         return signalPassFailure();
       }
-      loop->removeAttr("lvx.stages");
+      for (Operation &op : loop.getBody()->without_terminator())
+        op.removeAttr(kStageAttr);
       if (failed(PipelineEmitter(loop, stages, *bounds).emit()))
         return signalPassFailure();
     }

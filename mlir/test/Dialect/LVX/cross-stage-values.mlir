@@ -16,10 +16,10 @@ lvx_func.func @one_crossing(%base: !lvx.reg<r0>, %n: !lvx.reg<r1>) {
   %r = lvx_scf.for %lo : !lvx.reg to %n : !lvx.reg<r1> step %st : !lvx.reg
        iter_args(%acc) : (!lvx.reg) -> (!lvx.reg) {
   ^bb0(%i: !lvx.reg, %a: !lvx.reg):
-    %v = lvx.ld %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.reg
-    %s = lvx.addd %a, %v : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    %v = lvx.ld %base, 0 : i64 {lvx.stage = 0 : i64} : (!lvx.reg<r0>) -> !lvx.reg
+    %s = lvx.addd %a, %v {lvx.stage = 1 : i64} : (!lvx.reg, !lvx.reg) -> !lvx.reg
     lvx_scf.yield %s : !lvx.reg
-  } {lvx.stages = [0, 1]}
+  }
   lvx_func.return
 }
 
@@ -32,10 +32,10 @@ lvx_func.func @no_crossing(%base: !lvx.reg<r0>, %n: !lvx.reg<r1>) {
   %st = lvx.li 1 : i64 : !lvx.reg
   lvx_scf.for %lo : !lvx.reg to %n : !lvx.reg<r1> step %st : !lvx.reg {
   ^bb0(%i: !lvx.reg):
-    %v = lvx.ld %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.reg
-    lvx.sd %v, %base, 8 : i64 : (!lvx.reg, !lvx.reg<r0>)
+    %v = lvx.ld %base, 0 : i64 {lvx.stage = 0 : i64} : (!lvx.reg<r0>) -> !lvx.reg
+    lvx.sd %v, %base, 8 : i64 {lvx.stage = 0 : i64} : (!lvx.reg, !lvx.reg<r0>)
     lvx_scf.yield
-  } {lvx.stages = [0, 0]}
+  }
   lvx_func.return
 }
 
@@ -55,11 +55,11 @@ lvx_func.func @two_trips_in_flight(%base: !lvx.reg<r0>,
   %r = lvx_scf.for %lo : !lvx.reg to %n : !lvx.reg<r1> step %st : !lvx.reg
        iter_args(%acc) : (!lvx.reg) -> (!lvx.reg) {
   ^bb0(%i: !lvx.reg, %a: !lvx.reg):
-    %v = lvx.ld %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.reg
-    %w = lvx.muld %base, %base : (!lvx.reg<r0>, !lvx.reg<r0>) -> !lvx.reg
-    %s = lvx.addd %a, %v : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    %v = lvx.ld %base, 0 : i64 {lvx.stage = 0 : i64} : (!lvx.reg<r0>) -> !lvx.reg
+    %w = lvx.muld %base, %base {lvx.stage = 1 : i64} : (!lvx.reg<r0>, !lvx.reg<r0>) -> !lvx.reg
+    %s = lvx.addd %a, %v {lvx.stage = 2 : i64} : (!lvx.reg, !lvx.reg) -> !lvx.reg
     lvx_scf.yield %s : !lvx.reg
-  } {lvx.stages = [0, 1, 2]}
+  }
   lvx_func.return
 }
 
@@ -73,10 +73,10 @@ lvx_func.func @use_before_def(%base: !lvx.reg<r0>, %n: !lvx.reg<r1>) {
   %st = lvx.li 1 : i64 : !lvx.reg
   lvx_scf.for %lo : !lvx.reg to %n : !lvx.reg<r1> step %st : !lvx.reg {
   ^bb0(%i: !lvx.reg):
-    %v = lvx.ld %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.reg
-    lvx.sd %v, %base, 8 : i64 : (!lvx.reg, !lvx.reg<r0>)
+    %v = lvx.ld %base, 0 : i64 {lvx.stage = 1 : i64} : (!lvx.reg<r0>) -> !lvx.reg
+    lvx.sd %v, %base, 8 : i64 {lvx.stage = 0 : i64} : (!lvx.reg, !lvx.reg<r0>)
     lvx_scf.yield
-  } {lvx.stages = [1, 0]}
+  }
   lvx_func.return
 }
 
@@ -93,10 +93,10 @@ lvx_func.func @carried_use_before_def(%base: !lvx.reg<r0>, %n: !lvx.reg<r1>) {
   %r = lvx_scf.for %lo : !lvx.reg to %n : !lvx.reg<r1> step %st : !lvx.reg
        iter_args(%acc) : (!lvx.reg) -> (!lvx.reg) {
   ^bb0(%i: !lvx.reg, %a: !lvx.reg):
-    %x = lvx.muld %a, %a : (!lvx.reg, !lvx.reg) -> !lvx.reg
-    %v = lvx.ld %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.reg
-    %s = lvx.addd %x, %v : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    %x = lvx.muld %a, %a {lvx.stage = 0 : i64} : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    %v = lvx.ld %base, 0 : i64 {lvx.stage = 1 : i64} : (!lvx.reg<r0>) -> !lvx.reg
+    %s = lvx.addd %x, %v {lvx.stage = 2 : i64} : (!lvx.reg, !lvx.reg) -> !lvx.reg
     lvx_scf.yield %s : !lvx.reg
-  } {lvx.stages = [0, 1, 2]}
+  }
   lvx_func.return
 }

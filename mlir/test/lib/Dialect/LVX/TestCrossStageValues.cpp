@@ -7,8 +7,8 @@
 //===----------------------------------------------------------------------===//
 //
 // Prints what mlir::lvx::CrossStageValues computes for every `lvx_scf.for`
-// carrying an `lvx.stages` attribute -- one stage per body operation, the
-// terminator excluded. Mirrors TestLiveIntervals.cpp.
+// whose body operations all carry an `lvx.stage` attribute. Mirrors
+// TestLiveIntervals.cpp.
 //
 //===----------------------------------------------------------------------===//
 
@@ -37,12 +37,15 @@ struct TestLVXCrossStageValuesPass
     lvx_func::FuncOp func = getOperation();
     AsmState state(func);
     func.walk([&](lvx_scf::ForOp loop) {
-      auto attr = loop->getAttrOfType<ArrayAttr>("lvx.stages");
-      if (!attr)
-        return;
       SmallVector<unsigned> stages;
-      for (Attribute a : attr)
-        stages.push_back(cast<IntegerAttr>(a).getInt());
+      for (Operation &op : loop.getBody()->without_terminator()) {
+        auto a = op.getAttrOfType<IntegerAttr>("lvx.stage");
+        if (!a)
+          return;
+        stages.push_back(a.getInt());
+      }
+      if (stages.empty())
+        return;
 
       CrossStageValues csv(loop, stages);
       llvm::errs() << "loop: stages=" << csv.getNumStages()

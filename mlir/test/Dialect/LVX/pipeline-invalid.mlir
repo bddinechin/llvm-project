@@ -8,10 +8,10 @@ lvx_func.func @use_before_def(%base: !lvx.reg<r0>) {
   // expected-error @below {{not a feasible stage assignment}}
   lvx_scf.for %lo : !lvx.reg to %hi : !lvx.reg step %st : !lvx.reg {
   ^bb0(%i: !lvx.reg):
-    %v = lvx.ld %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.reg
-    lvx.sd %v, %base, 8 : i64 : (!lvx.reg, !lvx.reg<r0>)
+    %v = lvx.ld %base, 0 : i64 {lvx.stage = 1 : i64} : (!lvx.reg<r0>) -> !lvx.reg
+    lvx.sd %v, %base, 8 : i64 {lvx.stage = 0 : i64} : (!lvx.reg, !lvx.reg<r0>)
     lvx_scf.yield
-  } {lvx.stages = [1, 0]}
+  }
   lvx_func.return
 }
 
@@ -24,10 +24,10 @@ lvx_func.func @dynamic(%base: !lvx.reg<r0>, %n: !lvx.reg<r1>) {
   // expected-error @below {{needs constant loop bounds}}
   lvx_scf.for %lo : !lvx.reg to %n : !lvx.reg<r1> step %st : !lvx.reg {
   ^bb0(%i: !lvx.reg):
-    %v = lvx.ld %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.reg
-    lvx.sd %v, %base, 8 : i64 : (!lvx.reg, !lvx.reg<r0>)
+    %v = lvx.ld %base, 0 : i64 {lvx.stage = 0 : i64} : (!lvx.reg<r0>) -> !lvx.reg
+    lvx.sd %v, %base, 8 : i64 {lvx.stage = 1 : i64} : (!lvx.reg, !lvx.reg<r0>)
     lvx_scf.yield
-  } {lvx.stages = [0, 1]}
+  }
   lvx_func.return
 }
 
@@ -42,10 +42,10 @@ lvx_func.func @too_short(%base: !lvx.reg<r0>) {
   // expected-error @below {{fewer iterations than the pipeline has stages}}
   lvx_scf.for %lo : !lvx.reg to %hi : !lvx.reg step %st : !lvx.reg {
   ^bb0(%i: !lvx.reg):
-    %v = lvx.ld %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.reg
-    %w = lvx.muld %v, %v : (!lvx.reg, !lvx.reg) -> !lvx.reg
-    lvx.sd %w, %base, 8 : i64 : (!lvx.reg, !lvx.reg<r0>)
+    %v = lvx.ld %base, 0 : i64 {lvx.stage = 0 : i64} : (!lvx.reg<r0>) -> !lvx.reg
+    %w = lvx.muld %v, %v {lvx.stage = 1 : i64} : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    lvx.sd %w, %base, 8 : i64 {lvx.stage = 2 : i64} : (!lvx.reg, !lvx.reg<r0>)
     lvx_scf.yield
-  } {lvx.stages = [0, 1, 2]}
+  }
   lvx_func.return
 }
