@@ -228,3 +228,27 @@ def LVXEmitAsmPass : Pass<"lvx-emit-asm", "::mlir::ModuleOp"> {
 }
 
 #endif // MLIR_DIALECT_LVX_TRANSFORMS_PASSES
+
+def LVXPipelinePass
+    : Pass<"lvx-pipeline", "::mlir::lvx_func::FuncOp"> {
+  let summary = "Software pipeline an `lvx_scf.for` from a stage assignment";
+  let description = [{
+    Emits the software pipeline an `lvx.stages` attribute describes: a peeled
+    prologue starting the first iterations, a kernel running every stage at
+    once on a different iteration, and a peeled epilogue finishing the last.
+    See lvx-mlir/docs/SoftwarePipelining.md.
+
+    Modulo variable expansion is a shift register in SSA -- a value a later
+    stage still needs becomes an `iter_arg`, and the kernel yields the newer
+    versions so each slides back a trip. Unrolling the kernel removes the
+    copies that implies, and is not done here.
+
+    Takes the stage assignment as an attribute rather than computing it: the
+    policy that produces one (decomposed software pipelining, then converging
+    to modulo schedules) is separate, and a hand-written assignment is what
+    this is tested with.
+
+    Needs constant loop bounds for now, which is what lets it leave out the
+    short-trip-count guard and the remainder loop.
+  }];
+}
