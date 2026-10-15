@@ -65,6 +65,18 @@ struct Reference {
   bool external = false; // defined outside the loop; use it directly
 };
 
+/// Whether `loop` is innermost. Modulo scheduling is for innermost loops --
+/// an outer loop's "operations" include the inner loop, whose cost is a trip
+/// count, not a latency. And pipelining an inner loop replaces it with code
+/// that carries no stage of the outer one, so annotating both and emitting
+/// outside in would leave the outer body half-assigned.
+static bool isInnermost(lvx_scf::ForOp loop) {
+  WalkResult r = loop.getBody()->walk([&](lvx_scf::ForOp inner) {
+    return inner == loop ? WalkResult::advance() : WalkResult::interrupt();
+  });
+  return !r.wasInterrupted();
+}
+
 /// Constant-bounded loop arithmetic. The pass requires constant bounds (§6's
 /// guard and remainder loop are not emitted yet), so the trip count and every
 /// peeled iteration's induction value are known here.
@@ -133,6 +145,29 @@ private:
   /// Clones `op` for `iteration` into the current insertion point, resolving
   /// its operands through `peeled`.
   void clonePeeled(OpBuilder &b, Operation *op, int64_t iteration);
+
+  /// The order operations issue in within a section, which is *not* body
+  /// order once the stages differ.
+  ///
+  /// A section holds instances of several iterations at once: stage `s` works
+  /// on the iteration `s` trips back, so a higher stage is an *older*
+  /// iteration and has to issue first. [PaCT97] linearises by cycle, then
+  /// iteration, then position in the body; without cycles here, the iteration
+  /// tie-break alone -- stage descending, body order within a stage -- is what
+  /// keeps memory in order.
+  ///
+  /// SSA dependences do not need it: a cross-stage read takes a version, which
+  /// is an `iter_arg`, and a same-stage read keeps body order. Memory
+  /// dependences are not SSA edges, so nothing else preserves them, and
+  /// emitting a store after the loads of a newer iteration silently
+  /// miscompiles -- which is how this was found, on `vtail`.
+  SmallVector<Operation *> issueOrder() const {
+    SmallVector<Operation *> order(ops.begin(), ops.end());
+    llvm::stable_sort(order, [&](Operation *a, Operation *b) {
+      return stages[index.lookup(a)] > stages[index.lookup(b)];
+    });
+    return order;
+  }
 
   lvx_scf::ForOp loop;
   ArrayRef<unsigned> stages;
@@ -257,8 +292,9 @@ LogicalResult PipelineEmitter::emit() {
   Location loc = loop.getLoc();
 
   // --- Prologue: trips 0 .. numStages-2, stage `s` working on iteration p-s.
+  SmallVector<Operation *> order = issueOrder();
   for (unsigned p = 0; p + 1 != numStages; ++p)
-    for (Operation *op : ops)
+    for (Operation *op : order)
       if (stageOf(op) <= p)
         clonePeeled(b, op, static_cast<int64_t>(p) - stageOf(op));
 
@@ -304,7 +340,7 @@ LogicalResult PipelineEmitter::emit() {
     if (version.count(loop.getInductionVar()))
       version[loop.getInductionVar()][0] = kernel.getInductionVar();
 
-    for (Operation *op : ops) {
+    for (Operation *op : order) {
       IRMapping map;
       unsigned useStage = stageOf(op);
       for (Value operand : op->getOperands()) {
@@ -348,7 +384,7 @@ LogicalResult PipelineEmitter::emit() {
   // stages that still have iterations to finish.
   b.setInsertionPointAfter(kernel);
   for (unsigned e = 0; e + 1 != numStages; ++e)
-    for (Operation *op : ops)
+    for (Operation *op : order)
       if (stageOf(op) >= e + 1)
         clonePeeled(b, op, static_cast<int64_t>(trips) + e - stageOf(op));
 
@@ -369,6 +405,8 @@ struct LVXPipelinePass : public lvx::impl::LVXPipelinePassBase<LVXPipelinePass> 
     lvx_func::FuncOp func = getOperation();
     SmallVector<lvx_scf::ForOp> loops;
     func.walk([&](lvx_scf::ForOp loop) {
+      if (!isInnermost(loop))
+        return;
       for (Operation &op : loop.getBody()->without_terminator())
         if (op.hasAttr(kStageAttr)) {
           loops.push_back(loop);

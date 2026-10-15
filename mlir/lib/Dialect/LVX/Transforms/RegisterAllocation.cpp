@@ -34,6 +34,7 @@
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
 #include "mlir/Dialect/LVXSCF/IR/LVXSCF.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/Dominance.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
@@ -423,17 +424,34 @@ static void mergeValue(AllocItem &item, Value value,
 static void insertLoopCarriedPreservingCopies(lvx_func::FuncOp func) {
   SmallVector<lvx_scf::ForOp> forOps;
   func.walk([&](lvx_scf::ForOp op) { forOps.push_back(op); });
+  if (forOps.empty())
+    return;
+  DominanceInfo dom(func);
   for (lvx_scf::ForOp forOp : forOps) {
     for (Value v : forOp.getInitArgs()) {
-      bool hasOtherUse = llvm::any_of(v.getUses(), [&](OpOperand &use) {
-        return use.getOwner() != forOp;
+      // Only a use the copy would *dominate* may be redirected. A use before
+      // the loop already reads the value before the loop can overwrite it, so
+      // it needs no copy -- and pointing it at one made just before the loop
+      // would not dominate it, which is invalid IR rather than a missed
+      // optimisation.
+      //
+      // Software pipelining is what made this reachable (2026-10-15): the
+      // prologue routinely computes a value, reads it itself, and hands it to
+      // the kernel as an init operand. Until then no loop had an init operand
+      // with any other use at all, which is why "any other use" stood in for
+      // "a use after the loop" here.
+      bool hasDominatedUse = llvm::any_of(v.getUses(), [&](OpOperand &use) {
+        return use.getOwner() != forOp &&
+               dom.properlyDominates(forOp.getOperation(), use.getOwner());
       });
-      if (!hasOtherUse)
+      if (!hasDominatedUse)
         continue;
       OpBuilder builder(forOp);
       auto copy = builder.create<MvOp>(forOp.getLoc(), v.getType(), v);
-      llvm::SmallPtrSet<Operation *, 2> keep{forOp, copy};
-      v.replaceAllUsesExcept(copy, keep);
+      v.replaceUsesWithIf(copy, [&](OpOperand &use) {
+        return use.getOwner() != forOp && use.getOwner() != copy &&
+               dom.properlyDominates(forOp.getOperation(), use.getOwner());
+      });
     }
   }
 }

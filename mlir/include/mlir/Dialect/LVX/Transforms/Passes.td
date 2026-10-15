@@ -252,3 +252,27 @@ def LVXPipelinePass
     short-trip-count guard and the remainder loop.
   }];
 }
+
+def LVXDecomposedPipelinePass
+    : Pass<"lvx-decomposed-pipeline", "::mlir::lvx_func::FuncOp"> {
+  let summary = "Assign pipeline stages by decomposed software pipelining";
+  let description = [{
+    Gasperoni & Schwiegelshohn's decomposition, as stated in Dupont de
+    Dinechin's habilitation §2.3.1: fix each operation's stage from a
+    *resource-free* schedule at the recurrence-bound period, then let an
+    ordinary acyclic scheduler place the rest.
+
+    Only the first half is a pass. Once `-lvx-pipeline` has emitted the
+    kernel, every value crossing a trip arrives through an `iter_arg`, so the
+    kernel block's dependence DAG is already the acyclified graph the second
+    half wants -- and `-lvx-schedule` list-schedules a block against the real
+    reservation tables. The decomposition falls out of the pass order.
+
+    Writes `lvx.stage` on each body operation, which `-lvx-pipeline` consumes.
+    See lvx-mlir/docs/SoftwarePipelining.md.
+  }];
+  let options = [
+    Option<"annotatePeriod", "annotate-period", "bool", /*default=*/"false",
+           "Also record the period as `lvx.period` on the loop, for tests">,
+  ];
+}

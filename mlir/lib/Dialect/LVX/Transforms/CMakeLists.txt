@@ -4,6 +4,7 @@ add_mlir_dialect_library(MLIRLVXTransforms
   RegisterAllocation.cpp
   IfConvert.cpp
   SCFToCF.cpp
+  DecomposedPipeline.cpp
   Pipeline.cpp
   Schedule.cpp
   EmitAsm.cpp
