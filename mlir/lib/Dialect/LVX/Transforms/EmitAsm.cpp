@@ -799,7 +799,14 @@ private:
       if (failed(checkBranchOperands(op, loopend.getDest(),
                                      loopend.getDestOperands())))
         return failure();
-      os << "\t# end of hardware loop body -- LOOPDO back-edge is implicit\n";
+      os << "\t# end of hardware loop body -- LOOPDO back-edge is implicit";
+      // The trip cost the scheduler worked out, which is not the bundle count
+      // when a carried value's latency outlasts the body: the back edge makes
+      // the body's first bundle follow its last, and LVX interlocks over the
+      // difference (`-lvx-schedule`, `buildCarried`).
+      if (auto cycles = op->getAttrOfType<IntegerAttr>("lvx.body_cycles"))
+        os << "; " << cycles.getInt() << " cycles per trip";
+      os << "\n";
       return success();
     }
 

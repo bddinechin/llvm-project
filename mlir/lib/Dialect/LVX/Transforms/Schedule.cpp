@@ -283,6 +283,30 @@ struct Node {
   unsigned earliest = 0;  // the first bundle every predecessor allows
   unsigned predsPlaced = 0;
   std::optional<unsigned> bundle;
+  /// Which register unit this op reads and writes, and in which cycle --
+  /// recorded as the dependence edges are built, so the cross-iteration
+  /// analysis (§4, `buildCarried`) can run over the same facts without
+  /// repeating how an operand's units are found.
+  SmallVector<std::pair<unsigned, unsigned>, 4> unitReads, unitWrites;
+  /// Whether it touches memory, and whether it writes.
+  bool touchesMemory = false, writesMemory = false;
+  /// The first bundle the back edge allows, for a cyclic block: a use of a
+  /// value the previous trip defined cannot issue before that definition's
+  /// latency has elapsed, counting the body length (`listSchedule`).
+  unsigned release = 0;
+};
+
+/// A dependence that crosses the back edge of a hardware-loop body: the
+/// definition is in one trip and the use in the next, so for a body of `L`
+/// cycles the constraint is
+///
+///   cycle[def] + latency <= cycle[use] + L
+///
+/// which is a bound on `L` once both are placed, and a release date on the
+/// use once `L` is fixed. Modulo scheduling's one constraint, for the one
+/// block shape where nothing else expresses it.
+struct Carried {
+  unsigned def, use, latency;
 };
 
 /// A value's defining node in this block, looked through `lvx.lane`: a lane
@@ -299,6 +323,8 @@ public:
   BlockScheduler(Block &block) : block(block) {}
 
   LogicalResult run() {
+    cyclic = !block.empty() && block.mightHaveTerminator() &&
+             isa<lvx_cf::LoopendOp>(block.getTerminator());
     if (failed(build()))
       return failure();
     schedule();
@@ -310,6 +336,15 @@ private:
   Block &block;
   SmallVector<Node> nodes;
   DenseMap<Operation *, unsigned> index;
+  /// Whether this block is a hardware-loop body, so that its last bundle is
+  /// followed by its first. `lvx_cf.loopend` is what says so.
+  bool cyclic = false;
+  /// The dependences crossing the back edge, for a cyclic block.
+  SmallVector<Carried> carried;
+  /// The body length the back edge forces, once scheduled: the longest a
+  /// trip must last for every carried dependence to hold. For an acyclic
+  /// block this is the span and nothing more.
+  unsigned bodyCycles = 0;
 
   void addEdge(unsigned from, unsigned to, unsigned latency) {
     if (from == to)
@@ -370,6 +405,7 @@ private:
             addEdge(w->second.node, i, std::max(1u, lat));
           }
           readersSince[u].push_back({(unsigned)i, r});
+          n.unitReads.push_back({u, r});
         }
       }
       // The prefix's own read: an `lvx.guarded` holds the condition register,
@@ -386,6 +422,7 @@ private:
               addEdge(w->second.node, i,
                       std::max(1u, w->second.cycle > 1 ? w->second.cycle - 1 : 0));
             readersSince[u].push_back({(unsigned)i, 1});
+            n.unitReads.push_back({u, 1});
           }
       }
 
@@ -410,6 +447,7 @@ private:
             }
             readersSince[u].clear();
             lastWriter[u] = {(unsigned)i, w};
+            n.unitWrites.push_back({u, w});
           }
         }
       }
@@ -472,6 +510,8 @@ private:
             if (wrote || writes)
               addEdge(j, i, 1);
           memoryOps.push_back({(unsigned)i, writes});
+          n.touchesMemory = true;
+          n.writesMemory = writes;
         }
       }
     }
@@ -479,7 +519,121 @@ private:
     // A terminator ends the block: nothing may be placed after it, which
     // the barrier edges say, and its own bundle is the last. Ops after the
     // terminator do not exist.
+    if (cyclic)
+      buildCarried();
     return success();
+  }
+
+  /// The dependences that cross a hardware loop's back edge.
+  ///
+  /// The body of an `lvx_cf.loopdo` is a block whose back edge is not in the
+  /// CFG: `lvx_cf.loopend` branches to the *exit*, the loop-carried values
+  /// arrive as block arguments fed only by the preheader, and the next trip
+  /// reads what this trip wrote only because the allocator gave them the same
+  /// register. So nothing in the DAG above says that after the body's last
+  /// bundle its first bundle issues again, and a register written late and
+  /// read early is read before its write lands. A *branch* loop never had the
+  /// problem: its back branch carries the value as a block argument, so the
+  /// terminator's read is an ordinary RAW edge and the bound follows.
+  ///
+  /// What crosses, per register unit, is the pairing of this trip's end with
+  /// the next trip's beginning: the last writer against the uses that read
+  /// the incoming value (RAW) and against the first writer (WAW), and the
+  /// reads left after the last write against that first writer (WAR). Memory
+  /// crosses wholesale -- every access of a trip precedes every access of the
+  /// next -- so each pair of which one writes is serialised at 1, as within
+  /// the block.
+  void buildCarried() {
+    struct Access {
+      unsigned node, cycle;
+    };
+    DenseMap<unsigned, Access> firstWriter, lastWriter;
+    DenseMap<unsigned, SmallVector<Access, 2>> incomingReaders, trailingReaders;
+    SmallVector<std::pair<unsigned, bool>> memory;
+
+    for (auto [i, n] : llvm::enumerate(nodes)) {
+      if (isPhantom(n.op))
+        continue; // not an instruction: see `isPhantom`
+      // Reads before writes, as the edge builder does: an op that reads a
+      // unit and writes it back (a tied accumulator) reads the old value.
+      for (auto [u, r] : n.unitReads) {
+        if (!firstWriter.count(u))
+          incomingReaders[u].push_back({(unsigned)i, r});
+        trailingReaders[u].push_back({(unsigned)i, r});
+      }
+      for (auto [u, w] : n.unitWrites) {
+        if (!firstWriter.count(u))
+          firstWriter[u] = {(unsigned)i, w};
+        lastWriter[u] = {(unsigned)i, w};
+        trailingReaders[u].clear();
+      }
+      if (n.touchesMemory)
+        memory.push_back({(unsigned)i, n.writesMemory});
+    }
+
+    for (auto &[u, last] : lastWriter) {
+      for (const Access &rd : incomingReaders[u])
+        carried.push_back({last.node, rd.node,
+                           std::max(1u, last.cycle > rd.cycle
+                                            ? last.cycle - rd.cycle
+                                            : 0u)});
+      const Access &first = firstWriter[u];
+      if (first.node != last.node)
+        carried.push_back(
+            {last.node, first.node,
+             std::max(1u, last.cycle + 1 > first.cycle
+                              ? last.cycle + 1 - first.cycle
+                              : 0u)});
+    }
+    for (auto &[u, first] : firstWriter)
+      for (const Access &rd : trailingReaders[u])
+        carried.push_back({rd.node, first.node,
+                           rd.cycle + 1 > first.cycle
+                               ? rd.cycle + 1 - first.cycle
+                               : 0u});
+    for (auto [a, writesA] : memory)
+      for (auto [b, writesB] : memory)
+        if (writesA || writesB)
+          carried.push_back({a, b, 1});
+  }
+
+  /// Whether `op` is the block's terminator and prints no instruction, which
+  /// is `lvx_cf.loopend` and nothing else. Such an op occupies no cycle: it
+  /// is a comment standing for a back edge the hardware takes, and its
+  /// operands are the values the *exit* block receives, not reads the loop
+  /// performs. Both matter, because the dependence edge from its operand's
+  /// producer places it well past the body's last real bundle -- harmless
+  /// while nothing asked how long the body is, and an overstatement of four
+  /// cycles on `mymma`'s kernel once something did.
+  /// `mightHaveTerminator` because not every block has one: `lvx.guarded`
+  /// wraps its instruction in a region whose block is a bare op list, and
+  /// the pass schedules every block it walks. `getTerminator` asserts there.
+  bool isPhantom(Operation *op) const {
+    return block.mightHaveTerminator() && op == block.getTerminator() &&
+           !printedMnemonic(op);
+  }
+
+  /// The span of the current placement: one past the last bundle that issues
+  /// an instruction. `-lvx-emit-asm` closes the block after the last op that
+  /// prints anything, so that is the block's length.
+  unsigned span() const {
+    unsigned s = 0;
+    for (const Node &n : nodes)
+      if (n.bundle && !isPhantom(n.op))
+        s = std::max(s, *n.bundle + 1);
+    return s;
+  }
+
+  /// How long a trip must last for every carried dependence to hold, given
+  /// where the current placement put each end of it.
+  unsigned carriedBound() const {
+    unsigned bound = 0;
+    for (const Carried &c : carried) {
+      unsigned def = *nodes[c.def].bundle, use = *nodes[c.use].bundle;
+      if (def + c.latency > use)
+        bound = std::max(bound, def + c.latency - use);
+    }
+    return bound;
   }
 
   void schedule() {
@@ -490,6 +644,65 @@ private:
       for (const Edge &e : nodes[i].succs)
         h = std::max(h, nodes[e.to].height + e.latency);
       nodes[i].height = h;
+    }
+
+    listSchedule();
+    bodyCycles = std::max(span(), carriedBound());
+    if (carried.empty())
+      return;
+
+    // A cyclic block takes `max(span, carriedBound)` cycles, the hardware
+    // interlocking over the difference. The span is a lower bound on that and
+    // the list scheduler already minimises it, so what is left is to bring the
+    // bound down to it -- by holding each carried *use* until the definition
+    // it reads has had its latency, counting a trip of the target length. A
+    // use is otherwise placed as early as it is ready, which is the worst
+    // place for this bound and costs nothing to give up: in `mymma`'s
+    // pipelined kernel the store of the previous trip's accumulator sits in
+    // cycle 0 for no reason at all, and moving it to cycle 2 takes the body
+    // from 9 cycles to 7 with the same six bundles.
+    //
+    // Iterate, because a release can lengthen the span (the WAR edge from a
+    // delayed read to the in-trip writer pushes that writer, and its readers,
+    // later) and then the target moves. Three rounds, keeping the best, is
+    // enough for the shapes we have; it is a fixpoint on the cyclic schedule
+    // rather than a modulo scheduler, which is §8 step 4's job.
+    SmallVector<unsigned> best;
+    auto remember = [&] {
+      best.clear();
+      for (const Node &n : nodes)
+        best.push_back(*n.bundle);
+    };
+    remember();
+    unsigned target = span();
+    for (unsigned round = 0; round != 3 && bodyCycles > target; ++round) {
+      bool moved = false;
+      for (const Carried &c : carried) {
+        unsigned need = *nodes[c.def].bundle + c.latency;
+        unsigned release = need > target ? need - target : 0;
+        if (release > nodes[c.use].release) {
+          nodes[c.use].release = release;
+          moved = true;
+        }
+      }
+      if (!moved)
+        break;
+      listSchedule();
+      unsigned length = std::max(span(), carriedBound());
+      if (length >= bodyCycles)
+        break; // no better; keep what `best` holds
+      bodyCycles = length;
+      remember();
+    }
+    for (auto [i, n] : llvm::enumerate(nodes))
+      n.bundle = best[i];
+  }
+
+  void listSchedule() {
+    for (Node &n : nodes) {
+      n.earliest = n.release;
+      n.predsPlaced = 0;
+      n.bundle = std::nullopt;
     }
 
     // Cycle scheduling: one bundle at a time, by priority among the ready.
@@ -586,6 +799,14 @@ private:
       return *nodes[index[a]].bundle < *nodes[index[b]].bundle;
     });
     OpBuilder builder(block.getParentOp()->getContext());
+    // What a trip of a hardware loop really costs. The bundles say `span()`,
+    // and the back edge can make it more -- LVX interlocks, so the difference
+    // is stalls the hardware takes rather than a wrong answer, but it is a
+    // cost nothing else records and the one number a loop is measured by.
+    // `-lvx-emit-asm` prints it on the body's closing comment.
+    if (cyclic && !nodes.empty())
+      block.getTerminator()->setAttr(
+          "lvx.body_cycles", builder.getI64IntegerAttr(bodyCycles));
     Operation *prev = nullptr;
     for (Operation *op : order) {
       op->setAttr(kCycleAttr,

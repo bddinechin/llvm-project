@@ -244,3 +244,85 @@ lvx_func.func @tiny_budget(%s: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %e = lvx.addd_i %s, 5 : i64 : (!lvx.reg<r1>) -> !lvx.reg<r10>
   lvx_func.return %a : !lvx.reg<r0>
 }
+
+// A hardware loop's back edge is not in the CFG: `lvx_cf.loopend` branches to
+// the exit, the carried value arrives as a block argument fed only by the
+// preheader, and the next trip reads what this trip wrote only because the
+// allocator gave them one register. So the dependence from `muld`'s r2 to the
+// `addd` that reads r2 at the top of the next trip exists nowhere in the DAG,
+// and the scheduler has to put it there. Here it has slack to spend: the
+// `addd` is ready in cycle 0 and gains nothing by being there, so holding it
+// to cycle 1 takes the trip from 5 cycles to 4 with the same bundles. The
+// bundle count is not the trip cost, and `lvx.body_cycles` is the cost.
+// CHECK-LABEL: lvx_func.func @carried_slack
+// CHECK: lvx.ld {{.*}} {cycle = 0 : i64}
+// CHECK-NEXT: lvx.ld {{.*}} {cycle = 0 : i64}
+// CHECK-NEXT: lvx.addd {{.*}} {cycle = 1 : i64}
+// CHECK-NEXT: lvx.muld {{.*}} {cycle = 3 : i64}
+// CHECK-NEXT: lvx_cf.loopend ^bb2 {cycle = 3 : i64, lvx.body_cycles = 4 : i64}
+// ASM-LABEL: carried_slack:
+// ASM: ld $r3 = 0[$r0]
+// ASM-NEXT: ld $r4 = 8[$r0]
+// ASM-NEXT: ;;
+// ASM-NEXT: addd $r6 = $r2, $r0
+// ASM-NEXT: ;;
+// ASM-NEXT: muld $r2 = $r3, $r4
+// ASM-NEXT: ;;
+// ASM-NEXT: # end of hardware loop body -- LOOPDO back-edge is implicit; 4 cycles per trip
+lvx_func.func @carried_slack(%p: !lvx.reg<r0>, %c: !lvx.reg<r1>, %x: !lvx.reg<r2>) {
+  lvx_cf.loopdo %c : !lvx.reg<r1>, ^bb1(%x : !lvx.reg<r2>), ^bb2
+^bb1(%acc: !lvx.reg<r2>):
+  %u = lvx.addd %acc, %p : (!lvx.reg<r2>, !lvx.reg<r0>) -> !lvx.reg<r6>
+  %a = lvx.ld %p, 0 : i64 : (!lvx.reg<r0>) -> !lvx.reg<r3>
+  %b = lvx.ld %p, 8 : i64 : (!lvx.reg<r0>) -> !lvx.reg<r4>
+  %m = lvx.muld %a, %b : (!lvx.reg<r3>, !lvx.reg<r4>) -> !lvx.reg<r2>
+  lvx_cf.loopend ^bb2
+^bb2:
+  lvx_func.return
+}
+
+// And when there is no slack, the number is the point. `ld` -> `addd` -> `sd`
+// -> the next trip's `ld` is a real recurrence: three cycles for the load, one
+// for the add, one for the store-to-load serialisation, so a trip costs five
+// whatever the schedule does, over three bundles. Nothing moves, and the
+// comment says five.
+// CHECK-LABEL: lvx_func.func @carried_recurrence
+// CHECK: lvx.addd {{.*}} {cycle = 0 : i64}
+// CHECK-NEXT: lvx.sd {{.*}} {cycle = 1 : i64}
+// CHECK-NEXT: lvx.ld {{.*}} {cycle = 2 : i64}
+// CHECK-NEXT: lvx_cf.loopend ^bb2 {cycle = 2 : i64, lvx.body_cycles = 5 : i64}
+// ASM-LABEL: carried_recurrence:
+// ASM: # end of hardware loop body -- LOOPDO back-edge is implicit; 5 cycles per trip
+lvx_func.func @carried_recurrence(%p: !lvx.reg<r0>, %c: !lvx.reg<r1>, %x: !lvx.reg<r2>) {
+  lvx_cf.loopdo %c : !lvx.reg<r1>, ^bb1(%x : !lvx.reg<r2>), ^bb2
+^bb1(%acc: !lvx.reg<r2>):
+  %u = lvx.addd %acc, %p : (!lvx.reg<r2>, !lvx.reg<r0>) -> !lvx.reg<r6>
+  lvx.sd %u, %p, 0 : i64 : (!lvx.reg<r6>, !lvx.reg<r0>)
+  %v = lvx.ld %p, 8 : i64 : (!lvx.reg<r0>) -> !lvx.reg<r2>
+  lvx_cf.loopend ^bb2
+^bb2:
+  lvx_func.return
+}
+
+// A guarded op wraps its instruction in a region whose block is a bare op
+// list with no terminator, and the pass schedules every block it walks. That
+// is a real shape -- `-lvx-if-convert` emits it -- and `Block::getTerminator`
+// asserts on it, so anything asking what a block's terminator is has to ask
+// whether it has one first.
+// CHECK-LABEL: lvx_func.func @guarded_region
+// CHECK-NEXT: lvx.compd eq {{.*}} {cycle = 0 : i64}
+// CHECK-NEXT: lvx.guarded wnez {{.*}} {cycle = 1 : i64}
+// CHECK-NEXT: lvx.sd
+// ASM-LABEL: guarded_region:
+// ASM-NEXT: compd.eq $r61 = $r0, $r1
+// ASM-NEXT: ;;
+// ASM-NEXT: guard.wnez $r61?{{[[:space:]]+}}sd 0[$r0] = $r1
+// ASM-NEXT: ret
+// ASM-NEXT: ;;
+lvx_func.func @guarded_region(%p: !lvx.reg<r0>, %v: !lvx.reg<r1>) {
+  %c = lvx.compd eq %p, %v : (!lvx.reg<r0>, !lvx.reg<r1>) -> !lvx.reg<r61>
+  lvx.guarded wnez %c : !lvx.reg<r61> {
+    lvx.sd %v, %p, 0 : i64 : (!lvx.reg<r1>, !lvx.reg<r0>)
+  }
+  lvx_func.return
+}
