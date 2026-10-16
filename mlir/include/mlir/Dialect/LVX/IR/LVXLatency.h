@@ -77,28 +77,23 @@ inline std::optional<llvm::StringRef> lvxPrintedMnemonic(Operation *op) {
   return std::nullopt;
 }
 
-/// Whether `op` is an uncached load: it carries the `variant` modifier's `.u`
-/// or `.us`, which bypass L1 (`MemoryLevel=2` in the description).
-inline bool isUncachedLoad(Operation *op) {
-  auto variant = op->getAttrOfType<VariantAttr>("variant");
-  return variant && (variant.getValue() == Variant::u ||
-                     variant.getValue() == Variant::us);
+/// The `variant` an op carries, if any: the cached default is absence.
+inline std::optional<Variant> variantOf(Operation *op) {
+  if (auto variant = op->getAttrOfType<VariantAttr>("variant"))
+    return variant.getValue();
+  return std::nullopt;
 }
 
 /// The cycle `op` reads operand `i` in, and writes result `i` in. RR = 1 and
 /// E1 = 2 where the generated table has nothing to say -- a pseudo, or a
 /// control op whose operands are registers read at issue.
 ///
-/// `writeCycleOf` makes the one correction the per-opcode table cannot. An
-/// uncached load commits at SR, "stream return", but `Opcode@timing` is
-/// derived from the Behavior's `stage` annotations and a `.u` load shares its
-/// Opcode record with its cached self -- `variant` is a modifier, not a
-/// separate opcode -- so the table gives every load the L1-hit figure. It is
-/// the difference between modelling a load at three cycles and at fifteen,
-/// which is the difference between a loop with nothing to hide the memory
-/// behind and one software pipelining has work to do on. `Stage::SR` is the
-/// description's own number (`Processor.yml`'s pipeline), not one written
-/// here.
+/// The write cycle follows the op's `variant`: an uncached load (`.u`, `.us`)
+/// writes its loaded value at SR, "stream return", where its cached self
+/// writes at CR. The two are one Opcode in the description -- `variant` is a
+/// modifier -- and `Modifier.yml` says so with `LoadedAt=SR`, which MDE folds
+/// into `Opcode@timing` and BE/MLIR into the table's `variantWrite`. It is the
+/// difference between modelling a load at three cycles and at fifteen.
 ///
 /// Here rather than in a pass because two of them must agree: the bundler
 /// schedules against these latencies and the pipeliner assigns stages from
@@ -108,9 +103,7 @@ inline unsigned readCycleOf(const OpTiming *t, unsigned i) {
   return t && i < t->numOperands ? t->operandRead[i] : 1;
 }
 inline unsigned writeCycleOf(Operation *op, const OpTiming *t, unsigned i) {
-  if (isUncachedLoad(op))
-    return static_cast<unsigned>(Stage::SR);
-  return t && i < t->numResults ? t->resultWrite[i] : 2;
+  return t && i < t->numResults ? resultWriteOf(*t, i, variantOf(op)) : 2;
 }
 
 } // namespace lvx

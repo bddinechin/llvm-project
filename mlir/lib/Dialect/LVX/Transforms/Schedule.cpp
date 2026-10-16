@@ -866,11 +866,11 @@ private:
 /// What a taken branch costs beyond its own bundle: the cycles the pipeline
 /// spends refilling before the target's first bundle issues.
 ///
-/// `kMinTakenLatency` is the description's own number -- `Processor@minTaken`,
-/// "minimum taken branch latency", 2 on LVX -- exported by `BE/MLIR` beside
-/// the stage table. A conditional branch costs one more; that extra cycle is
-/// the one number here the description does not yet declare
-/// (docs/handoff-mds-load-variants.md §4).
+/// Both figures are the description's: `Processor@minTaken`, 2 on LVX, is
+/// what a branch deciding in ID costs, and each stage later costs a cycle
+/// more. `goto` writes the next PC in ID and `cb` in RR, after its comparison,
+/// so they cost 2 and 3 -- `takenBranchLatencyOf` reads that off the stage of
+/// each one's NPC write (`Opcode@timing`'s `%0: Transfer.c`).
 ///
 /// A hardware loop's back edge takes no branch at all -- `lvx_cf.loopend`
 /// emits nothing, LOOPDO redirects the PC itself -- so it pays nothing, which
@@ -879,9 +879,9 @@ private:
 /// unconditional, and for a short body that is most of the trip.
 static unsigned takenBranchPenalty(Operation *op) {
   if (isa<lvx_cf::CondBranchOp>(op))
-    return kMinTakenLatency + 1;
+    return *takenBranchLatencyOf("cb");
   if (isa<lvx_cf::BranchOp>(op))
-    return kMinTakenLatency;
+    return *takenBranchLatencyOf("goto");
   return 0; // loopend: the hardware takes the back edge, no branch issues
 }
 
