@@ -75,10 +75,20 @@ bool LVXAsmPrinter::doInitialization(Module &M) {
       WantsLaneSIMD != LVX::DescriptionHasLaneSIMD) {
     StringRef Held = LVX::DescriptionHasLaneSIMD ? "lvx_v2" : "lvx_v1";
     StringRef Want = WantsLaneSIMD ? "lvx_v2" : "lvx_v1";
+    // The two directions fail differently, and saying "the other core's
+    // instructions are missing" would be wrong in one of them: lvx-2 is a
+    // STRICT SUPERSET, so there is no such thing as an lvx-1-only
+    // instruction. Asking for lvx-1 of an lvx-2 build does not lose
+    // instructions, it gains ones the assembler will refuse.
+    Twine Consequence =
+        WantsLaneSIMD
+            ? Twine("no lane-wise instruction can be selected, so every "
+                    "vector operation is scalarised")
+            : Twine("the back end may still emit lvx-2 instructions, which "
+                    "`lvx-mbr-as --march lvx-1' rejects");
     M.getContext().diagnose(DiagnosticInfoGeneric(
         "requested core " + CPU + ", but this compiler holds the " + Held +
-            " machine description: no " + CPU +
-            "-only instruction can be selected; install the " + Want +
+            " machine description: " + Consequence + "; install the " + Want +
             " description and rebuild (make -C lvx-mds/build_lvx/BE/LLVM "
             "install LLVM_CORE=" +
             Want + ")",
