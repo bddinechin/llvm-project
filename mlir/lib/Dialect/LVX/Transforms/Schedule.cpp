@@ -163,6 +163,14 @@ static unsigned readCycle(const OpTiming *t, unsigned i) {
   return readCycleOf(t, i);
 }
 
+/// What is left of a latency once `elapsed` cycles of it have passed: the
+/// **dangle**, and never less than zero. A latency fully covered by the time
+/// between its two ends does not dangle, and nothing is owed for it -- a
+/// negative dangle would be credit, which is not a thing.
+static unsigned dangle(unsigned latency, unsigned elapsed) {
+  return latency > elapsed ? latency - elapsed : 0;
+}
+
 /// Which of `op`'s operands are forwarded to a successor block, and so are
 /// **not reads**.
 ///
@@ -681,8 +689,7 @@ private:
     unsigned bound = 0;
     for (const Carried &c : carried) {
       unsigned def = *nodes[c.def].bundle, use = *nodes[c.use].bundle;
-      if (def + c.latency > use)
-        bound = std::max(bound, def + c.latency - use);
+      bound = std::max(bound, dangle(def + c.latency, use));
     }
     return bound;
   }
@@ -879,6 +886,28 @@ private:
 // A loop that is a cycle of blocks
 //===----------------------------------------------------------------------===//
 
+/// What a taken branch costs beyond its own bundle: the cycles the pipeline
+/// spends refilling before the target's first bundle issues.
+///
+/// `kMinTakenLatency` is the description's own number -- `Processor@minTaken`,
+/// "minimum taken branch latency", 2 on LVX -- exported by `BE/MLIR` beside
+/// the stage table. A conditional branch costs one more; that extra cycle is
+/// the one number here the description does not yet declare
+/// (docs/handoff-mds-load-variants.md §4).
+///
+/// A hardware loop's back edge takes no branch at all -- `lvx_cf.loopend`
+/// emits nothing, LOOPDO redirects the PC itself -- so it pays nothing, which
+/// is a large part of why `-lvx-scf-to-cf` prefers LOOPDO. A branch loop pays
+/// both of its branches every trip, the header's conditional and the latch's
+/// unconditional, and for a short body that is most of the trip.
+static unsigned takenBranchPenalty(Operation *op) {
+  if (isa<lvx_cf::CondBranchOp>(op))
+    return kMinTakenLatency + 1;
+  if (isa<lvx_cf::BranchOp>(op))
+    return kMinTakenLatency;
+  return 0; // loopend: the hardware takes the back edge, no branch issues
+}
+
 /// One past the last bundle of `block` that issues an instruction, from the
 /// `cycle` attributes a scheduled block carries. A terminator that prints
 /// nothing (`lvx_cf.loopend`) takes no cycle, as in `BlockScheduler::span`.
@@ -963,14 +992,25 @@ static unsigned cyclicBound(ArrayRef<Block *> path) {
           memory.push_back({at, writes});
       }
     }
-    offset += scheduledSpan(*block);
+    // The branch out of this block is taken every trip, so the pipeline
+    // refills before the next block issues -- and a latency pending across it
+    // keeps elapsing meanwhile, so the penalty *absorbs* dangle rather than
+    // adding to it. Folding it into the offset does both at once: ops in
+    // later blocks sit later along the trip, and the trip is longer.
+    unsigned penalty = block->mightHaveTerminator()
+                           ? takenBranchPenalty(block->getTerminator())
+                           : 0;
+    offset += scheduledSpan(*block) + penalty;
     length = offset;
   }
 
+  // How long a trip must last for one crossing dependence. The use is a trip
+  // later than its position says, so the constraint is
+  // `defAt + latency <= useAt + L`: what the trip must cover is whatever of
+  // the latency still dangles once the use's own position has elapsed.
   unsigned bound = 0;
   auto note = [&](unsigned defAt, unsigned latency, unsigned useAt) {
-    if (defAt + latency > useAt)
-      bound = std::max(bound, defAt + latency - useAt);
+    bound = std::max(bound, dangle(defAt + latency, useAt));
   };
   for (auto &[u, last] : lastWriter) {
     for (const Access &rd : incomingReaders[u])

@@ -340,15 +340,25 @@ lvx_func.func @guarded_region(%p: !lvx.reg<r0>, %v: !lvx.reg<r1>) {
 // whoever reads the register in a later block. LVX interlocks, so a dangle is
 // never a wrong answer, only an unpaid cost -- and for a loop the later block
 // is the same loop's next trip, so `cyclicBound` pays it back against the
-// whole cycle. Here the head is two cycles and the body one, but `muld`
-// writes in cycle 3 and the next trip's `compd` reads in cycle 1, so a trip
-// cannot be shorter than four. The bundles say three; `lvx.loop_cycles` says
-// four, and four is what it costs.
+// whole cycle.
+//
+// What the cycle costs is the bundles *plus the taken branches*: the header's
+// conditional and the latch's unconditional are taken every trip, and the
+// pipeline refills before the target issues. `Processor@minTaken` is 2 and a
+// conditional costs one more, so this loop is 2 + 3 + 1 + 2 = 8 cycles for a
+// one-instruction body -- which is what a hardware loop exists to avoid, and
+// most of why `-lvx-scf-to-cf` prefers LOOPDO.
+//
+// Those same cycles *absorb* the dangle, because a latency pending while the
+// pipeline refills is a latency elapsing: `muld` writes in cycle 3 and the
+// next trip's `compd` reads in cycle 1, which the eight cycles cover with one
+// to spare, so nothing is owed. A dangle never goes negative -- covered is
+// covered, and credit is not a thing.
 // CHECK-LABEL: lvx_func.func @dangling_latency
 // CHECK: lvx.compd lt {{.*}} {cycle = 0 : i64}
 // CHECK-NEXT: lvx_cf.cond_br {{.*}} {cycle = 1 : i64}
 // CHECK: lvx.muld {{.*}} {cycle = 0 : i64}
-// CHECK-NEXT: lvx_cf.br ^bb1({{.*}}) {cycle = 0 : i64, lvx.loop_cycles = 4 : i64}
+// CHECK-NEXT: lvx_cf.br ^bb1({{.*}}) {cycle = 0 : i64, lvx.loop_cycles = 8 : i64}
 // ASM-LABEL: dangling_latency:
 // ASM: compd.lt $r61 = $r2, $r1
 // ASM-NEXT: ;;
@@ -359,7 +369,7 @@ lvx_func.func @guarded_region(%p: !lvx.reg<r0>, %v: !lvx.reg<r1>) {
 // ASM: muld $r2 = $r2, $r0
 // ASM-NEXT: goto .LBB{{[0-9]+}}
 // ASM-NEXT: ;;
-// ASM-NEXT: # 4 cycles per trip of this loop
+// ASM-NEXT: # 8 cycles per trip of this loop
 lvx_func.func @dangling_latency(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %init = lvx.li 0 : i64 : !lvx.reg<r2>
   lvx_cf.br ^bb1(%init : !lvx.reg<r2>)
