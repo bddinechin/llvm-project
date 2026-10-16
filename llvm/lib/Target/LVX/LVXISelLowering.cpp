@@ -568,6 +568,17 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   // spell it as such; fpextend/fpround themselves stay Legal.
   setOperationAction(ISD::BITCAST, MVT::f16, Legal);
 
+  // Every load extension is Legal by default (TargetLoweringBase zeroes the
+  // table), and i1 is the one memory width with no instruction behind it --
+  // the narrow loads start at the byte (lbz/lbs).  Left Legal, a
+  // "load zext from i1" reaches isel whole and fails to select; MiBench's
+  // rijndael is enough to produce one.  Promote loads it as the byte LLVM
+  // already guarantees holds 0 or 1.  i32 is illegal here but DAGCombiner
+  // still asks isLoadExtLegal about it, exactly as it does on RV64.
+  for (MVT VT : {MVT::i64, MVT::i32})
+    setLoadExtAction({ISD::EXTLOAD, ISD::SEXTLOAD, ISD::ZEXTLOAD}, VT,
+                     MVT::i1, Promote);
+
   // There is no extending FP load and no truncating FP store: widening and
   // narrowing are separate instructions (FWIDENWD / FNARROWDW). Without these,
   // DAGCombiner folds "fpextend (load f32)" into a single f32->f64 EXTLOAD and

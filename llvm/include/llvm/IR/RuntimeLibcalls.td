@@ -2820,6 +2820,39 @@ def LanaiSystemLibrary
 }
 
 //===----------------------------------------------------------------------===//
+// LVX Runtime Libcalls
+//===----------------------------------------------------------------------===//
+
+def isLVX : RuntimeLibcallPredicate<"TT.getArch() == Triple::lvx">;
+
+// LVX is LP64 only and links lvx-gcc's libgcc beside newlib, so the GNU set is
+// also what is on disk: the TI-mode helpers (__divti3, __ashlti3, __fixdfti,
+// ...), __powi?f2, exp10/exp10f and sincos/sincosf are all present in
+// lib/gcc/lvx-mbr/*/lvx-{1,2}/libgcc.a and lvx-mbr/lib/lvx-{1,2}/lib{c,m}.a.
+// Int128 goes in unconditionally where the other targets gate it on
+// isArch64Bit, there being no 32-bit LVX.  The soft-float entries of the
+// default set are never asked for -- every FP operation here is native -- and
+// a declared name that is never emitted costs nothing.
+//
+// Having NO entry was not a conservative default.  It left every libcall name
+// null, and a null name is not a diagnostic: a 48-byte memcpy reached
+// instruction selection as an ExternalSymbol holding a null string and killed
+// the compiler inside std::string's constructor ("basic_string::_M_construct
+// null not valid"), which is a std::logic_error and so not even a stack trace
+// pointing anywhere useful.  PolyBench's doitgen at MINI/float is what found
+// it.  A 4096-byte memcpy did not crash and was wrong in a quieter way: with
+// no memcpy to call it came out as a byte-at-a-time loop.
+def LVXSystemLibrary
+    : SystemRuntimeLibrary<isLVX,
+      (add DefaultRuntimeLibcallImpls,
+           LibmHasSinCosF32, LibmHasSinCosF64,
+           exp10f, exp10,
+           __powisf2, __powidf2,
+           Int128RTLibcalls,
+           DefaultStackProtector,
+           DefaultSafeStackGlobals)>;
+
+//===----------------------------------------------------------------------===//
 // Mips16 Runtime Libcalls
 //===----------------------------------------------------------------------===//
 

@@ -52,11 +52,7 @@ public:
   // to scalars with packing around it -- pure loss, which is what the
   // vectorizer must be told by reporting no vector registers. Only an
   // operation that computes makes a vector worth forming.
-  static constexpr unsigned LaneOps = 0
-#define LVX_LANE_OP(OP, VT) +1
-#include "LVXLaneSIMD.inc"
-      ;
-  static constexpr bool HasLaneSIMD = LaneOps != 0;
+  static constexpr bool HasLaneSIMD = LVX::DescriptionHasLaneSIMD;
 
   // Left absent entirely, the vectorizers costed against BasicTTIImpl's
   // defaults and vectorized anything, reaching shapes with no lowering:

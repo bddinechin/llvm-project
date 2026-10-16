@@ -9,6 +9,7 @@
 #include "Gnu.h"
 #include "Arch/ARM.h"
 #include "Arch/CSKY.h"
+#include "Arch/LVX.h"
 #include "Arch/LoongArch.h"
 #include "Arch/Mips.h"
 #include "Arch/PPC.h"
@@ -636,13 +637,10 @@ void tools::gnutools::Assembler::ConstructJob(Compilation &C,
   // failed on "architecture of input file is lvx:lvx-1:64, incompatible with
   // lvx:lvx-2:64 output": the one place where the core has to be stated twice,
   // because two separate programs decide it.
-  case llvm::Triple::lvx: {
-    StringRef Cpu = "lvx-1";
-    if (const Arg *A = Args.getLastArg(options::OPT_mcpu_EQ))
-      Cpu = A->getValue();
-    CmdArgs.push_back(Args.MakeArgString("--march=" + Cpu));
+  case llvm::Triple::lvx:
+    CmdArgs.push_back(
+        Args.MakeArgString("--march=" + tools::lvx::getLVXTargetCPU(Args)));
     break;
-  }
   // Add --32/--64 to make sure we get the format we want.
   // This is incomplete
   case llvm::Triple::x86:

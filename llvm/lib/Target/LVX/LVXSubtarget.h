@@ -30,6 +30,22 @@
 
 namespace llvm {
 
+namespace LVX {
+// Whether the generated description this build HOLDS is the lvx_v2 one.
+// lib/Target/LVX carries one core's description at a time (LLVM_CORE= at
+// install), and lvx-1 has no lane-wise arithmetic at all, so counting the
+// non-splat rows of the generated list answers both questions at once: an
+// lvx-1 build has only the four splats. -mcpu cannot be asked instead -- it
+// says what was REQUESTED, and the whole point is to notice when the two
+// disagree (see LVXAsmPrinter::doInitialization and
+// LVXTargetTransformInfo.h, which both key on this and not on the CPU).
+static constexpr unsigned NumLaneOps = 0
+#define LVX_LANE_OP(OP, VT) +1
+#include "LVXLaneSIMD.inc"
+    ;
+static constexpr bool DescriptionHasLaneSIMD = NumLaneOps != 0;
+} // end namespace LVX
+
 class LVXSubtarget : public LVXGenSubtargetInfo {
 public:
   // This constructor initializes the data members to match that of the

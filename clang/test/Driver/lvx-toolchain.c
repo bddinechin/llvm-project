@@ -52,6 +52,30 @@
 // DEFAULT: "--march=lvx-1"
 // DEFAULT: "{{.*}}lvx-mbr/lib/lvx-1{{/|\\\\}}crt0.o"
 
+// -march= is an ALIAS for -mcpu=, and has to be: lvx-gcc and lvx-mbr-as both
+// spell the core -march, clang spells it -mcpu, and the two compilers are
+// compared against each other on every benchmark. Until 2026-10-16 -march was
+// claimed by nobody here, so it drew "argument unused during compilation" and
+// the compile went to the DEFAULT core -- a warning for an option that changes
+// which machine the output runs on, which lvx-perf's harness had to carry a
+// comment and a workaround for. It must reach all three readers of the core:
+// cc1's -target-cpu, the assembler's --march, and the multilib directories.
+// RUN: %clang -### --target=lvx-mbr -march=lvx-2 \
+// RUN:   --gcc-toolchain=%S/Inputs/lvx_mbr_tree -T link.ld %s 2>&1 \
+// RUN: | FileCheck -check-prefix=MARCH %s
+// MARCH-NOT: argument unused
+// MARCH: "-target-cpu" "lvx-2"
+// MARCH: "--march=lvx-2"
+// MARCH: "{{.*}}lib/gcc/lvx-mbr/17.0.0/lvx-2{{/|\\\\}}crti.o"
+// MARCH: "{{.*}}lvx-mbr/lib/lvx-2{{/|\\\\}}crt0.o"
+
+// Both spellings together: the LAST one wins, as it would for two -mcpu.
+// RUN: %clang -### --target=lvx-mbr -march=lvx-2 -mcpu=lvx-1 \
+// RUN:   --gcc-toolchain=%S/Inputs/lvx_mbr_tree -c %s 2>&1 \
+// RUN: | FileCheck -check-prefix=LASTWINS %s
+// LASTWINS: "-target-cpu" "lvx-1"
+// LASTWINS: "--march=lvx-1"
+
 // The sysroot's headers, and NOT the host's: -nostdsysteminc is what keeps
 // /usr/include out, and it is not a near-miss -- <stdio.h> there includes
 // bits/libc-header-start.h, which the sysroot has no equivalent of.

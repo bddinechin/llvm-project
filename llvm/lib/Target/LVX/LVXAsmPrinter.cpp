@@ -15,6 +15,9 @@
 #include "TargetInfo/LVXTargetInfo.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineInstr.h"
+#include "llvm/IR/DiagnosticInfo.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Module.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/TargetRegistry.h"
@@ -31,6 +34,8 @@ public:
 
   StringRef getPassName() const override { return "LVX Assembly Printer"; }
 
+  bool doInitialization(Module &M) override;
+
   void emitInstruction(const MachineInstr *MI) override;
 
   bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
@@ -44,6 +49,43 @@ private:
 };
 
 } // end anonymous namespace
+
+// Say so when -mcpu/-march names a core this build cannot compile for.
+//
+// lib/Target/LVX holds ONE core's generated description at a time, so the
+// instructions that exist were decided at install (LLVM_CORE=), not by -mcpu.
+// Both mismatches are quiet and neither is a selection failure:
+//
+//   lvx-2 asked of an lvx-1 build -- every lane-wise operation is unrolled to
+//   scalars and the vectorizer is told there are no vector registers, so the
+//   output is correct lvx-1 code with lvx-2 macros over it and an lvx-2 ELF
+//   flag on the object. "No vectorization at all on lvx-2" is what this looks
+//   like from the outside, and it was reported as a back-end bug.
+//
+//   lvx-1 asked of an lvx-2 build -- the reverse, and worse: the back end
+//   emits packed instructions and `lvx-mbr-as --march lvx-1` rejects them, so
+//   the compile appears to succeed and the assembly step fails.
+//
+// Only an EXPLICIT core is diagnosed. An empty or "generic" CPU is the
+// ordinary case and means "whatever this build holds".
+bool LVXAsmPrinter::doInitialization(Module &M) {
+  StringRef CPU = TM.getTargetCPU();
+  bool WantsLaneSIMD = CPU == "lvx-2";
+  if ((WantsLaneSIMD || CPU == "lvx-1") &&
+      WantsLaneSIMD != LVX::DescriptionHasLaneSIMD) {
+    StringRef Held = LVX::DescriptionHasLaneSIMD ? "lvx_v2" : "lvx_v1";
+    StringRef Want = WantsLaneSIMD ? "lvx_v2" : "lvx_v1";
+    M.getContext().diagnose(DiagnosticInfoGeneric(
+        "requested core " + CPU + ", but this compiler holds the " + Held +
+            " machine description: no " + CPU +
+            "-only instruction can be selected; install the " + Want +
+            " description and rebuild (make -C lvx-mds/build_lvx/BE/LLVM "
+            "install LLVM_CORE=" +
+            Want + ")",
+        DS_Warning));
+  }
+  return AsmPrinter::doInitialization(M);
+}
 
 // Print one instruction, with no bundle terminator of its own.
 void LVXAsmPrinter::emitOne(const MachineInstr *MI) {

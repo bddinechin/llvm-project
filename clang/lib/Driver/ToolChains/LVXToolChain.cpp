@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "LVXToolChain.h"
+#include "Arch/LVX.h"
 #include "clang/Driver/CommonArgs.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/InputInfo.h"
@@ -28,10 +29,7 @@ using namespace llvm::opt;
 // passes will ever match, so the set would silently pick the first entry and a
 // -mcpu=lvx-2 program would link against the lvx-1 runtime.
 static std::string coreSuffixFor(const ArgList &Args) {
-  if (const Arg *A = Args.getLastArg(options::OPT_mcpu_EQ))
-    if (StringRef(A->getValue()) == "lvx-2")
-      return "lvx-2";
-  return "lvx-1";
+  return tools::lvx::getLVXTargetCPU(Args) == "lvx-2" ? "lvx-2" : "lvx-1";
 }
 
 LVXToolChain::LVXToolChain(const Driver &D, const llvm::Triple &Triple,

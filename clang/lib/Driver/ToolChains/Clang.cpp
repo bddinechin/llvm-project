@@ -9,6 +9,7 @@
 #include "Clang.h"
 #include "Arch/AArch64.h"
 #include "Arch/ARM.h"
+#include "Arch/LVX.h"
 #include "Arch/LoongArch.h"
 #include "Arch/Mips.h"
 #include "Arch/PPC.h"
@@ -2265,9 +2266,12 @@ void Clang::AddHexagonTargetArgs(const ArgList &Args,
 // __lvx_1__/__lvx_2__ macro that source switches on.
 void Clang::AddLVXTargetArgs(const ArgList &Args,
                              ArgStringList &CmdArgs) const {
-  if (Arg *A = Args.getLastArg(options::OPT_mcpu_EQ)) {
+  // -march= is lvx-gcc's and lvx-mbr-as' spelling of the core and is accepted
+  // as an alias here; see tools::lvx::getLVXTargetCPU. Nothing is forwarded
+  // when neither is given, so cc1 applies its own default.
+  if (Args.hasArg(options::OPT_mcpu_EQ, options::OPT_march_EQ)) {
     CmdArgs.push_back("-target-cpu");
-    CmdArgs.push_back(Args.MakeArgString(A->getValue()));
+    CmdArgs.push_back(Args.MakeArgString(tools::lvx::getLVXTargetCPU(Args)));
   }
 }
 
