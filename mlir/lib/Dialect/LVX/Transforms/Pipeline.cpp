@@ -435,6 +435,38 @@ struct LVXPipelinePass : public lvx::impl::LVXPipelinePassBase<LVXPipelinePass> 
       }
 
       CrossStageValues csv(loop, stages);
+      // A shift register deeper than one cannot survive register allocation,
+      // and until the kernel is unrolled it must not be emitted.
+      //
+      // `lvx_scf.for` has no register move on its loop edge, so the allocator
+      // unites every `iter_arg` with the value yielded into it
+      // (`RegisterAllocation.cpp`, the loop-tuple JOIN). In a shift register
+      // the value yielded into version v *is* version v-1, so the union joins
+      // the whole chain and every version lands in one physical register --
+      // which is not a representation of a shift register, it is the
+      // destruction of one. The versions are live simultaneously, so it is
+      // not a legal coalescing either; it simply was not checked.
+      //
+      // It miscompiles rather than failing: `mymma` at `VEC=4` has a four-deep
+      // shift and returned 296153650 for an oracle's 910635174. Nothing caught
+      // it because `build-mymma.sh` had no `PIPE=1` path, so that kernel had
+      // been measured and never executed -- the error this file's own §11 was
+      // written about, made again.
+      //
+      // Two names is the depth the allocator can honour, the version read
+      // being read before the new one is written. Beyond that the kernel has
+      // to be unrolled so each copy names its version statically
+      // (docs/SoftwarePipelining.md §5), and then no `iter_arg` is yielded
+      // into another and the allocator's invariant is satisfiable again.
+      if (csv.getMaxNames() > 2) {
+        loop.emitError("this stage assignment needs ")
+            << csv.getMaxNames()
+            << " names for one value, and the kernel is not unrolled: a shift "
+               "register deeper than two is coalesced into one register by "
+               "allocation and silently miscompiles. See "
+               "lvx-mlir/docs/SoftwarePipelining.md §5.";
+        return signalPassFailure();
+      }
       if (!csv.isValid()) {
         loop.emitError("`" + Twine(kStageAttr) +
                        "` is not a feasible stage assignment: a value is read "
