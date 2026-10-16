@@ -326,3 +326,50 @@ lvx_func.func @guarded_region(%p: !lvx.reg<r0>, %v: !lvx.reg<r1>) {
   }
   lvx_func.return
 }
+
+// A branch does not read the registers it forwards to a successor: the
+// allocator has already coalesced each one onto the destination block
+// argument's register -- `-lvx-emit-asm`'s `checkBranchOperands` is a hard
+// error otherwise -- so the register holds the value and the branch does
+// nothing with it. Modelling them as reads held the producer a full latency
+// before the branch, which here would put the `goto` two cycles after the
+// `muld` instead of in its bundle.
+//
+// Dropping that edge lets the producer's remaining latency *dangle*: a
+// pending latency carried past the end of the scheduling region, paid by
+// whoever reads the register in a later block. LVX interlocks, so a dangle is
+// never a wrong answer, only an unpaid cost -- and for a loop the later block
+// is the same loop's next trip, so `cyclicBound` pays it back against the
+// whole cycle. Here the head is two cycles and the body one, but `muld`
+// writes in cycle 3 and the next trip's `compd` reads in cycle 1, so a trip
+// cannot be shorter than four. The bundles say three; `lvx.loop_cycles` says
+// four, and four is what it costs.
+// CHECK-LABEL: lvx_func.func @dangling_latency
+// CHECK: lvx.compd lt {{.*}} {cycle = 0 : i64}
+// CHECK-NEXT: lvx_cf.cond_br {{.*}} {cycle = 1 : i64}
+// CHECK: lvx.muld {{.*}} {cycle = 0 : i64}
+// CHECK-NEXT: lvx_cf.br ^bb1({{.*}}) {cycle = 0 : i64, lvx.loop_cycles = 4 : i64}
+// ASM-LABEL: dangling_latency:
+// ASM: compd.lt $r61 = $r2, $r1
+// ASM-NEXT: ;;
+// ASM-NEXT: cb.wnez $r61? .LBB{{[0-9]+}}
+// ASM-NEXT: ;;
+// ASM-NEXT: goto .LBB{{[0-9]+}}
+// ASM-NEXT: ;;
+// ASM: muld $r2 = $r2, $r0
+// ASM-NEXT: goto .LBB{{[0-9]+}}
+// ASM-NEXT: ;;
+// ASM-NEXT: # 4 cycles per trip of this loop
+lvx_func.func @dangling_latency(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
+  %init = lvx.li 0 : i64 : !lvx.reg<r2>
+  lvx_cf.br ^bb1(%init : !lvx.reg<r2>)
+^bb1(%acc: !lvx.reg<r2>):
+  %c = lvx.compd lt %acc, %b : (!lvx.reg<r2>, !lvx.reg<r1>) -> !lvx.reg<r61>
+  lvx_cf.cond_br wnez %c : !lvx.reg<r61>, ^bb2(%acc : !lvx.reg<r2>), ^bb3(%acc : !lvx.reg<r2>)
+^bb2(%x: !lvx.reg<r2>):
+  %m = lvx.muld %x, %a : (!lvx.reg<r2>, !lvx.reg<r0>) -> !lvx.reg<r2>
+  lvx_cf.br ^bb1(%m : !lvx.reg<r2>)
+^bb3(%r: !lvx.reg<r2>):
+  %p = lvx.mv %r : (!lvx.reg<r2>) -> !lvx.reg<r0>
+  lvx_func.return %p : !lvx.reg<r0>
+}

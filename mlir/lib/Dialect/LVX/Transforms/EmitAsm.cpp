@@ -820,6 +820,12 @@ private:
       if (failed(checkBranchOperands(op, br.getDest(), br.getDestOperands())))
         return failure();
       printGoto(br.getDest(), nextBlock, br.getFormat());
+      // What a trip of this loop costs, when the branch closes one: the
+      // bundles of its blocks plus whatever latency dangles across the back
+      // edge (`-lvx-schedule`'s `cyclicBound`). A branch does not read the
+      // registers it forwards, so nothing in a single block accounts for it.
+      if (auto cycles = op->getAttrOfType<IntegerAttr>("lvx.loop_cycles"))
+        os << "\t# " << cycles.getInt() << " cycles per trip of this loop\n";
       return success();
     }
     if (auto cbr = dyn_cast<lvx_cf::CondBranchOp>(op)) {

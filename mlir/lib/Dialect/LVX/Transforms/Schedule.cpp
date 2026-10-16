@@ -44,7 +44,11 @@
 #include "mlir/Dialect/LVX/IR/RegisterUnits.h"
 #include "mlir/Dialect/LVXCF/IR/LVXCF.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/IR/RegionGraphTraits.h"
+#include "llvm/ADT/SCCIterator.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -157,6 +161,43 @@ static std::optional<StringRef> printedMnemonic(Operation *op) {
 /// not covering a fifteen-cycle one.
 static unsigned readCycle(const OpTiming *t, unsigned i) {
   return readCycleOf(t, i);
+}
+
+/// Which of `op`'s operands are forwarded to a successor block, and so are
+/// **not reads**.
+///
+/// A branch does not read the registers it hands on. `-lvx-emit-asm` proves
+/// it: `checkBranchOperands` is a hard error unless each operand's register is
+/// already the destination block argument's, because this dialect has no
+/// representation for a move at that point. So the register holds the value
+/// and the branch does nothing with it -- what reads it is an op in the
+/// successor, a block the per-block scheduler cannot see.
+///
+/// Treating them as reads at the branch's own cycle was a cycle's worth of
+/// conservatism and in a loop it was on the critical path: a branch's default
+/// read is relative cycle 1, where a store's data operand reads at 2, so a
+/// pipelined loop that moved its store into the next trip paid one cycle more
+/// to hand the accumulator to the back branch than it had paid to store it
+/// (docs/SoftwarePipelining.md §11).
+///
+/// Dropping the edge lets the producer's remaining latency **dangle** -- a
+/// pending latency carried beyond the scheduling region, to be paid by
+/// whoever reads the register in a later block. LVX interlocks, so a dangle
+/// is never a wrong answer, only an unpaid cost; `cyclicBound` is what pays
+/// it back for a loop, where the later block is the same loop's next trip.
+///
+/// A `cond_br`'s condition and a `loopdo`'s count are genuine reads and stay:
+/// they are operands of the instruction, not successor arguments. A
+/// `return`'s operands have no successor to be forwarded to.
+static llvm::SmallBitVector forwardedOperands(Operation *op) {
+  llvm::SmallBitVector forwarded(op->getNumOperands());
+  if (auto branch = dyn_cast<BranchOpInterface>(op))
+    for (unsigned i = 0, e = op->getNumSuccessors(); i != e; ++i) {
+      OperandRange range = branch.getSuccessorOperands(i).getForwardedOperands();
+      for (unsigned k = 0, n = range.size(); k != n; ++k)
+        forwarded.set(range.getBeginOperandIndex() + k);
+    }
+  return forwarded;
 }
 
 //===----------------------------------------------------------------------===//
@@ -272,6 +313,63 @@ static std::optional<PrefixKey> prefixOf(Operation *op) {
   return std::nullopt;
 }
 
+/// A value's defining node in this block, looked through `lvx.lane`: a lane
+/// is the register its source's lane is, so a use of it depends on the
+/// source's producer, not on the (empty) lane op.
+static Value throughLanes(Value v) {
+  while (auto lane = v.getDefiningOp<LaneOp>())
+    v = lane.getSource();
+  return v;
+}
+
+/// A register unit an op touches, and the cycle it touches it in.
+struct UnitAccess {
+  unsigned unit, cycle;
+};
+
+/// What `op` reads and writes, by register unit, with the cycle of each --
+/// in operand order then result order, which is the order the dependence
+/// edges need.
+///
+/// One definition, two consumers: the edge builder below and the
+/// cross-iteration analysis (`buildCarried`, `cyclicBound`). They must agree
+/// about what an op touches, and a second copy of "look through a lane, skip
+/// a forwarded branch operand, a lane op writes nothing" is a second copy
+/// that goes stale.
+static void unitAccessesOf(Operation *wrapper, const OpTiming *t,
+                           SmallVectorImpl<UnitAccess> &reads,
+                           SmallVectorImpl<UnitAccess> &writes) {
+  Operation *op = instructionOf(wrapper);
+  llvm::SmallBitVector forwarded = forwardedOperands(op);
+  for (auto [k, operand] : llvm::enumerate(op->getOperands())) {
+    if (forwarded[k])
+      continue;
+    if (std::optional<PhysLoc> loc = pinnedLoc(throughLanes(operand).getType())) {
+      unsigned r = readCycle(t, k);
+      for (unsigned u = loc->base; u != loc->end(); ++u)
+        reads.push_back({u, r});
+    }
+  }
+  // An `lvx.guarded` holds the condition register itself, not the
+  // instruction, so the loop above never sees it. Cycle 1, which is what
+  // `LVXLatency.inc` gives `guard`.
+  if (auto guarded = dyn_cast<GuardedOp>(wrapper))
+    if (std::optional<PhysLoc> loc =
+            pinnedLoc(throughLanes(guarded.getCondition()).getType()))
+      for (unsigned u = loc->base; u != loc->end(); ++u)
+        reads.push_back({u, 1});
+  // A lane or concat op writes nothing: its result *is* its source's
+  // register, or its parts' registers.
+  if (isa<LaneOp, ConcatOp>(op))
+    return;
+  for (auto [k, result] : llvm::enumerate(op->getResults()))
+    if (std::optional<PhysLoc> loc = pinnedLoc(result.getType())) {
+      unsigned w = writeCycleOf(op, t, k);
+      for (unsigned u = loc->base; u != loc->end(); ++u)
+        writes.push_back({u, w});
+    }
+}
+
 struct Node {
   Operation *op;
   const Reservation *reservation = nullptr; // null: takes no resources
@@ -287,7 +385,7 @@ struct Node {
   /// recorded as the dependence edges are built, so the cross-iteration
   /// analysis (§4, `buildCarried`) can run over the same facts without
   /// repeating how an operand's units are found.
-  SmallVector<std::pair<unsigned, unsigned>, 4> unitReads, unitWrites;
+  SmallVector<UnitAccess, 4> unitReads, unitWrites;
   /// Whether it touches memory, and whether it writes.
   bool touchesMemory = false, writesMemory = false;
   /// The first bundle the back edge allows, for a cyclic block: a use of a
@@ -308,15 +406,6 @@ struct Node {
 struct Carried {
   unsigned def, use, latency;
 };
-
-/// A value's defining node in this block, looked through `lvx.lane`: a lane
-/// is the register its source's lane is, so a use of it depends on the
-/// source's producer, not on the (empty) lane op.
-static Value throughLanes(Value v) {
-  while (auto lane = v.getDefiningOp<LaneOp>())
-    v = lane.getSource();
-  return v;
-}
 
 class BlockScheduler {
 public:
@@ -383,73 +472,35 @@ private:
     SmallVector<std::pair<unsigned, bool>> memoryOps;
     std::optional<unsigned> lastBarrier;
 
-    auto unitsOf = [](Value v) -> std::optional<PhysLoc> {
-      return pinnedLoc(v.getType());
-    };
-
     for (auto [i, n] : llvm::enumerate(nodes)) {
       // The guarded instruction's own operands and results are the reads and
       // writes; the wrapper holds only the condition, which the prefix reads
       // and which the edge below adds.
       Operation *op = instructionOf(n.op);
 
-      // Reads, in operand order: the units of each pinned operand.
-      for (auto [k, operand] : llvm::enumerate(op->getOperands())) {
-        std::optional<PhysLoc> loc = unitsOf(throughLanes(operand));
-        if (!loc)
-          continue;
-        unsigned r = readCycle(n.timing, k);
-        for (unsigned u = loc->base; u != loc->end(); ++u) {
-          if (auto w = lastWriter.find(u); w != lastWriter.end()) {
-            unsigned lat = w->second.cycle > r ? w->second.cycle - r : 0;
-            addEdge(w->second.node, i, std::max(1u, lat));
-          }
-          readersSince[u].push_back({(unsigned)i, r});
-          n.unitReads.push_back({u, r});
+      // What it touches, from the one extraction (`unitAccessesOf`), then
+      // the three dependences over those units: a reader after the last
+      // writer (RAW), a writer after the last writer (WAW), a writer after
+      // the readers since it (WAR).
+      unitAccessesOf(n.op, n.timing, n.unitReads, n.unitWrites);
+      for (auto [u, r] : n.unitReads) {
+        if (auto w = lastWriter.find(u); w != lastWriter.end()) {
+          unsigned lat = w->second.cycle > r ? w->second.cycle - r : 0;
+          addEdge(w->second.node, i, std::max(1u, lat));
         }
+        readersSince[u].push_back({(unsigned)i, r});
       }
-      // The prefix's own read: an `lvx.guarded` holds the condition register,
-      // not the instruction, so the loop above (which walks the instruction's
-      // operands, and uses their index to find their read cycle) never sees
-      // it. Without this edge the guarded op could be placed before the
-      // compare that produced its condition. Cycle 1, which is what
-      // `LVXLatency.inc` gives `guard`.
-      if (auto guarded = dyn_cast<GuardedOp>(n.op)) {
-        if (std::optional<PhysLoc> loc =
-                unitsOf(throughLanes(guarded.getCondition())))
-          for (unsigned u = loc->base; u != loc->end(); ++u) {
-            if (auto w = lastWriter.find(u); w != lastWriter.end())
-              addEdge(w->second.node, i,
-                      std::max(1u, w->second.cycle > 1 ? w->second.cycle - 1 : 0));
-            readersSince[u].push_back({(unsigned)i, 1});
-            n.unitReads.push_back({u, 1});
-          }
-      }
-
-      // Writes: the units of each pinned result. A lane or concat op
-      // writes nothing (its result IS its source's register, or its parts'
-      // registers) and a reg_live_in names an incoming value: all are
-      // placed by their uses alone.
-      if (!isa<LaneOp, ConcatOp>(op)) {
-        for (auto [k, result] : llvm::enumerate(op->getResults())) {
-          std::optional<PhysLoc> loc = unitsOf(result);
-          if (!loc)
-            continue;
-          unsigned w = writeCycleOf(op, n.timing, k);
-          for (unsigned u = loc->base; u != loc->end(); ++u) {
-            if (auto prev = lastWriter.find(u); prev != lastWriter.end()) {
-              unsigned lat = prev->second.cycle + 1 > w ? prev->second.cycle + 1 - w : 0;
-              addEdge(prev->second.node, i, std::max(1u, lat));
-            }
-            for (const Access &rd : readersSince[u]) {
-              unsigned lat = rd.cycle + 1 > w ? rd.cycle + 1 - w : 0;
-              addEdge(rd.node, i, lat);
-            }
-            readersSince[u].clear();
-            lastWriter[u] = {(unsigned)i, w};
-            n.unitWrites.push_back({u, w});
-          }
+      for (auto [u, w] : n.unitWrites) {
+        if (auto prev = lastWriter.find(u); prev != lastWriter.end()) {
+          unsigned lat = prev->second.cycle + 1 > w ? prev->second.cycle + 1 - w : 0;
+          addEdge(prev->second.node, i, std::max(1u, lat));
         }
+        for (const Access &rd : readersSince[u]) {
+          unsigned lat = rd.cycle + 1 > w ? rd.cycle + 1 - w : 0;
+          addEdge(rd.node, i, lat);
+        }
+        readersSince[u].clear();
+        lastWriter[u] = {(unsigned)i, w};
       }
       // A lane's result must still follow its source in the block (SSA
       // order), at no cost.
@@ -824,6 +875,175 @@ private:
 // The pass
 //===----------------------------------------------------------------------===//
 
+//===----------------------------------------------------------------------===//
+// A loop that is a cycle of blocks
+//===----------------------------------------------------------------------===//
+
+/// One past the last bundle of `block` that issues an instruction, from the
+/// `cycle` attributes a scheduled block carries. A terminator that prints
+/// nothing (`lvx_cf.loopend`) takes no cycle, as in `BlockScheduler::span`.
+static unsigned scheduledSpan(Block &block) {
+  unsigned span = 0;
+  for (Operation &op : block) {
+    auto cycle = op.getAttrOfType<IntegerAttr>(kCycleAttr);
+    if (!cycle)
+      continue;
+    if (block.mightHaveTerminator() && &op == block.getTerminator() &&
+        !printedMnemonic(&op))
+      continue;
+    span = std::max(span, (unsigned)cycle.getInt() + 1);
+  }
+  return span;
+}
+
+/// How long a trip of the loop `path` must last for every dependence that
+/// crosses its back edge to hold, `path` being the loop's blocks in execution
+/// order.
+///
+/// This is `BlockScheduler::buildCarried` over several blocks instead of one,
+/// and it is where a **dangling latency** gets paid. The back branch used to
+/// anchor the carried value, its forwarded operands being modelled as reads;
+/// that cost a cycle the branch does not spend, so `forwardedOperands` stopped
+/// charging it, and the producer's remaining latency now dangles past the end
+/// of its block. What actually reads the register is an op in the *next*
+/// trip, so the constraint is `cycle[def] + latency <= cycle[use] + L` with
+/// both ends measured along the loop and `L` the whole loop's length. That is
+/// what this computes: the dangle is accounted once, against the loop, rather
+/// than twice, against each block that cannot see it.
+///
+/// The conservatism is the same as the single-block case: per register unit,
+/// the last writer against the uses that read the incoming value (RAW) and
+/// against the first writer (WAW), the reads left after the last write
+/// against that first writer (WAR); and memory wholesale, every access of a
+/// trip before every access of the next.
+///
+/// What it does not do, where the single-block case does, is *improve* the
+/// schedule by holding a carried use later -- that needs the blocks
+/// rescheduled against a target, and a branch loop is now the rare case
+/// (`-lvx-scf-to-cf` emits LOOPDO for any constant power-of-two step), so the
+/// bound is reported and not yet acted on.
+static unsigned cyclicBound(ArrayRef<Block *> path) {
+  struct Access {
+    unsigned at, cycle; // `at` is the position along the loop
+  };
+  DenseMap<unsigned, Access> firstWriter, lastWriter;
+  DenseMap<unsigned, SmallVector<Access, 2>> incomingReaders, trailingReaders;
+  SmallVector<std::pair<unsigned, bool>> memory;
+
+  unsigned length = 0, offset = 0;
+  for (Block *block : path) {
+    for (Operation &op : *block) {
+      auto cycle = op.getAttrOfType<IntegerAttr>(kCycleAttr);
+      if (!cycle)
+        continue;
+      if (block->mightHaveTerminator() && &op == block->getTerminator() &&
+          !printedMnemonic(&op))
+        continue; // a comment, not an instruction: see `isPhantom`
+      unsigned at = offset + (unsigned)cycle.getInt();
+      const OpTiming *timing = nullptr;
+      if (std::optional<StringRef> m = printedMnemonic(&op))
+        timing = timingOf(*m);
+      SmallVector<UnitAccess, 4> reads, writes;
+      unitAccessesOf(&op, timing, reads, writes);
+      for (auto [u, r] : reads) {
+        if (!firstWriter.count(u))
+          incomingReaders[u].push_back({at, r});
+        trailingReaders[u].push_back({at, r});
+      }
+      for (auto [u, w] : writes) {
+        if (!firstWriter.count(u))
+          firstWriter[u] = {at, w};
+        lastWriter[u] = {at, w};
+        trailingReaders[u].clear();
+      }
+      if (auto effects = dyn_cast<MemoryEffectOpInterface>(&op)) {
+        bool reads = effects.hasEffect<MemoryEffects::Read>();
+        bool writes = effects.hasEffect<MemoryEffects::Write>();
+        if (reads || writes)
+          memory.push_back({at, writes});
+      }
+    }
+    offset += scheduledSpan(*block);
+    length = offset;
+  }
+
+  unsigned bound = 0;
+  auto note = [&](unsigned defAt, unsigned latency, unsigned useAt) {
+    if (defAt + latency > useAt)
+      bound = std::max(bound, defAt + latency - useAt);
+  };
+  for (auto &[u, last] : lastWriter) {
+    for (const Access &rd : incomingReaders[u])
+      note(last.at,
+           std::max(1u, last.cycle > rd.cycle ? last.cycle - rd.cycle : 0u),
+           rd.at);
+    const Access &first = firstWriter[u];
+    if (first.at != last.at || first.cycle != last.cycle)
+      note(last.at,
+           std::max(1u, last.cycle + 1 > first.cycle
+                            ? last.cycle + 1 - first.cycle
+                            : 0u),
+           first.at);
+  }
+  for (auto &[u, first] : firstWriter)
+    for (const Access &rd : trailingReaders[u])
+      note(rd.at,
+           rd.cycle + 1 > first.cycle ? rd.cycle + 1 - first.cycle : 0u,
+           first.at);
+  for (auto [a, writesA] : memory)
+    for (auto [b, writesB] : memory)
+      if (writesA || writesB)
+        note(a, 1, b);
+  return std::max(length, bound);
+}
+
+/// The loops of `func` that are a simple cycle of two or more blocks: each
+/// block in the cycle has exactly one successor inside it, so there is one
+/// path round and a position along it is well defined. That is the shape
+/// `-lvx-scf-to-cf`'s branch lowering emits -- header, body, back to the
+/// header. Anything with a branch inside the cycle is declined rather than
+/// guessed at.
+static SmallVector<SmallVector<Block *>> simpleBlockCycles(Region &region) {
+  SmallVector<SmallVector<Block *>> cycles;
+  for (auto it = llvm::scc_begin(&region); !it.isAtEnd(); ++it) {
+    if (it->size() < 2)
+      continue;
+    llvm::SmallPtrSet<Block *, 4> inScc(it->begin(), it->end());
+    // One successor each inside the cycle, and one entry from outside.
+    Block *entry = nullptr;
+    bool simple = true;
+    for (Block *b : *it) {
+      unsigned inside = 0;
+      for (Block *succ : b->getSuccessors())
+        if (inScc.contains(succ))
+          ++inside;
+      if (inside != 1)
+        simple = false;
+      for (Block *pred : b->getPredecessors())
+        if (!inScc.contains(pred))
+          entry = b;
+    }
+    if (!simple || !entry)
+      continue;
+    SmallVector<Block *> path;
+    for (Block *b = entry;;) {
+      path.push_back(b);
+      Block *next = nullptr;
+      for (Block *succ : b->getSuccessors())
+        if (inScc.contains(succ))
+          next = succ;
+      if (next == entry)
+        break;
+      if (!next || path.size() > it->size())
+        break;
+      b = next;
+    }
+    if (path.size() == it->size())
+      cycles.push_back(std::move(path));
+  }
+  return cycles;
+}
+
 struct LVXSchedulePass : public lvx::impl::LVXSchedulePassBase<LVXSchedulePass> {
   using LVXSchedulePassBase::LVXSchedulePassBase;
 
@@ -841,6 +1061,19 @@ struct LVXSchedulePass : public lvx::impl::LVXSchedulePassBase<LVXSchedulePass> 
       if (failed(scheduler.run()))
         return signalPassFailure();
     }
+    // A loop spread over several blocks costs what its back edge forces, the
+    // same as a LOOPDO body does -- and since `forwardedOperands` stopped
+    // charging the back branch for a read it never performs, the producer's
+    // latency dangles past its block and this is the only thing that pays it.
+    // Recorded on the back branch, the op that closes the cycle.
+    OpBuilder builder(&getContext());
+    for (Region &region : func->getRegions())
+      for (SmallVector<Block *> &path : simpleBlockCycles(region)) {
+        unsigned cycles = cyclicBound(path);
+        if (path.back()->mightHaveTerminator())
+          path.back()->getTerminator()->setAttr(
+              "lvx.loop_cycles", builder.getI64IntegerAttr(cycles));
+      }
   }
 };
 
