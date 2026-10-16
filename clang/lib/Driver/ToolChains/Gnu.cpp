@@ -630,6 +630,19 @@ void tools::gnutools::Assembler::ConstructJob(Compilation &C,
   switch (getToolChain().getArch()) {
   default:
     break;
+  // LVX has no integrated assembler, so lvx-mbr-as is what encodes the text the
+  // back end emits -- and it needs to be told the core. Its default is lvx-1,
+  // so without this a -mcpu=lvx-2 compile produced an lvx-1 OBJECT and the link
+  // failed on "architecture of input file is lvx:lvx-1:64, incompatible with
+  // lvx:lvx-2:64 output": the one place where the core has to be stated twice,
+  // because two separate programs decide it.
+  case llvm::Triple::lvx: {
+    StringRef Cpu = "lvx-1";
+    if (const Arg *A = Args.getLastArg(options::OPT_mcpu_EQ))
+      Cpu = A->getValue();
+    CmdArgs.push_back(Args.MakeArgString("--march=" + Cpu));
+    break;
+  }
   // Add --32/--64 to make sure we get the format we want.
   // This is incomplete
   case llvm::Triple::x86:
@@ -1504,6 +1517,32 @@ static void findAndroidArmMultilibs(const Driver &D,
 
   if (AndroidArmMultilibs.select(D, Flags, Result.SelectedMultilibs))
     Result.Multilibs = std::move(AndroidArmMultilibs);
+}
+
+// lvx-gcc builds one multilib per core -- <install>/lvx-1 and <install>/lvx-2,
+// keyed on -march, which clang spells -mcpu. There is no unsuffixed default, so
+// without this the generic biarch finder looks for <install>/crtbegin.o, finds
+// nothing, rejects every candidate and the whole GCC installation goes
+// undetected: no sysroot, no crt files, no libgcc.
+static bool findLVXMultilibs(const Driver &D, const llvm::Triple &TargetTriple,
+                             StringRef Path, const ArgList &Args,
+                             DetectedMultilibs &Result) {
+  FilterNonExistent NonExistent(Path, "/crtbegin.o", D.getVFS());
+  MultilibBuilder Lvx1 = MultilibBuilder("/lvx-1").flag("-mcpu=lvx-1");
+  MultilibBuilder Lvx2 = MultilibBuilder("/lvx-2").flag("-mcpu=lvx-2");
+
+  Result.Multilibs.push_back(Lvx1.makeMultilib());
+  Result.Multilibs.push_back(Lvx2.makeMultilib());
+  Result.Multilibs.FilterOut(NonExistent);
+
+  StringRef Cpu = "lvx-1";       // lvx-gcc's own default -march
+  if (const Arg *A = Args.getLastArg(options::OPT_mcpu_EQ))
+    Cpu = A->getValue();
+  Multilib::flags_list Flags;
+  addMultilibFlag(Cpu == "lvx-1", "-mcpu=lvx-1", Flags);
+  addMultilibFlag(Cpu == "lvx-2", "-mcpu=lvx-2", Flags);
+
+  return Result.Multilibs.select(D, Flags, Result.SelectedMultilibs);
 }
 
 static bool findMSP430Multilibs(const Driver &D,
@@ -2417,6 +2456,14 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
   static const char *const MSP430LibDirs[] = {"/lib"};
   static const char *const MSP430Triples[] = {"msp430-elf"};
 
+  // lvx-gcc installs as <prefix>/lib/gcc/lvx-mbr/<version>, with the runtime
+  // under <prefix>/lvx-mbr. Without an entry here LibDirs stays empty for the
+  // arch and the detector scans nothing, so the installation is never found --
+  // which left every #include and every crt file unresolved even when
+  // --gcc-toolchain named the right prefix.
+  static const char *const LVXLibDirs[] = {"/lib"};
+  static const char *const LVXTriples[] = {"lvx-mbr"};
+
   static const char *const PPCLibDirs[] = {"/lib32", "/lib"};
   static const char *const PPCTriples[] = {
       "powerpc-unknown-linux-gnu",
@@ -2711,6 +2758,10 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
     LibDirs.append(begin(MSP430LibDirs), end(MSP430LibDirs));
     TripleAliases.append(begin(MSP430Triples), end(MSP430Triples));
     break;
+  case llvm::Triple::lvx:
+    LibDirs.append(begin(LVXLibDirs), end(LVXLibDirs));
+    TripleAliases.append(begin(LVXTriples), end(LVXTriples));
+    break;
   case llvm::Triple::ppc:
     LibDirs.append(begin(PPCLibDirs), end(PPCLibDirs));
     TripleAliases.append(begin(PPCTriples), end(PPCTriples));
@@ -2806,6 +2857,9 @@ bool Generic_GCC::GCCInstallationDetector::ScanGCCForMultilibs(
       return false;
   } else if (TargetTriple.isRISCV()) {
     findRISCVMultilibs(D, TargetTriple, Path, Args, Detected);
+  } else if (TargetArch == llvm::Triple::lvx) {
+    if (!findLVXMultilibs(D, TargetTriple, Path, Args, Detected))
+      return false;
   } else if (isMSP430(TargetArch)) {
     findMSP430Multilibs(D, TargetTriple, Path, Args, Detected);
   } else if (TargetArch == llvm::Triple::avr) {
