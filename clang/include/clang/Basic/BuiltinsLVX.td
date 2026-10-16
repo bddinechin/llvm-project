@@ -213,6 +213,88 @@ def MSbfXWDQ : LVXBuiltin<"_Vector<4, long int>(_Vector<4, int>, _Vector<4, int>
 }
 
 //===----------------------------------------------------------------------===//
+// Lane-wise integer arithmetic, minimum/maximum, and the lane compare
+//
+// These sixteen are SIMDe's entire LVX surface (lvx-simde/lvx/compute/), which
+// is what lvx-perf's lvx-ssw benchmark reaches LVX through -- so until they
+// existed, "clang has no __builtin_lvx_*" was true of the only ones a real
+// program asked for, even though forty-one others were here.
+//
+// BX is 16x8 and HO is 8x16; WQ is 4x32 and DP is 2x64, all of them 128 bits.
+//
+// add/sbf take the SATURATE flavour as a string, as lvx-gcc spells it: ""
+// wrapping, ".s" signed-saturating, ".us" unsigned-saturating. Like the
+// widening multiplies above it must be a string literal and must NOT be
+// declared `_Constant'.
+//
+// **SBF is "subtract FROM"**: sbf<shape>(a, b) is b - a, so an ordinary a - b
+// is sbf(b, a). lvx-simde/lvx/compute/sbf.h carries the same warning and the
+// same definition KVX does. Getting it backwards agrees wherever a == b.
+//
+// min/max come in signed and unsigned (the `u'), and both take the SIGNED
+// vector type, exactly as lvx-gcc's V16QI_FTYPE_V16QI_V16QI does for minubx:
+// the signedness is in the operation, not in the type.
+//
+// comp<shape> returns the lane mask PACKED one bit per lane into a scalar --
+// bit i set iff lane i stands in the relation -- and takes the relation as an
+// intcomp string (".lt" ".ge" ".ltu" ".geu" ".eq" ".ne" ".any" ".none" ".le"
+// ".gt" ".leu" ".gtu"). ".any"/".none" test the bitwise AND of the two lanes
+// rather than comparing them. It is on both cores and is the only one of the
+// sixteen that needs a target intrinsic; the other fifteen are plain IR.
+//===----------------------------------------------------------------------===//
+
+def AddBX : LVXBuiltin<"_Vector<16, signed char>(_Vector<16, signed char>, _Vector<16, signed char>, char const*)"> {
+  let Spellings = ["__builtin_lvx_addbx"];
+}
+def AddHO : LVXBuiltin<"_Vector<8, short>(_Vector<8, short>, _Vector<8, short>, char const*)"> {
+  let Spellings = ["__builtin_lvx_addho"];
+}
+def SbfBX : LVXBuiltin<"_Vector<16, signed char>(_Vector<16, signed char>, _Vector<16, signed char>, char const*)"> {
+  let Spellings = ["__builtin_lvx_sbfbx"];
+}
+def SbfHO : LVXBuiltin<"_Vector<8, short>(_Vector<8, short>, _Vector<8, short>, char const*)"> {
+  let Spellings = ["__builtin_lvx_sbfho"];
+}
+
+def MinBX : LVXBuiltin<"_Vector<16, signed char>(_Vector<16, signed char>, _Vector<16, signed char>)"> {
+  let Spellings = ["__builtin_lvx_minbx"];
+}
+def MinUBX : LVXBuiltin<"_Vector<16, signed char>(_Vector<16, signed char>, _Vector<16, signed char>)"> {
+  let Spellings = ["__builtin_lvx_minubx"];
+}
+def MaxBX : LVXBuiltin<"_Vector<16, signed char>(_Vector<16, signed char>, _Vector<16, signed char>)"> {
+  let Spellings = ["__builtin_lvx_maxbx"];
+}
+def MaxUBX : LVXBuiltin<"_Vector<16, signed char>(_Vector<16, signed char>, _Vector<16, signed char>)"> {
+  let Spellings = ["__builtin_lvx_maxubx"];
+}
+def MinHO : LVXBuiltin<"_Vector<8, short>(_Vector<8, short>, _Vector<8, short>)"> {
+  let Spellings = ["__builtin_lvx_minho"];
+}
+def MinUHO : LVXBuiltin<"_Vector<8, short>(_Vector<8, short>, _Vector<8, short>)"> {
+  let Spellings = ["__builtin_lvx_minuho"];
+}
+def MaxHO : LVXBuiltin<"_Vector<8, short>(_Vector<8, short>, _Vector<8, short>)"> {
+  let Spellings = ["__builtin_lvx_maxho"];
+}
+def MaxUHO : LVXBuiltin<"_Vector<8, short>(_Vector<8, short>, _Vector<8, short>)"> {
+  let Spellings = ["__builtin_lvx_maxuho"];
+}
+
+def CompBX : LVXBuiltin<"unsigned int(_Vector<16, signed char>, _Vector<16, signed char>, char const*)"> {
+  let Spellings = ["__builtin_lvx_compbx"];
+}
+def CompHO : LVXBuiltin<"unsigned int(_Vector<8, short>, _Vector<8, short>, char const*)"> {
+  let Spellings = ["__builtin_lvx_compho"];
+}
+def CompWQ : LVXBuiltin<"unsigned int(_Vector<4, int>, _Vector<4, int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_compwq"];
+}
+def CompDP : LVXBuiltin<"unsigned int(_Vector<2, long int>, _Vector<2, long int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_compdp"];
+}
+
+//===----------------------------------------------------------------------===//
 // Splatting load
 //
 // Load one element and broadcast it across a 256-bit quad. The trailing string

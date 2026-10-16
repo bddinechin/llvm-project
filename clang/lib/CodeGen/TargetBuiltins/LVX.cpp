@@ -79,9 +79,110 @@ Value *CodeGenFunction::EmitLVXBuiltinExpr(unsigned BuiltinID,
     return Builder.CreateCall(F, {Z, Y});
   }
 
+  // A modifier spelled as lvx-gcc spells it, mapped to its encoding. Returns
+  // -1 after diagnosing, so a caller can bail; the table is written out here
+  // rather than taken from the generated LVXModifiers.h, which belongs to the
+  // back end and is not clang's to include.
+  auto Modifier = [&](unsigned ArgNo, ArrayRef<const char *> Suffixes,
+                      const char *What) -> int {
+    const auto *SL =
+        dyn_cast<StringLiteral>(E->getArg(ArgNo)->IgnoreParenCasts());
+    if (!SL) {
+      CGM.ErrorUnsupported(E, "LVX builtin whose modifier is not a string "
+                              "literal");
+      return -1;
+    }
+    StringRef Want = SL->getString();
+    for (unsigned I = 0, N = Suffixes.size(); I != N; ++I)
+      if (Want == Suffixes[I])
+        return int(I);
+    CGM.ErrorUnsupported(E, What);
+    return -1;
+  };
+
+  // ADD/SBF at a lane shape, with the SATURATE flavour as a string: "" wraps,
+  // ".s" saturates signed, ".us" unsigned. Plain IR in every case -- which is
+  // what makes them right on both cores, an lvx_v1 description scalarising
+  // what an lvx_v2 one selects as one instruction.
+  //
+  // SBF is "subtract FROM": sbf(a, b) is b - a. The operands are swapped here
+  // and nowhere else, so this is the single place to get it wrong.
+  if (BuiltinID == LVX::BI__builtin_lvx_addbx ||
+      BuiltinID == LVX::BI__builtin_lvx_addho ||
+      BuiltinID == LVX::BI__builtin_lvx_sbfbx ||
+      BuiltinID == LVX::BI__builtin_lvx_sbfho) {
+    static const char *Saturate[] = {"", ".s", ".us"};
+    int Sat = Modifier(2, Saturate, "LVX saturation flavour that is not one of "
+                                    "\"\", \".s\" or \".us\"");
+    if (Sat < 0)
+      return llvm::PoisonValue::get(ConvertType(E->getType()));
+    bool IsSub = BuiltinID == LVX::BI__builtin_lvx_sbfbx ||
+                 BuiltinID == LVX::BI__builtin_lvx_sbfho;
+    auto [A, B] = Args();
+    if (IsSub)
+      std::swap(A, B);
+    switch (Sat) {
+    case 1:
+      return Builder.CreateBinaryIntrinsic(
+          IsSub ? Intrinsic::ssub_sat : Intrinsic::sadd_sat, A, B);
+    case 2:
+      return Builder.CreateBinaryIntrinsic(
+          IsSub ? Intrinsic::usub_sat : Intrinsic::uadd_sat, A, B);
+    default:
+      return IsSub ? Builder.CreateSub(A, B) : Builder.CreateAdd(A, B);
+    }
+  }
+
+  // COMP* -- the lane compare to a packed mask, the one member of this family
+  // generic IR cannot spell (the result is a bitcast of a <16 x i1>). The
+  // builtin's type is lvx-gcc's, uint32, while the instruction writes a GPR,
+  // so the i64 the intrinsic returns is truncated here.
+  if (BuiltinID == LVX::BI__builtin_lvx_compbx ||
+      BuiltinID == LVX::BI__builtin_lvx_compho ||
+      BuiltinID == LVX::BI__builtin_lvx_compwq ||
+      BuiltinID == LVX::BI__builtin_lvx_compdp) {
+    static const char *Intcomp[] = {".lt", ".ge",   ".ltu",  ".geu",
+                                    ".eq", ".ne",   ".any",  ".none",
+                                    ".le", ".gt",   ".leu",  ".gtu"};
+    int Cmp = Modifier(2, Intcomp,
+                       "LVX lane comparison that is not one of \".lt\", "
+                       "\".ge\", \".ltu\", \".geu\", \".eq\", \".ne\", "
+                       "\".any\", \".none\", \".le\", \".gt\", \".leu\" "
+                       "or \".gtu\"");
+    if (Cmp < 0)
+      return llvm::PoisonValue::get(ConvertType(E->getType()));
+    Intrinsic::ID ID = BuiltinID == LVX::BI__builtin_lvx_compbx
+                           ? Intrinsic::lvx_compbx
+                       : BuiltinID == LVX::BI__builtin_lvx_compho
+                           ? Intrinsic::lvx_compho
+                       : BuiltinID == LVX::BI__builtin_lvx_compwq
+                           ? Intrinsic::lvx_compwq
+                           : Intrinsic::lvx_compdp;
+    auto [A, B] = Args();
+    Function *F = CGM.getIntrinsic(ID);
+    Value *Mask = Builder.CreateCall(F, {A, B, Builder.getInt64(Cmp)});
+    return Builder.CreateTrunc(Mask, ConvertType(E->getType()));
+  }
+
   switch (BuiltinID) {
   default:
     return nullptr;
+
+  // Lane-wise minimum and maximum. The signedness is in the OPERATION, not in
+  // the type: lvx-gcc gives minubx the signed V16QI type too, and SIMDe hands
+  // it an lvx_int8x16_t.
+  case LVX::BI__builtin_lvx_minbx:
+  case LVX::BI__builtin_lvx_minho:
+    return Binary(Intrinsic::smin);
+  case LVX::BI__builtin_lvx_maxbx:
+  case LVX::BI__builtin_lvx_maxho:
+    return Binary(Intrinsic::smax);
+  case LVX::BI__builtin_lvx_minubx:
+  case LVX::BI__builtin_lvx_minuho:
+    return Binary(Intrinsic::umin);
+  case LVX::BI__builtin_lvx_maxubx:
+  case LVX::BI__builtin_lvx_maxuho:
+    return Binary(Intrinsic::umax);
 
   // The two IEEE families. fmin/fmax are 754-2019 minimum/maximum and
   // PROPAGATE a NaN -- llvm.minimum/maximum; fminn/fmaxn are 754-2008

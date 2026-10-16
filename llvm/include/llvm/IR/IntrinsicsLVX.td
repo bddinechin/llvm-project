@@ -70,4 +70,35 @@ def int_lvx_stsud
     : DefaultAttrsIntrinsic<[llvm_i64_ty], [llvm_i64_ty, llvm_i64_ty],
                             [IntrNoMem, IntrSpeculatable]>;
 
+// COMP{BX,HO,WQ,DP} -- the lane compare to a PACKED MASK: one bit per lane
+// into a GPR, bit i set iff lane i of the first source stands in the named
+// relation to lane i of the second. On BOTH cores since 2026-10-01, unlike the
+// lane-wise arithmetic, because the result needs no lanes to consume it.
+//
+// This is the one member of SIMDe's LVX surface that generic IR cannot spell.
+// The value is `bitcast (icmp a, b) to iN', and the bitcast of a <16 x i1> is
+// precisely what has no lowering here: it is what `getNumberOfRegisters'
+// returning nonzero on an lvx-1 build used to crash the legalizer on. The
+// other fifteen builtins SIMDe needs ARE plain IR (vector add/sub, the
+// saturating intrinsics, smin/umin/smax/umax) and are emitted as such.
+//
+// The third operand is the intcomp ENCODING, 0..11 for
+// .lt .ge .ltu .geu .eq .ne .any .none .le .gt .leu .gtu -- an instruction
+// modifier, so a constant. It is i64 for the reason spelled out under
+// int_lvx_taild: there is no i32 among LVX's legal types, so an i32 intrinsic
+// operand leaves TableGen with no type set to infer from.
+//
+// .any and .none are NOT relations: they test the bitwise AND of the two lanes
+// for any/no bits set. They are in the encoding and so reachable here, which is
+// why these are 12 relations and CompQPat's SETCC-driven list is 10.
+class LVXLaneComp<LLVMType vt>
+    : DefaultAttrsIntrinsic<[llvm_i64_ty], [vt, vt, llvm_i64_ty],
+                            [IntrNoMem, IntrSpeculatable,
+                             ImmArg<ArgIndex<2>>]>;
+
+def int_lvx_compbx : LVXLaneComp<llvm_v16i8_ty>;
+def int_lvx_compho : LVXLaneComp<llvm_v8i16_ty>;
+def int_lvx_compwq : LVXLaneComp<llvm_v4i32_ty>;
+def int_lvx_compdp : LVXLaneComp<llvm_v2i64_ty>;
+
 } // let TargetPrefix = "lvx"

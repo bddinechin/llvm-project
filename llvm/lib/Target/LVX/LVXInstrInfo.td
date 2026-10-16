@@ -815,6 +815,31 @@ def : Pat<(int_lvx_taild GPR:$rZ, GPR:$rY, 7),
           (TAILD_DTWRR GPR:$rZ, GPR:$rY, 7)>;
 
 //===----------------------------------------------------------------------===//
+// COMP{BX,HO,WQ,DP} -- the lane compare to a packed mask.
+//
+// One Pat per relation rather than a `timm', for the reason the TAILD patterns
+// above carry: `intcomp' is an Operand<i32> and a bare timm leaves TableGen
+// with nothing to infer a type from. Twelve relations, not CompQPat's ten --
+// .any and .none have encodings (6 and 7) and test the bitwise AND of the two
+// lanes, which no ISD::CondCode spells, so they are reachable from the
+// intrinsic and not from a setcc.
+//
+// The operand order is the printed one: compbx.lt $rW = $rP, $rO is rP < rO.
+// The destination is a plain GPR -- the mask is a scalar, which is the whole
+// point of this family and why it is on lvx-1 too.
+//===----------------------------------------------------------------------===//
+
+multiclass LaneCompPat<SDPatternOperator op, ValueType VT, Instruction inst> {
+  foreach cmp = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] in
+    def : Pat<(i64 (op (VT GPR128V:$rP), (VT GPR128V:$rO), cmp)),
+              (inst GPR128V:$rP, GPR128V:$rO, cmp)>;
+}
+defm : LaneCompPat<int_lvx_compbx, v16i8, COMPBX_BXCWRR>;
+defm : LaneCompPat<int_lvx_compho, v8i16, COMPHO_HOCWRR>;
+defm : LaneCompPat<int_lvx_compwq, v4i32, COMPWQ_WQCWRR>;
+defm : LaneCompPat<int_lvx_compdp, v2i64, COMPDP_DPCWRR>;
+
+//===----------------------------------------------------------------------===//
 // STSUD -- one step of a restoring unsigned division.
 //
 //   $rW = ($rY >=u $rZ) ? (($rY - $rZ) << 1) | 1 : $rY << 1
