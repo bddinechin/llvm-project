@@ -111,31 +111,10 @@ static Operation *instructionOf(Operation *op) {
 }
 
 static std::optional<StringRef> printedMnemonic(Operation *op) {
-  if (auto guarded = dyn_cast<GuardedOp>(op))
-    return printedMnemonic(guarded.guardedOp());
-  if (isa<LiOp>(op))
-    return StringRef("maked");
-  if (auto mv = dyn_cast<MvOp>(op)) {
-    switch (widthOf(mv.getResult().getType())) {
-    case 1:
-      return StringRef("copyd");
-    case 2:
-      return StringRef("catdq");
-    default:
-      return StringRef("copyo");
-    }
-  }
-  // A masked access reserves its LSU slot as the bare access does; the BCU
-  // syllable its `maskm` prefix takes is accounted separately, since two
-  // masked ops sharing a prefix share that one syllable (`prefixOf`).
-  if (auto ml = dyn_cast<lvx::MaskedLoadOp>(op))
-    return widthOf(ml.getResult().getType()) == 4 ? StringRef("lo")
-                                                  : StringRef("lq");
-  if (auto ms = dyn_cast<lvx::MaskedStoreOp>(op))
-    return widthOf(ms.getValue().getType()) == 4 ? StringRef("so")
-                                                 : StringRef("sq");
-  if (isa<LaneOp, ConcatOp, SpOp, RegLiveInOp, RegLiveOutOp>(op))
-    return std::nullopt;
+  // The `lvx` ops, including every pseudo that prints a real instruction,
+  // come from LVXLatency.h -- shared with the pipeliner, which has to agree
+  // about them. Only the control ops are added here: `lvx_cf` and `lvx_func`
+  // depend on the `lvx` dialect, so that header cannot name them.
   if (isa<lvx_cf::LoopendOp>(op))
     return std::nullopt; // a comment; the loop-back is the hardware's
   if (isa<lvx_cf::BranchOp>(op))
@@ -148,9 +127,7 @@ static std::optional<StringRef> printedMnemonic(Operation *op) {
     return StringRef("call");
   if (isa<lvx_func::ReturnOp>(op))
     return StringRef("ret");
-  if (op->getDialect() && op->getDialect()->getNamespace() == "lvx")
-    return op->getName().stripDialect();
-  return std::nullopt;
+  return lvxPrintedMnemonic(op);
 }
 
 /// The cycle `op` reads operand `i` in, and writes result `i` in. RR = 1 and

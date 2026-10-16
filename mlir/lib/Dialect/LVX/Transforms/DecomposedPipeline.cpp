@@ -53,10 +53,16 @@ namespace {
 
 constexpr llvm::StringLiteral kStageAttr = "lvx.stage";
 
+/// The instruction an op prints, from LVXLatency.h -- which the bundler reads
+/// too, and must. Resolving it as the operation's own name finds nothing in
+/// the tables for a pseudo and falls back to the default timings: this pass
+/// did that until 2026-10-16 and so computed the recurrence bound of every
+/// loop with a masked access from `sq`'s default data read of 1 instead of
+/// its real 2, one cycle too long. It showed as a period its own emitted
+/// kernel beat -- 20 against 19 on `gemm`'s beta loop, 24 against 23 on
+/// `vtail` -- which is impossible for a true lower bound and was the clue.
 static std::optional<StringRef> mnemonicOf(Operation *op) {
-  if (op->getDialect() && op->getDialect()->getNamespace() == "lvx")
-    return op->getName().stripDialect();
-  return std::nullopt;
+  return lvxPrintedMnemonic(op);
 }
 
 /// The cycles an operation reads and writes in come from LVXLatency.h, which
