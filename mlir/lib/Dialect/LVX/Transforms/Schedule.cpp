@@ -152,11 +152,11 @@ static std::optional<StringRef> printedMnemonic(Operation *op) {
 /// The cycle `op` reads operand `i` in, and writes result `i` in. RR = 1 and
 /// E1 = 2 where the table has nothing to say: a pseudo, or a control op
 /// whose operands are registers read at issue.
+/// `readCycleOf` and `writeCycleOf` are shared with the pipeliner, in
+/// LVXLatency.h: the two must agree, a pipeline staged for a three-cycle load
+/// not covering a fifteen-cycle one.
 static unsigned readCycle(const OpTiming *t, unsigned i) {
-  return t && i < t->numOperands ? t->operandRead[i] : 1;
-}
-static unsigned writeCycle(const OpTiming *t, unsigned i) {
-  return t && i < t->numResults ? t->resultWrite[i] : 2;
+  return readCycleOf(t, i);
 }
 
 //===----------------------------------------------------------------------===//
@@ -435,7 +435,7 @@ private:
           std::optional<PhysLoc> loc = unitsOf(result);
           if (!loc)
             continue;
-          unsigned w = writeCycle(n.timing, k);
+          unsigned w = writeCycleOf(op, n.timing, k);
           for (unsigned u = loc->base; u != loc->end(); ++u) {
             if (auto prev = lastWriter.find(u); prev != lastWriter.end()) {
               unsigned lat = prev->second.cycle + 1 > w ? prev->second.cycle + 1 - w : 0;

@@ -7,6 +7,7 @@ add_mlir_dialect_library(MLIRLVXTransforms
   DecomposedPipeline.cpp
   Pipeline.cpp
   Schedule.cpp
+  UncachedLoads.cpp
   EmitAsm.cpp
 
   ADDITIONAL_HEADER_DIRS

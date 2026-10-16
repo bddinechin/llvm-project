@@ -173,8 +173,18 @@ class LVX_MaskedAccessOp<string mnemonic, list<Trait> traits = []>
 def LVX_MaskedLoadOp : LVX_MaskedAccessOp<"masked_load",
                                           [MemoryEffects<[MemRead]>]> {
   let summary = "a `maskm`-prefixed load (pseudo: prefix + access)";
+  let description = [{
+    The `variant` is the one the real `lq`/`lo` carries, and it is here for
+    the same reason it is on them: a masked access to a loop-variant address
+    is exactly the streaming load that should bypass L1
+    (`-lvx-uncached-loads`). The prefix and the modifier are independent --
+    `maskm.mt $rm? lq.u $rd = 0[$rb]` -- so this needs nothing of the
+    prefix machinery.
+  }];
   let arguments = (ins LVX_RegType:$mask, LVX_RegType:$base,
-                       TypedAttrInterface:$offset, LVX_CycleAttr:$cycle);
+                       TypedAttrInterface:$offset,
+                       OptionalAttr<LVX_VariantAttr>:$variant,
+                       LVX_CycleAttr:$cycle);
   let results = (outs LVX_AnyRegType:$result);
   let assemblyFormat = [{
     $mask `,` $base `,` $offset attr-dict `:` `(` qualified(type($mask)) `,`
@@ -184,7 +194,7 @@ def LVX_MaskedLoadOp : LVX_MaskedAccessOp<"masked_load",
     OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::Value":$mask,
                    "::mlir::Value":$base, "::mlir::TypedAttr":$offset), [{
       build($_builder, $_state, resultType, mask, base, offset,
-            ::mlir::IntegerAttr());
+            ::mlir::lvx::VariantAttr(), ::mlir::IntegerAttr());
     }]>];
 }
 

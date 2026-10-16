@@ -414,8 +414,14 @@ private:
       return failure();
     StringRef mnemonic =
         widthOf(op.getResult().getType()) == 4 ? "lo" : "lq";
-    os << "\tmaskm.mt " << *rm << "? " << mnemonic << " " << *rd << " = "
-       << *disp << "[" << *rb << "]" << endOfOp();
+    // The prefix and the load's own `variant` modifier are independent:
+    // `maskm.mt $rm? lq.u $rd = 0[$rb]` (lvx_v2 reference assembly line 1868
+    // for the bare `lq.u`).
+    std::string variant;
+    if (auto v = op.getVariantAttr())
+      variant = ("." + stringifyVariant(v.getValue())).str();
+    os << "\tmaskm.mt " << *rm << "? " << mnemonic << variant << " " << *rd
+       << " = " << *disp << "[" << *rb << "]" << endOfOp();
     return success();
   }
 

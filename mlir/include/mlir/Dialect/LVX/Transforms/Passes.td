@@ -167,6 +167,33 @@ def LVXLowerVectorTransfersPass
                            "::mlir::vector::VectorDialect"];
 }
 
+def LVXUncachedLoadsPass : Pass<"lvx-uncached-loads", "::mlir::lvx_func::FuncOp"> {
+  let summary = "Mark loop-variant loads uncached (`variant` `.u`)";
+  let description = [{
+    A load whose address varies with the loop reads its cache line once, so
+    L1 buys it nothing and the traffic evicts what other code reuses. The ISA
+    says so with the `variant` modifier's `.u`, which carries `MemoryLevel=2`
+    in the description and commits at SR ("stream return") -- fifteen cycles
+    against a cached load's three.
+
+    That latency is the reason this matters beyond cache policy: fifteen
+    cycles of memory inside a loop body cannot be hidden within one
+    iteration, which is precisely what software pipelining is for. Modelling
+    every load as an L1 hit made the kernels look like they had nothing to
+    gain from it.
+
+    `.u` and not the speculative `.us`: the speculative forms are
+    *dismissible*, dropping a fault the access should have taken, and these
+    loads run in iterations that were going to run anyway.
+
+    Must run after `-loop-invariant-code-motion`, which is what makes
+    "defined inside the loop body" mean "loop-variant", and before
+    `-lvx-schedule`, which is what reads the modifier's cost. A load that
+    already carries a `variant` is left alone, so a deliberate choice
+    upstream survives. See lvx-mlir/docs/SoftwarePipelining.md §11.
+  }];
+}
+
 def LVXCombinePass : Pass<"lvx-combine"> {
   let summary = "Peephole-combine lvx operations into stronger ones";
   let description = [{

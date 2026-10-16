@@ -59,15 +59,12 @@ static std::optional<StringRef> mnemonicOf(Operation *op) {
   return std::nullopt;
 }
 
-/// The cycle an operation reads its i-th operand, and writes its i-th result.
-/// The defaults are `-lvx-schedule`'s: a pseudo reads at issue and writes at
-/// the next cycle.
-static unsigned readCycle(const OpTiming *t, unsigned i) {
-  return t && i < t->numOperands ? t->operandRead[i] : 1;
-}
-static unsigned writeCycle(const OpTiming *t, unsigned i) {
-  return t && i < t->numResults ? t->resultWrite[i] : 2;
-}
+/// The cycles an operation reads and writes in come from LVXLatency.h, which
+/// `-lvx-schedule` reads too -- they must agree. In particular an uncached
+/// load commits at SR whatever its Opcode record says, and a pipeline staged
+/// against the record's three-cycle figure does not cover the real fifteen:
+/// the stages are how the latency gets hidden, so getting this wrong here
+/// under-stages the pipeline and no later pass can recover it.
 
 /// A dependence latency, with the clamp the ISS's bundle rule imposes: within
 /// one bundle every source is read before any result is written, so a reader
@@ -79,8 +76,8 @@ static int64_t rawLatency(Operation *def, unsigned resultIdx, Operation *use,
     dt = timingOf(*m);
   if (auto m = mnemonicOf(use))
     ut = timingOf(*m);
-  int64_t raw = static_cast<int64_t>(writeCycle(dt, resultIdx)) -
-                static_cast<int64_t>(readCycle(ut, operandIdx));
+  int64_t raw = static_cast<int64_t>(writeCycleOf(def, dt, resultIdx)) -
+                static_cast<int64_t>(readCycleOf(ut, operandIdx));
   return std::max<int64_t>(1, raw);
 }
 
