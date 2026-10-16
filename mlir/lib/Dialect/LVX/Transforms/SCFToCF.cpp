@@ -27,6 +27,7 @@
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
 #include "mlir/Dialect/LVXSCF/IR/LVXSCF.h"
 #include "mlir/IR/Builders.h"
+#include "llvm/Support/MathExtras.h"
 
 namespace mlir {
 namespace lvx {
@@ -48,19 +49,37 @@ namespace {
 // so naming a register the allocator can hand out silently clobbers it.
 static constexpr Register kLoopTestScratchReg = kScratchReg;
 
-// See lvx-mlir/docs/HardwareLoops.md, "Lowering". Only constant-step-1, leaf
-// (no nested lvx_scf.for) loops are eligible -- everything else keeps
-// using the branch-based lowering below.
-static bool isHardwareLoopEligible(lvx_scf::ForOp forOp, Block *body) {
+// See lvx-mlir/docs/HardwareLoops.md, "Lowering". A leaf loop (no nested
+// lvx_scf.for) whose step is a constant power of two is eligible, and the
+// step is what the caller needs back; everything else keeps the branch-based
+// lowering below.
+//
+// Step 1 was the only case until 2026-10-16, and the restriction was costing
+// the vectorised loops twice over. A `VEC=4` loop has step 4, so `gemm`'s and
+// `vtail`'s kernels were branch loops: they paid a `goto` of their own, and
+// they paid it on the critical path, because a branch loop's carried value is
+// read by the back branch at relative cycle 1 where a store reads its data at
+// 2. That is the whole of the one-cycle regression software pipelining showed
+// on all three of them (docs/SoftwarePipelining.md §11) -- pipelining moves
+// the store into the next trip and leaves the branch as the only consumer.
+// A power of two is the limit because the trip count is a division: anything
+// else needs a real divide where this needs an add and a shift.
+static std::optional<int64_t> hardwareLoopStep(lvx_scf::ForOp forOp,
+                                               Block *body) {
   auto stepLi = forOp.getStep().getDefiningOp<LiOp>();
   if (!stepLi)
-    return false;
+    return std::nullopt;
   auto stepAttr = dyn_cast<IntegerAttr>(stepLi.getValue());
-  if (!stepAttr || stepAttr.getValue() != 1)
-    return false;
+  if (!stepAttr)
+    return std::nullopt;
+  int64_t step = stepAttr.getValue().getSExtValue();
+  if (step <= 0 || !llvm::isPowerOf2_64(step))
+    return std::nullopt;
   bool hasNestedFor = false;
   body->walk([&](lvx_scf::ForOp) { hasNestedFor = true; });
-  return !hasNestedFor;
+  if (hasNestedFor)
+    return std::nullopt;
+  return step;
 }
 
 // See lvx-mlir/docs/HardwareLoops.md. `%next_iv`'s result is never read by
@@ -71,7 +90,7 @@ static bool isHardwareLoopEligible(lvx_scf::ForOp forOp, Block *body) {
 // in place). Same "register-pinned op has a load-bearing effect invisible
 // to SSA use-count" caveat as the prologue/epilogue's SP restore
 // (lvx-mlir/docs/RegisterAllocation.md) -- fine today since nothing runs DCE.
-static void lowerForHardware(lvx_scf::ForOp forOp) {
+static void lowerForHardware(lvx_scf::ForOp forOp, int64_t step) {
   Location loc = forOp.getLoc();
   MLIRContext *ctx = forOp.getContext();
   Block *currentBlock = forOp->getBlock();
@@ -95,9 +114,32 @@ static void lowerForHardware(lvx_scf::ForOp forOp) {
 
   OpBuilder builder(ctx);
   builder.setInsertionPointToEnd(currentBlock);
-  // trip = ub - lb (step == 1, checked by isHardwareLoopEligible).
+  // LOOPDO counts *trips*, not induction values, so the count is
+  // ceil((ub - lb) / step) -- which for the power-of-two step
+  // `hardwareLoopStep` allows is `(ub - lb + step - 1) >> log2(step)`, an add
+  // and a shift. Every intermediate lands in the same reserved scratch
+  // register: this pass runs after allocation, so there is no other register
+  // to use, and the chain is three ops reading and writing one unit, which is
+  // what the scheduler's dependence edges are for.
+  //
+  // The shift is `srsd`, "shift right symmetric", which biases a negative
+  // value by `2^k - 1` so the division rounds toward zero. `srad` rounds
+  // toward minus infinity and would give a count one too large for a
+  // negative difference; `srld` would make it enormous. `ub >= lb` is
+  // assumed either way, as it was for the step-1 form -- LOOPDO
+  // zero-extends `trip`, so a negative count was never going to work -- and
+  // `srsd` is simply the least wrong of the three when it does not hold.
+  // `ub == lb` gives zero, which LOOPDO skips: it is zero-safe, unlike
+  // KVX's (docs/SoftwarePipelining.md §6).
   Value trip = builder.create<SbfdOp>(loc, tripTy, forOp.getUpperBound(),
                                       forOp.getLowerBound());
+  if (step != 1) {
+    auto i64 = builder.getI64Type();
+    trip = builder.create<AdddImmOp>(
+        loc, tripTy, trip, IntegerAttr::get(i64, step - 1));
+    trip = builder.create<SrsdImmOp>(
+        loc, tripTy, trip, IntegerAttr::get(i64, llvm::Log2_64(step)));
+  }
   Value ivInit = builder.create<MvOp>(loc, indVarTy, forOp.getLowerBound());
   SmallVector<Value> bodyOperands{ivInit};
   llvm::append_range(bodyOperands, forOp.getInitArgs());
@@ -197,8 +239,8 @@ static void lowerForBranch(lvx_scf::ForOp forOp) {
 }
 
 static void lowerFor(lvx_scf::ForOp forOp) {
-  if (isHardwareLoopEligible(forOp, forOp.getBody()))
-    lowerForHardware(forOp);
+  if (std::optional<int64_t> step = hardwareLoopStep(forOp, forOp.getBody()))
+    lowerForHardware(forOp, *step);
   else
     lowerForBranch(forOp);
 }

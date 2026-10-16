@@ -43,16 +43,56 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   lvx_func.return %p : !lvx.reg<r0>
 }
 
-// Non-constant-step-1 loops (here, step 2) are not eligible for the
-// hardware-loop path and keep using the branch-based lowering: an
-// explicit compare (`lvx.compd lt`, pinned to r61 like the hardware
-// loop's own trip-count value) and cond_br header, with the same
-// induction-variable copy-in for the same reason -- also absent below, and
-// for the same reason as in `@loop`: it came out an identity.
+// A power-of-two step takes the hardware-loop path too (since 2026-10-16;
+// step 1 was the only eligible one before, which excluded every vectorized
+// loop -- HardwareLoops.md, "Lowering"). LOOPDO counts trips, so the count is
+// `ceil((ub - lb) / step)`: `sbfd`, `addd` of `step - 1`, then `srsd` by
+// log2(step). `srsd` and not `srad`, which rounds toward minus infinity and
+// would give a count one too large for a negative difference. All three land
+// in the same reserved scratch register -- this pass runs after allocation,
+// so there is no other register to put them in.
 // CHECK-LABEL: lvx_func.func @loop_step2
 // CHECK-NEXT: %0 = lvx.li 0 : i64 : !lvx.reg<r1>
 // CHECK-NEXT: %1 = lvx.li 10 : i64 : !lvx.reg<r2>
 // CHECK-NEXT: %2 = lvx.li 2 : i64 : !lvx.reg<r3>
+// CHECK-NEXT: %3 = lvx.li 0 : i64 : !lvx.reg<r4>
+// CHECK-NEXT: %4 = lvx.sbfd %1, %0 : (!lvx.reg<r2>, !lvx.reg<r1>) -> !lvx.reg<r61>
+// CHECK-NEXT: %5 = lvx.addd_i %4, 1 : i64 : (!lvx.reg<r61>) -> !lvx.reg<r61>
+// CHECK-NEXT: %6 = lvx.srsd_i %5, 1 : i64 : (!lvx.reg<r61>) -> !lvx.reg<r61>
+// CHECK-NEXT: lvx_cf.loopdo %6 : !lvx.reg<r61>, ^bb1(%0, %3 : !lvx.reg<r1>, !lvx.reg<r4>), ^bb2(%3 : !lvx.reg<r4>)
+// CHECK-NEXT: ^bb1(%7: !lvx.reg<r1>, %8: !lvx.reg<r4>):  // pred: ^bb0
+// CHECK-NEXT: %9 = lvx.addd %8, %arg0 : (!lvx.reg<r4>, !lvx.reg<r0>) -> !lvx.reg<r4>
+// CHECK-NEXT: %10 = lvx.addd %7, %2 : (!lvx.reg<r1>, !lvx.reg<r3>) -> !lvx.reg<r1>
+// CHECK-NEXT: lvx_cf.loopend ^bb2(%9 : !lvx.reg<r4>)
+// CHECK-NEXT: ^bb2(%11: !lvx.reg<r4>):  // 2 preds: ^bb0, ^bb1
+// CHECK-NEXT: %12 = lvx.mv %11 : (!lvx.reg<r4>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx_func.return %12 : !lvx.reg<r0>
+// CHECK-NEXT: }
+lvx_func.func @loop_step2(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
+  %ov = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
+  %lb = lvx.li 0 : i64 : !lvx.reg
+  %ub = lvx.li 10 : i64 : !lvx.reg
+  %step = lvx.li 2 : i64 : !lvx.reg
+  %init = lvx.li 0 : i64 : !lvx.reg
+  %r = lvx_scf.for %lb : !lvx.reg to %ub : !lvx.reg step %step : !lvx.reg iter_args(%init) : (!lvx.reg) -> (!lvx.reg) {
+  ^bb0(%iv: !lvx.reg, %acc: !lvx.reg):
+    %use = lvx.addd %acc, %ov : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    lvx_scf.yield %use : !lvx.reg
+  }
+  %p = lvx.mv %r : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %p : !lvx.reg<r0>
+}
+
+// A step that is *not* a power of two keeps the branch-based lowering, which
+// is what the eligibility check is for: the trip count would be a real
+// division, and `divmod` is a hard error in `-lvx-emit-asm`. So the explicit
+// compare (`lvx.compd lt`, pinned to r61 like the hardware loop's own
+// trip-count value) and cond_br header, with the induction-variable copy-in
+// absent for the same reason as in `@loop`: it came out an identity.
+// CHECK-LABEL: lvx_func.func @loop_step3
+// CHECK-NEXT: %0 = lvx.li 0 : i64 : !lvx.reg<r1>
+// CHECK-NEXT: %1 = lvx.li 10 : i64 : !lvx.reg<r2>
+// CHECK-NEXT: %2 = lvx.li 3 : i64 : !lvx.reg<r3>
 // CHECK-NEXT: %3 = lvx.li 0 : i64 : !lvx.reg<r4>
 // CHECK-NEXT: lvx_cf.br ^bb1(%0, %3 : !lvx.reg<r1>, !lvx.reg<r4>)
 // CHECK-NEXT: ^bb1(%4: !lvx.reg<r1>, %5: !lvx.reg<r4>):  // 2 preds: ^bb0, ^bb2
@@ -66,11 +106,11 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: %12 = lvx.mv %11 : (!lvx.reg<r4>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_func.return %12 : !lvx.reg<r0>
 // CHECK-NEXT: }
-lvx_func.func @loop_step2(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
+lvx_func.func @loop_step3(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
   %ov = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
   %lb = lvx.li 0 : i64 : !lvx.reg
   %ub = lvx.li 10 : i64 : !lvx.reg
-  %step = lvx.li 2 : i64 : !lvx.reg
+  %step = lvx.li 3 : i64 : !lvx.reg
   %init = lvx.li 0 : i64 : !lvx.reg
   %r = lvx_scf.for %lb : !lvx.reg to %ub : !lvx.reg step %step : !lvx.reg iter_args(%init) : (!lvx.reg) -> (!lvx.reg) {
   ^bb0(%iv: !lvx.reg, %acc: !lvx.reg):

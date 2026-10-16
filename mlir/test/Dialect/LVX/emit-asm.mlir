@@ -340,10 +340,12 @@ lvx_func.func @ffma(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %c: !lvx.reg<r2>,
   lvx_func.return %p : !lvx.reg<r0>
 }
 
-// The step-2 fallback (non-unit step, not eligible for the hardware-loop
-// path -- see scf-to-cf.mlir) still assembles correctly with ordinary
-// branches, exercising the fallthrough-elision rule on the entry edge too
-// (entry falls straight into the header with no printed `goto`).
+// A step-2 loop is a hardware loop (since 2026-10-16: any constant
+// power-of-two step is eligible -- HardwareLoops.md). What this pins is the
+// trip-count arithmetic reaching real assembly: `sbfd` gives ub - lb, then
+// `addd` of step-1 and `srsd` by log2(step) make it ceil((ub-lb)/step) -- 10,
+// 11, 5 here, which is the right trip count for 0..10 by 2. The spellings
+// matter because the second RUN line feeds this to `lvx-mbr-as`.
 // The copy-in is absent here too, and for the same reason.
 // CHECK-LABEL: loop_step2:
 // CHECK-NEXT: maked $r1 = 0
@@ -354,21 +356,21 @@ lvx_func.func @ffma(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %c: !lvx.reg<r2>,
 // CHECK-NEXT: ;;
 // CHECK-NEXT: maked $r4 = 0
 // CHECK-NEXT: ;;
-// CHECK-NEXT: .LBB4:
-// CHECK-NEXT: compd.lt $r61 = $r1, $r2
+// CHECK-NEXT: sbfd $r61 = $r1, $r2
 // CHECK-NEXT: ;;
-// CHECK-NEXT: cb.wnez $r61? .LBB5
+// CHECK-NEXT: addd $r61 = $r61, 1
 // CHECK-NEXT: ;;
-// CHECK-NEXT: goto .LBB6
+// CHECK-NEXT: srsd $r61 = $r61, 1
+// CHECK-NEXT: ;;
+// CHECK-NEXT: loopdo $r61, .LBB4
 // CHECK-NEXT: ;;
 // CHECK-NEXT: .LBB5:
 // CHECK-NEXT: addd $r4 = $r4, $r0
 // CHECK-NEXT: ;;
 // CHECK-NEXT: addd $r1 = $r1, $r3
 // CHECK-NEXT: ;;
-// CHECK-NEXT: goto .LBB4
-// CHECK-NEXT: ;;
-// CHECK-NEXT: .LBB6:
+// CHECK-NEXT: # end of hardware loop body
+// CHECK-NEXT: .LBB4:
 // CHECK-NEXT: copyd $r0 = $r4
 // CHECK-NEXT: ;;
 // CHECK-NEXT: ret
@@ -449,4 +451,51 @@ lvx_func.func @splat_imm(%base: !lvx.reg<r0>) {
   lvx.sq %i, %base, 0 : i64 : (!lvx.pair, !lvx.reg<r0>)
   lvx.sq %f, %base, 16 : i64 : (!lvx.pair, !lvx.reg<r0>)
   lvx_func.return
+}
+// A step of 3 is not a power of two, so it keeps the branch-based lowering --
+// which is what still exercises the fallthrough-elision rule on the entry
+// edge here (entry falls straight into the header with no printed `goto`).
+// That coverage used to come from the step-2 case above, before a
+// power-of-two step became a hardware loop.
+// CHECK-LABEL: loop_step3:
+// CHECK-NEXT: maked $r1 = 0
+// CHECK-NEXT: ;;
+// CHECK-NEXT: maked $r2 = 10
+// CHECK-NEXT: ;;
+// CHECK-NEXT: maked $r3 = 3
+// CHECK-NEXT: ;;
+// CHECK-NEXT: maked $r4 = 0
+// CHECK-NEXT: ;;
+// CHECK-NEXT: .LBB{{[0-9]+}}:
+// CHECK-NEXT: compd.lt $r61 = $r1, $r2
+// CHECK-NEXT: ;;
+// CHECK-NEXT: cb.wnez $r61? .LBB{{[0-9]+}}
+// CHECK-NEXT: ;;
+// CHECK-NEXT: goto .LBB{{[0-9]+}}
+// CHECK-NEXT: ;;
+// CHECK-NEXT: .LBB{{[0-9]+}}:
+// CHECK-NEXT: addd $r4 = $r4, $r0
+// CHECK-NEXT: ;;
+// CHECK-NEXT: addd $r1 = $r1, $r3
+// CHECK-NEXT: ;;
+// CHECK-NEXT: goto .LBB{{[0-9]+}}
+// CHECK-NEXT: ;;
+// CHECK-NEXT: .LBB{{[0-9]+}}:
+// CHECK-NEXT: copyd $r0 = $r4
+// CHECK-NEXT: ;;
+// CHECK-NEXT: ret
+// CHECK-NEXT: ;;
+lvx_func.func @loop_step3(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
+  %ov = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
+  %lb = lvx.li 0 : i64 : !lvx.reg
+  %ub = lvx.li 10 : i64 : !lvx.reg
+  %step = lvx.li 3 : i64 : !lvx.reg
+  %init = lvx.li 0 : i64 : !lvx.reg
+  %r = lvx_scf.for %lb : !lvx.reg to %ub : !lvx.reg step %step : !lvx.reg iter_args(%init) : (!lvx.reg) -> (!lvx.reg) {
+  ^bb0(%iv: !lvx.reg, %acc: !lvx.reg):
+    %use = lvx.addd %acc, %ov : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    lvx_scf.yield %use : !lvx.reg
+  }
+  %p = lvx.mv %r : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %p : !lvx.reg<r0>
 }
