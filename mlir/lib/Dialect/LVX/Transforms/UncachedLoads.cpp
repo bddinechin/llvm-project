@@ -97,16 +97,19 @@ struct LVXUncachedLoadsPass
   void runOnOperation() override {
     OpBuilder builder(&getContext());
     auto uncached = VariantAttr::get(&getContext(), Variant::u);
-    getOperation().walk([&](lvx_scf::ForOp loop) {
-      Block *body = loop.getBody();
-      body->walk([&](Operation *op) {
-        if (!isLoad(op) || !acceptsVariant(op))
-          return;
-        if (op->getAttrOfType<VariantAttr>("variant"))
-          return; // already said; leave a deliberate choice alone
-        if (hasLoopVariantAddress(op, body))
-          op->setAttr("variant", uncached);
-      });
+    // Each load is judged against its *innermost* loop, the one whose trips
+    // re-execute it. An enclosing loop does not count: a load whose address
+    // varies with `j` but not with the inner `k` reads the same line on every
+    // `k` trip, which is the reuse L1 exists for -- mymma's `C[i][j]`, on the
+    // loop's memory recurrence, was taking fifteen cycles a trip for it.
+    getOperation().walk([&](Operation *op) {
+      if (!isLoad(op) || !acceptsVariant(op))
+        return;
+      if (op->getAttrOfType<VariantAttr>("variant"))
+        return; // already said; leave a deliberate choice alone
+      auto loop = op->getParentOfType<lvx_scf::ForOp>();
+      if (loop && hasLoopVariantAddress(op, loop.getBody()))
+        op->setAttr("variant", uncached);
     });
   }
 };
