@@ -46,7 +46,7 @@ lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 
 // `sbfd` is a real "subtract FROM" opcode: `sbfd $rd = $rs1, $rs2` computes
 // `$rs2 - $rs1`, not `$rs1 - $rs2` -- confirmed against
-// lvx-mds/refs/FE/YAML/lvx/lvx_v1/Description.yml's own description ("The
+// lvx-mds/refs/FE/YAML/lvx/lvx_1/Description.yml's own description ("The
 // %2 is subtracted from the %3") and empirically on real gem5
 // (lvx-mlir/docs/EndToEndValidation.md, where a naively-printed "subtract" of 5
 // and 0 executed to -5). `lvx.sbfd %lhs, %rhs`'s own IR-level semantics

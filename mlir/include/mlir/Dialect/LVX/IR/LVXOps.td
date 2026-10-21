@@ -4,13 +4,13 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-// Operations mirror real LVX_v1 assembly instructions (mnemonic + modifier
+// Operations mirror real LVX_1 assembly instructions (mnemonic + modifier
 // suffixes), as described by the machine-description database in the sibling
-// `lvx-mds` repo (`lvx-mds/lvx-refs/`): FE/YAML/lvx/lvx_v1/Opcode.txt for the
+// `lvx-mds` repo (`lvx-mds/lvx-refs/`): FE/YAML/lvx/lvx_1/Opcode.txt for the
 // encodings, .../Description.yml for formats/modifiers, and
-// MDD/lvx/lvx_v1/Synthetic.table for the synthetic/alias opcodes.  How each
+// MDD/lvx/lvx_1/Synthetic.table for the synthetic/alias opcodes.  How each
 // instruction is spelled in assembly is settled by
-// BE/GBU/lvx/lvx_v1/LVX_OPCODE_FLAG_MODE64.s.
+// BE/GBU/lvx/lvx_1/LVX_OPCODE_FLAG_MODE64.s.
 // Every operand/result that represents a live machine value has type
 // `!lvx.reg` (see LVXBase.td). Precise bit-exact assembly encoding/printing
 // (e.g. immediate range splitting for `lvx.li`) is left to a later
@@ -550,7 +550,7 @@ class LVX_FloatUnaryModeOp<string mnemonic> :
 
 //===----------------------------------------------------------------------===//
 // Conditional move (CMOVED/CMOVEQ). Per the ground truth
-// (FE/YAML/lvx/lvx_v1/Description.yml), the `cmovecond` modifier field is
+// (FE/YAML/lvx/lvx_1/Description.yml), the `cmovecond` modifier field is
 // parsed with the same enumeration as `bcucond`, so we reuse LVX_BcuCondAttr
 // rather than introducing a separate (unexported) enum.
 //===----------------------------------------------------------------------===//

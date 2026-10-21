@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// The register sets of `Convention-lvx_v1-regular`, generated from the machine
+// The register sets of `Convention-lvx_1-regular`, generated from the machine
 // description by lvx-mds' `MDS/BE/MLIR` into `LVXConvention.inc`. This header
 // exists only to pull the dialect's `Register` enum into scope first and to
 // say why the file it includes is not hand-written.

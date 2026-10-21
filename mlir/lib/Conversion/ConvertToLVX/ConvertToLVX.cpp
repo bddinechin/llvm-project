@@ -44,7 +44,7 @@ using mlir::lvx::IntComp;
 using mlir::lvx::RegisterType;
 using mlir::lvx::Register;
 
-// Per lvx-mds/lvx-refs' Convention.table, `Convention-lvx_v1-regular`, read
+// Per lvx-mds/lvx-refs' Convention.table, `Convention-lvx_1-regular`, read
 // from the generated LVXConvention.inc rather than transcribed.
 static constexpr unsigned kMaxAbiArgRegs = lvx::kNumAbiArgRegs;
 static constexpr unsigned kMaxAbiResultRegs = lvx::kNumAbiResultRegs;
@@ -68,7 +68,7 @@ static LogicalResult rejectVectors(Operation *op,
 ///
 /// The slot register comes from `kAbiArgRegs`/`kAbiResultRegs`, the generated
 /// tables, never from `static_cast<Register>(slot)` -- which would be correct
-/// only because `Convention-lvx_v1-regular` happens to start both sets at
+/// only because `Convention-lvx_1-regular` happens to start both sets at
 /// `$r0` and run them contiguously. Nothing in the ABI promises that, and a
 /// description that reordered or renumbered either set would leave this file
 /// compiling while silently using the wrong registers.

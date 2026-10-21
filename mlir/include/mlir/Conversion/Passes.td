@@ -1823,7 +1823,7 @@ def ConvertToLVXPass : Pass<"convert-to-lvx", "ModuleOp"> {
                 "LVX family of dialects";
   let description = [{
     Lowers operations from the Arith, ControlFlow (cf), SCF, MemRef, and Func
-    dialects into `lvx` (real LVX_v1 mnemonics, `!lvx.reg` values),
+    dialects into `lvx` (real LVX_1 mnemonics, `!lvx.reg` values),
     `lvx_cf` (unstructured branches), `lvx_scf` (structured `for` loops,
     kept structural rather than lowered further), and `lvx_func`
     (ABI-constrained function definitions/calls). Structured control flow

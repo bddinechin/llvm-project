@@ -17,7 +17,7 @@
 using namespace mlir;
 using namespace mlir::lvx_func;
 
-// Per lvx-mds/lvx-refs' `Convention-lvx_v1-regular`, read from the generated
+// Per lvx-mds/lvx-refs' `Convention-lvx_1-regular`, read from the generated
 // LVXConvention.inc rather than transcribed: 12 argument registers
 // ($r0-$r11) and 4 result registers ($r0-$r3).
 static constexpr unsigned kMaxAbiArgRegs = lvx::kNumAbiArgRegs;

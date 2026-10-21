@@ -22,10 +22,10 @@ def LVX_Dialect : Dialect {
   let name = "lvx";
   let cppNamespace = "::mlir::lvx";
   let description = [{
-    The LVX dialect represents LVX_v1 machine instructions in SSA form,
+    The LVX dialect represents LVX_1 machine instructions in SSA form,
     before register allocation and instruction scheduling. Operations
     correspond one-to-one to real assembly instructions (as described by
-    the LVX_v1 machine description in the sibling `lvx-mds` repo, under
+    the LVX_1 machine description in the sibling `lvx-mds` repo, under
     `lvx-mds/lvx-refs/`),
     using real mnemonics and modifier suffixes. Every live machine value is
     represented as an `!lvx.reg`: an unallocated virtual register until a

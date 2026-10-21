@@ -14,7 +14,7 @@
 // **It is occupancy, not latency.** The description states a reservation
 // table -- which units an instruction takes and how many -- and states no
 // latency anywhere: no element carries one, `Reservation@stalls` is empty for
-// every lvx_v1 class, and `Execution`'s pipeline stages are where effects
+// every lvx_1 class, and `Execution`'s pipeline stages are where effects
 // land rather than when a result is readable (LSU reaches stage 24). A
 // software pipeliner needs both, so it needs latency to reach the description
 // before it can reach here. The generator deliberately invents none.
@@ -25,7 +25,7 @@
 // widened immediate costs extra syllables. The mapping cannot be composed
 // from the format suffix -- that names an encoding family while the
 // scheduling suffix counts syllables, and they disagree on 286 of 859
-// lvx_v1 opcodes (`LSU_ACSWAPSB.O` schedules as `LSU2_MEMW_AUXR_AUXW.X`) --
+// lvx_1 opcodes (`LSU_ACSWAPSB.O` schedules as `LSU2_MEMW_AUXR_AUXW.X`) --
 // so the generator records it per (op, format) pair.
 //
 //===----------------------------------------------------------------------===//

@@ -129,7 +129,7 @@ static void markInUse(bool *inUse, PhysLoc l, bool v) {
 
 //===----------------------------------------------------------------------===//
 // Register pool: preference order per lvx-mlir/docs/RegisterAllocation.md
-// ("Allocation order"), BUILT from `Convention-lvx_v1-regular` rather than
+// ("Allocation order"), BUILT from `Convention-lvx_1-regular` rather than
 // transcribed from it -- the sets come from the generated LVXConvention.inc.
 //
 // The membership is the ABI's and the order is this pass's, and keeping the
@@ -186,7 +186,7 @@ static_assert(!isIn(kStackReg, kCallerSavedRegs) &&
                   !isIn(kLocalReg, kCalleeSavedRegs),
               "a reserved register appears in the allocation pool");
 
-/// True if `r` is callee-saved per `Convention-lvx_v1-regular`'s `callee`
+/// True if `r` is callee-saved per `Convention-lvx_1-regular`'s `callee`
 /// set (R14, R18-R31), i.e. the caller's value in it must be preserved
 /// across this function.
 static bool isCalleeSaved(Register r) { return isIn(r, kCalleeSavedRegs); }
@@ -229,7 +229,7 @@ static constexpr unsigned kRegisterIdBound = getMaxEnumValForRegister() + 1;
 // -- the fewer callee-saved units it costs a save for, the earlier -- with
 // kFullOrder's own order breaking ties, so that makeOrder<1>() IS kFullOrder.
 //
-// Over lvx_v2's ABI that gives 29 pairs (21 wholly caller-saved, then
+// Over lvx_2's ABI that gives 29 pairs (21 wholly caller-saved, then
 // r14r15 -- r14 the frame pointer and callee-saved, r15 the struct-return
 // register and caller-saved -- then the 7 wholly callee-saved r18r19 ..
 // r30r31; absent: r12r13, reserved, and r60r61/r62r63, which contain

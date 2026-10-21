@@ -415,7 +415,7 @@ private:
     StringRef mnemonic =
         widthOf(op.getResult().getType()) == 4 ? "lo" : "lq";
     // The prefix and the load's own `variant` modifier are independent:
-    // `maskm.mt $rm? lq.u $rd = 0[$rb]` (lvx_v2 reference assembly line 1868
+    // `maskm.mt $rm? lq.u $rd = 0[$rb]` (lvx_2 reference assembly line 1868
     // for the bare `lq.u`).
     std::string variant;
     if (auto v = op.getVariantAttr())
@@ -626,7 +626,7 @@ private:
         // `taild` is a compare in shape -- two registers, a register result,
         // a dotted modifier -- so it prints through the same helper. Its
         // modifier is the lane count rather than a predicate:
-        // `taild.v4 $rW = $rZ, $rY` (lvx_v2 reference assembly line 2670).
+        // `taild.v4 $rW = $rZ, $rY` (lvx_2 reference assembly line 2670).
         .Case([&](TaildOp op) {
           return emitCompare(op, "taild", stringifyLanecount(op.getLanecount()));
         })
