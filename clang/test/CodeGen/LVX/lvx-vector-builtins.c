@@ -4,8 +4,8 @@
 // intrinsics: llvm.copysign is overloaded so a vector operand is the lane-wise
 // operation, a widening multiply is an extend plus a multiply at the wider
 // width, and a splatting load is a load plus a splat. That means they are
-// CORRECT on both cores -- an lvx_v1 description simply scalarises what an
-// lvx_v2 one selects as one instruction -- and it is why these checks are on
+// CORRECT on both cores -- an lvx_1 description simply scalarises what an
+// lvx_2 one selects as one instruction -- and it is why these checks are on
 // the IR, not on the assembly.
 
 typedef float          v4sf __attribute__((vector_size(16)));

@@ -43,7 +43,7 @@ public:
   // Whether this build has lane-wise ARITHMETIC, counted from the generated
   // per-core list. Not a hand-written flag and not keyed on -mcpu:
   // lib/Target/LVX holds one core's description at a time, validation passes
-  // -mcpu=lvx-2 against a build that may hold lvx_v1, and reporting vector
+  // -mcpu=lvx-2 against a build that may hold lvx_1, and reporting vector
   // registers there would vectorize into instructions this build does not
   // contain.
   //

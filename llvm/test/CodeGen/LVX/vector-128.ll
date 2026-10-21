@@ -11,8 +11,8 @@
 ; needed. Fifteen instructions for two.
 
 ; The instruction depends on which description is installed, and lit cannot see
-; that: an lvx_v1 build has no packed add and emits two `addd` over the halves,
-; an lvx_v2 build emits one `adddp`. What the test is really about holds either
+; that: an lvx_1 build has no packed add and emits two `addd` over the halves,
+; an lvx_2 build emits one `adddp`. What the test is really about holds either
 ; way and is what the checks say -- the value stays in the register PAIR, with
 ; no frame and no spill round trip, which is what making the type legal bought
 ; (it cost fifteen instructions and a 128-byte frame before).

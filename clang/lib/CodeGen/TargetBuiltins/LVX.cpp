@@ -102,8 +102,8 @@ Value *CodeGenFunction::EmitLVXBuiltinExpr(unsigned BuiltinID,
 
   // ADD/SBF at a lane shape, with the SATURATE flavour as a string: "" wraps,
   // ".s" saturates signed, ".us" unsigned. Plain IR in every case -- which is
-  // what makes them right on both cores, an lvx_v1 description scalarising
-  // what an lvx_v2 one selects as one instruction.
+  // what makes them right on both cores, an lvx_1 description scalarising
+  // what an lvx_2 one selects as one instruction.
   //
   // SBF is "subtract FROM": sbf(a, b) is b - a. The operands are swapped here
   // and nowhere else, so this is the single place to get it wrong.

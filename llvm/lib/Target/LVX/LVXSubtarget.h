@@ -31,7 +31,7 @@
 namespace llvm {
 
 namespace LVX {
-// Whether the generated description this build HOLDS is the lvx_v2 one.
+// Whether the generated description this build HOLDS is the lvx_2 one.
 // lib/Target/LVX carries one core's description at a time (LLVM_CORE= at
 // install), and lvx-1 has no lane-wise arithmetic at all, so counting the
 // non-splat rows of the generated list answers both questions at once: an

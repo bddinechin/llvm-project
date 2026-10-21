@@ -298,7 +298,7 @@ LVXTargetLowering::LVXTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::MUL, MVT::i128, Custom);
 
   // Widening a vector -- (sign|zero|any)_extend from a narrower lane to a
-  // wider one -- has no instruction in an lvx_v1 description and no generic
+  // wider one -- has no instruction in an lvx_1 description and no generic
   // fallback that terminates here: Expand on these turns them into forms that
   // legalize back into themselves on a type that is legal, so isel spins (see
   // the note above the Expand loop). Custom-lowering them to one scalar
@@ -1489,7 +1489,7 @@ LVXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     // 256-bit one as v4i64 -- the same reinterpretation CC_LVX already performs
     // with CCBitConvertToType, applied here to the VALUE so the split below
     // sees the shape the convention assigned it. Without this every packed
-    // vector argument reached the unreachable below; only an lvx_v2 build can
+    // vector argument reached the unreachable below; only an lvx_2 build can
     // get here, because on lvx-1 nothing produces a whole vector value to pass.
     if (ValVT.isVector() && ValVT != MVT::v4i64) {
       if (ValVT.getSizeInBits() == 128) {

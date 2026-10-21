@@ -8,7 +8,7 @@
 ;
 ; The two-source ALU formats all have ISA syntax "%1 = %2, %3" over operands
 ; [registerW, registerZ, registerY] -- registerZ is printed FIRST. Confirmed
-; against BE/GBU/lvx/lvx_v1/LVX_OPCODE_FLAG_MODE64.s, the generated reference
+; against BE/GBU/lvx/lvx_1/LVX_OPCODE_FLAG_MODE64.s, the generated reference
 ; assembly, e.g.
 ;   sbfd $r16r17.hi = $r16r17r18r19.z, $r18
 ; tagged ..._registerW_registerZ_registerY_simple.

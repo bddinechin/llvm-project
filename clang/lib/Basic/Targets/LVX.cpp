@@ -110,10 +110,8 @@ void LVXTargetInfo::getTargetDefines(const LangOptions &Opts,
   Builder.defineMacro("__lvx__");
   Builder.defineMacro("__LVX_64__");
   if (CPU == CK_LVX2) {
-    Builder.defineMacro("__lvxarch_lvx_2");
     Builder.defineMacro("__lvx_2__");
   } else {
-    Builder.defineMacro("__lvxarch_lvx_1");
     Builder.defineMacro("__lvx_1__");
   }
 

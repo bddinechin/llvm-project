@@ -2,8 +2,8 @@
 
 // The sixteen builtins SIMDe's LVX backend (lvx-simde/lvx/compute/) calls, and
 // so the sixteen lvx-perf's lvx-ssw benchmark reaches LVX through. Fifteen are
-// plain IR for the reason the rest of this family is -- an lvx_v1 description
-// scalarises what an lvx_v2 one selects as one instruction, so they are
+// plain IR for the reason the rest of this family is -- an lvx_1 description
+// scalarises what an lvx_2 one selects as one instruction, so they are
 // correct on both cores -- and only the lane COMPARE needs a target intrinsic,
 // its result being a bitcast of a <16 x i1> that has no lowering here.
 

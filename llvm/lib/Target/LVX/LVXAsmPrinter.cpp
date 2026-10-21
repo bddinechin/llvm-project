@@ -73,8 +73,8 @@ bool LVXAsmPrinter::doInitialization(Module &M) {
   bool WantsLaneSIMD = CPU == "lvx-2";
   if ((WantsLaneSIMD || CPU == "lvx-1") &&
       WantsLaneSIMD != LVX::DescriptionHasLaneSIMD) {
-    StringRef Held = LVX::DescriptionHasLaneSIMD ? "lvx_v2" : "lvx_v1";
-    StringRef Want = WantsLaneSIMD ? "lvx_v2" : "lvx_v1";
+    StringRef Held = LVX::DescriptionHasLaneSIMD ? "lvx_2" : "lvx_1";
+    StringRef Want = WantsLaneSIMD ? "lvx_2" : "lvx_1";
     // The two directions fail differently, and saying "the other core's
     // instructions are missing" would be wrong in one of them: lvx-2 is a
     // STRICT SUPERSET, so there is no such thing as an lvx-1-only

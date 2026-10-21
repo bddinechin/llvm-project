@@ -227,7 +227,7 @@ void LVXInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
 // (the vector one holds the vector value types), so comparing class pointers
 // left every 128-bit VECTOR spill falling through to the unreachable. Nothing
 // on lvx-1 could reach it -- there are no packed instructions there, so no
-// vector value ever needs spilling -- which is why an lvx_v2 build was the
+// vector value ever needs spilling -- which is why an lvx_2 build was the
 // first thing to hit it.
   unsigned Opc;
   switch (RegisterInfo.getSpillSize(*RC)) {
