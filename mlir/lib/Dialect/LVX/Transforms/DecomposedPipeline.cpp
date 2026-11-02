@@ -53,7 +53,12 @@ using namespace mlir::lvx;
 
 namespace {
 
-constexpr llvm::StringLiteral kStageAttr = "lvx.stage";
+/// The modulo schedule this pass hands to `-lvx-pipeline`: an issue date per
+/// body operation and the initiation interval on the loop. Everything else --
+/// stages, the unrolling, the prologue and the drains -- is derived from these
+/// two by the construction (lvx-csw/docs/mlir-pipeliner-design.md §1).
+constexpr llvm::StringLiteral kDateAttr = "lvx.date";
+constexpr llvm::StringLiteral kIIAttr = "lvx.ii";
 
 /// The instruction an op prints, from LVXLatency.h -- which the bundler reads
 /// too, and must. Resolving it as the operation's own name finds nothing in
@@ -142,7 +147,8 @@ static bool isInnermost(lvx_scf::ForOp loop) {
   return !r.wasInterrupted();
 }
 
-/// Assigns `lvx.stage` to every operation of `loop`'s body.
+/// Records the resource-free schedule of `loop`'s body: `lvx.date` on every
+/// operation and `lvx.ii` on the loop.
 static LogicalResult assignStages(lvx_scf::ForOp loop, bool annotatePeriod) {
   SmallVector<Operation *> ops;
   DenseMap<Operation *, unsigned> index;
@@ -248,18 +254,23 @@ static LogicalResult assignStages(lvx_scf::ForOp loop, bool annotatePeriod) {
   }
 
   int64_t period = g.getPeriod();
-  unsigned maxStage = 0;
-  SmallVector<unsigned> stages(ops.size());
-  for (unsigned i = 0; i != ops.size(); ++i) {
-    stages[i] = static_cast<unsigned>(g.getDate(i + 1) / period);
-    maxStage = std::max(maxStage, stages[i]);
-  }
+  // Dates from zero: the source is at zero and every arc from it is too, so
+  // the earliest operation's date is the origin only after this shift.
+  int64_t lo = g.getDate(1);
+  for (unsigned i = 1; i != ops.size(); ++i)
+    lo = std::min(lo, g.getDate(i + 1));
+  int64_t maxStage = 0;
+  for (unsigned i = 0; i != ops.size(); ++i)
+    maxStage = std::max(maxStage, (g.getDate(i + 1) - lo) / period);
   if (maxStage == 0)
     return success(); // one stage: nothing crosses the back edge
 
   OpBuilder b(loop);
   for (unsigned i = 0; i != ops.size(); ++i)
-    ops[i]->setAttr(kStageAttr, b.getI64IntegerAttr(stages[i]));
+    ops[i]->setAttr(kDateAttr, b.getI64IntegerAttr(g.getDate(i + 1) - lo));
+  loop->setAttr(kIIAttr, b.getI64IntegerAttr(period));
+  if (annotatePeriod)
+    loop->setAttr("lvx.period", b.getI64IntegerAttr(period));
   if (annotatePeriod)
     loop->setAttr("lvx.period", b.getI64IntegerAttr(period));
   return success();

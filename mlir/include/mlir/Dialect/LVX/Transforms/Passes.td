@@ -258,27 +258,32 @@ def LVXEmitAsmPass : Pass<"lvx-emit-asm", "::mlir::ModuleOp"> {
 
 def LVXPipelinePass
     : Pass<"lvx-pipeline", "::mlir::lvx_func::FuncOp"> {
-  let summary = "Software pipeline an `lvx_scf.for` from a stage assignment";
+  let summary = "Software pipeline an `lvx_scf.for` from a modulo schedule";
   let description = [{
-    Emits the software pipeline an `lvx.stages` attribute describes: a peeled
-    prologue starting the first iterations, a kernel running every stage at
-    once on a different iteration, and a peeled epilogue finishing the last.
-    See lvx-mlir/docs/SoftwarePipelining.md.
+    Builds the software pipeline a modulo schedule describes. The schedule is
+    the whole input -- `lvx.date` on each body operation, `lvx.ii` on the
+    loop -- and the stages, the kernel unrolling and the code are derived from
+    it, after [PaCT97] as LVX GCC's construction implements it: instances
+    walked in (date, iteration, body position) order, a virtual loopback after
+    the body at phase 0, the kernel the `kunroll * II` cycles ending at
+    ITER_SLOT, and the drain of the exit taken. See
+    lvx-mlir/docs/SoftwarePipelining.md and
+    lvx-csw/docs/mlir-pipeliner-design.md §1b.
 
-    Modulo variable expansion is unrolling in SSA: the kernel holds as many
-    copies of the body as the longest-lived value needs, rounded up to a power
-    of two, and each copy reads an older version by name -- a result of an
-    earlier copy, or an `iter_arg` the previous kernel trip filled with a
-    fresh result. No `iter_arg` is yielded into another. Iterations the
-    unrolled kernel cannot take whole are peeled ahead of the prologue.
+    Modulo variable expansion is unrolling in SSA: every instance defines a
+    fresh value, and a value crossing the kernel's back edge is an `iter_arg`
+    yielded a fresh instance, never another `iter_arg`. `kunroll` is the
+    fewest copies, rounded up to a power of two, for which each read of a
+    value -- a tie's result counting as a reader of its tied operand -- comes
+    before the instance that reuses its register.
 
-    Takes the stage assignment as an attribute rather than computing it: the
-    policy that produces one (decomposed software pipelining, then converging
-    to modulo schedules) is separate, and a hand-written assignment is what
-    this is tested with.
+    Needs constant loop bounds for now: the exit taken is decided at compile
+    time, so the code is the prologue, a kernel loop of whole trips, the
+    leading part of one more trip up to the exit, and that exit's drain. A
+    trip count shorter than the pipeline exits from the prologue.
 
-    Needs constant loop bounds for now, which is what lets it leave out the
-    short-trip-count guard and size the peel at compile time.
+    A bare `lvx.stage` per operation, with no `lvx.ii`, is read as a date at
+    an initiation interval of one, for hand-written tests.
   }];
 }
 
@@ -297,7 +302,9 @@ def LVXDecomposedPipelinePass
     half wants -- and `-lvx-schedule` list-schedules a block against the real
     reservation tables. The decomposition falls out of the pass order.
 
-    Writes `lvx.stage` on each body operation, which `-lvx-pipeline` consumes.
+    Writes the resource-free schedule as the modulo schedule `-lvx-pipeline`
+    consumes: `lvx.date` on each body operation, from zero, and `lvx.ii` on
+    the loop. A loop whose schedule spans one stage is left unannotated.
     See lvx-mlir/docs/SoftwarePipelining.md.
   }];
   let options = [
