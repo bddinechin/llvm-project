@@ -18,12 +18,12 @@ lvx_func.func @use_before_def(%base: !lvx.reg<r0>) {
 
 // -----
 
-// Dynamic bounds need the exit decided at run time: the counter tests in a
-// remainder copy, which are not emitted.
-lvx_func.func @dynamic(%base: !lvx.reg<r0>, %n: !lvx.reg<r1>) {
+// A run-time trip count is a shift of the bound difference, which needs a
+// constant power-of-two step.
+lvx_func.func @step3(%base: !lvx.reg<r0>, %n: !lvx.reg<r1>) {
   %lo = lvx.li 0 : i64 : !lvx.reg
-  %st = lvx.li 1 : i64 : !lvx.reg
-  // expected-error @below {{needs constant loop bounds}}
+  %st = lvx.li 3 : i64 : !lvx.reg
+  // expected-error @below {{constant power-of-two step}}
   lvx_scf.for %lo : !lvx.reg to %n : !lvx.reg<r1> step %st : !lvx.reg {
   ^bb0(%i: !lvx.reg):
     %v = lvx.ld %base, 0 : i64 {lvx.stage = 0 : i64} : (!lvx.reg<r0>) -> !lvx.reg

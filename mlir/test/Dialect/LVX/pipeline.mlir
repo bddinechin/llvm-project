@@ -235,3 +235,72 @@ lvx_func.func @dates(%base: !lvx.reg<r0>) {
   } {lvx.ii = 2 : i64}
   lvx_func.return
 }
+
+// -----
+
+// A run-time trip count M. The original loop runs the first R iterations, and
+// the pipeline the rest under a guard of `ok` trips: three loads ramp up
+// (L0 = 3), T whole trips of four copies, and three stores drain, so
+//   ok = M >= L0 + K = 7,  T = (M - 3) >> 2,  R = ok ? (M - 3) & 3 : M.
+// A count of zero is LOOPDO's skip for the remainder, and a loop of zero trips
+// for the guard, so neither needs a branch of its own.
+// CHECK-LABEL: lvx_func.func @dyn_deep
+// CHECK: %[[M:.*]] = lvx.sbfd %{{.*}}, %[[LO:[^ ]*]] :
+// CHECK-NEXT: %[[OK:.*]] = lvx.compd_i ge %[[M]], 7
+// CHECK-NEXT: %[[X:.*]] = lvx.addd_i %[[M]], -3
+// CHECK-NEXT: %[[T:.*]] = lvx.srld_i %[[X]], 2
+// CHECK-NEXT: %[[REM:.*]] = lvx.andd_i %[[X]], 3
+// CHECK-NEXT: %[[R:.*]] = lvx.cmoved dnez %[[OK]], %[[REM]], %[[M]]
+// CHECK-NEXT: %[[BASE:.*]] = lvx.addd %[[LO]], %[[R]]
+// The remainder, the original loop cut short at BASE:
+// CHECK-NEXT: lvx_scf.for %[[LO]] : !lvx.reg to %[[BASE]]
+// CHECK: lvx.ld
+// CHECK-NEXT: lvx.sd
+// The guard, and inside it the pipeline from BASE:
+// CHECK: lvx_scf.for %{{.*}} to %[[OK]]
+// CHECK-COUNT-3: lvx.ld
+// CHECK-NEXT: %[[SPAN:.*]] = lvx.slld_i %[[T]], 2
+// CHECK-NEXT: %[[KUB:.*]] = lvx.addd %[[BASE]], %[[SPAN]]
+// CHECK-NEXT: %[[KST:.*]] = lvx.li 4
+// CHECK-NEXT: %[[K:.*]]:3 = lvx_scf.for %[[BASE]] : !lvx.reg to %[[KUB]] : !lvx.reg step %[[KST]]
+// CHECK-COUNT-4: lvx.sd
+// CHECK: lvx_scf.yield
+// CHECK-NEXT: }
+// CHECK-NEXT: lvx.sd %[[K]]#0
+// CHECK-NEXT: lvx.sd %[[K]]#1
+// CHECK-NEXT: lvx.sd %[[K]]#2
+lvx_func.func @dyn_deep(%base: !lvx.reg<r0>, %n: !lvx.reg<r1>) {
+  %lo = lvx.li 0 : i64 : !lvx.reg
+  %st = lvx.li 1 : i64 : !lvx.reg
+  lvx_scf.for %lo : !lvx.reg to %n : !lvx.reg<r1> step %st : !lvx.reg {
+  ^bb0(%i: !lvx.reg):
+    %v = lvx.ld %base, 0 : i64 {lvx.stage = 0 : i64} : (!lvx.reg<r0>) -> !lvx.reg
+    lvx.sd %v, %base, 8 : i64 {lvx.stage = 3 : i64} : (!lvx.reg, !lvx.reg<r0>)
+    lvx_scf.yield
+  }
+  lvx_func.return
+}
+
+// -----
+
+// A run-time count with an accumulator: the guard carries the remainder's
+// results in and the drain's out, so a count too short for the pipeline
+// returns what the remainder loop computed.
+// CHECK-LABEL: lvx_func.func @dyn_acc
+// CHECK: %[[REM:.*]] = lvx_scf.for
+// CHECK: %[[G:.*]] = lvx_scf.for %{{.*}} iter_args(%[[REM]])
+// CHECK: lvx.mv %[[G]]
+lvx_func.func @dyn_acc(%base: !lvx.reg<r0>, %n: !lvx.reg<r1>) -> !lvx.reg<r0> {
+  %lo = lvx.li 0 : i64 : !lvx.reg
+  %st = lvx.li 1 : i64 : !lvx.reg
+  %z = lvx.li 0 : i64 : !lvx.reg
+  %r = lvx_scf.for %lo : !lvx.reg to %n : !lvx.reg<r1> step %st : !lvx.reg
+       iter_args(%z) : (!lvx.reg) -> (!lvx.reg) {
+  ^bb0(%i: !lvx.reg, %a: !lvx.reg):
+    %v = lvx.ld %base, 0 : i64 {lvx.stage = 0 : i64} : (!lvx.reg<r0>) -> !lvx.reg
+    %s = lvx.addd %a, %v {lvx.stage = 1 : i64} : (!lvx.reg, !lvx.reg) -> !lvx.reg
+    lvx_scf.yield %s : !lvx.reg
+  }
+  %out = lvx.mv %r : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %out : !lvx.reg<r0>
+}

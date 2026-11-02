@@ -41,6 +41,23 @@
 //    exit instance, and the drain. A trip count shorter than the pipeline
 //    exits from the prologue, which needs no guard.
 //
+//  - A RUN-TIME TRIP COUNT is rounded down and peeled, the remainder AHEAD:
+//    the original loop runs the first R iterations, then the pipeline -- the
+//    prologue, T whole kernel trips, the main drain -- runs the rest, inside a
+//    loop of `ok` trips that is the guard. With M the count, L0 the
+//    iterations the prologue's loopbacks cover and K the unrolling,
+//
+//        ok = M >= L0 + K,   T = (M - L0) >> log2 K,
+//        R  = ok ? (M - L0) & (K - 1) : M.
+//
+//    GCC puts the remainder after the kernel, in a copy whose K - 1 loopback
+//    instances are counted exits to drains of their own; that needs branches,
+//    and `lvx_scf.for`'s body is one block, so a pipeline nested in an outer
+//    loop could not hold them. Peeling ahead needs no branch: the remainder
+//    loop's count of zero is LOOPDO's skip, and the guard is a loop of zero
+//    or one trip. Both are ordinary `lvx_scf.for`s, so allocation, the
+//    hardware-loop lowering and the scheduler see nothing new.
+//
 // In SSA the renaming GCC's construction has to do over hard registers is the
 // allocator's ordinary job: every instance defines a fresh value, and a value
 // crossing the kernel's back edge is an `iter_arg` yielded a fresh instance,
@@ -152,8 +169,8 @@ struct Read {
 class PipelineBuilder {
 public:
   PipelineBuilder(lvx_scf::ForOp loop, ArrayRef<int64_t> dates, int64_t ii,
-                  Bounds bounds)
-      : loop(loop), dates(dates), ii(ii), bounds(bounds),
+                  std::optional<Bounds> bounds, int64_t step)
+      : loop(loop), dates(dates), ii(ii), bounds(bounds), step(step),
         yield(cast<lvx_scf::YieldOp>(loop.getBody()->getTerminator())) {
     for (Operation &op : loop.getBody()->without_terminator()) {
       index[&op] = ops.size();
@@ -187,15 +204,28 @@ private:
   LogicalResult computeUnroll();
 
   // Straight-line code: the value of `operand` as read by an instance of
-  // iteration `iter`.
+  // iteration `iter` of the current section.
   Value straight(OpBuilder &b, Value operand, int64_t iter);
   Value producedAt(Value v, int64_t iter);
   void emitStraight(OpBuilder &b, const Slot &s);
+  Value inductionAt(OpBuilder &b, int64_t iter);
+
+  /// The kernel loop over the window, from `lb` to `ub` by `st`. Its inits
+  /// are read from the current section, which must be the prologue's.
+  FailureOr<lvx_scf::ForOp> buildKernel(OpBuilder &b, Value lb, Value ub,
+                                        Value st);
+  /// Starts the section after the kernel: only what the kernel carried out of
+  /// its last trip, in that trip's window iterations, is readable.
+  void afterKernel(lvx_scf::ForOp kernel);
+
+  LogicalResult emitConstant();
+  LogicalResult emitRuntime();
 
   lvx_scf::ForOp loop;
   ArrayRef<int64_t> dates;
   int64_t ii;
-  Bounds bounds;
+  std::optional<Bounds> bounds; // when constant
+  int64_t step;
   lvx_scf::YieldOp yield;
 
   SmallVector<Operation *> ops;
@@ -215,10 +245,19 @@ private:
   /// Window instances whose value outlives the trip: the iter_args.
   SmallVector<std::pair<Value, int64_t>> carried;
 
-  /// (value, absolute iteration) -> the instance's result, in straight-line
+  /// (value, section iteration) -> the instance's result, in straight-line
   /// code and for what the kernel loop leaves behind.
   DenseMap<std::pair<Value, int64_t>, Value> produced;
   bool failedResolve = false;
+
+  // The current section. Iteration `it` has induction value
+  // `ivBase + (it + ivShift) * step`, or the constant `bounds->ivAt(it)` when
+  // `ivBase` is null; an iteration before 0 reads `incoming`, if allowed.
+  Value ivBase;
+  int64_t ivShift = 0;
+  DenseMap<int64_t, Value> ivCache;
+  SmallVector<Value> incoming;
+  bool allowIncoming = true;
 };
 
 Read PipelineBuilder::readOf(Value operand) {
@@ -353,11 +392,15 @@ LogicalResult PipelineBuilder::plan() {
       return loop.emitError("internal: the kernel window is not a steady "
                             "state");
 
-  // The exit taken: the loopback of the last iteration.
-  int64_t trips = bounds.tripCount();
+  // The exit taken: the loopback of the last iteration, when it is known.
+  // With a run-time count the pipeline always leaves by the main drain, after
+  // whole trips, and the iterations short of that are peeled ahead of it.
+  int64_t trips = bounds ? bounds->tripCount() : 0;
+  if (!bounds)
+    kernelTrips = 1; // at least one, under the guard
   exitIter = trips - 1;
   int64_t firstKernelExit = iterIteration - unroll + 1;
-  if (trips > 0 && exitIter >= firstKernelExit) {
+  if (bounds && trips > 0 && exitIter >= firstKernelExit) {
     int64_t x = exitIter - firstKernelExit;
     int64_t r = x / unroll, j = x % unroll;
     if (j == static_cast<int64_t>(unroll) - 1) {
@@ -407,11 +450,11 @@ LogicalResult PipelineBuilder::plan() {
 }
 
 Value PipelineBuilder::producedAt(Value v, int64_t iter) {
-  if (iter < 0) {
-    // Before the loop: a yielded value is the init of its iter_arg.
+  if (iter < 0 && allowIncoming) {
+    // Before the pipeline: a yielded value is what enters its iter_arg.
     for (auto [j, y] : llvm::enumerate(yield.getOperands()))
       if (y == v)
-        return loop.getInitArgs()[j];
+        return incoming[j];
   }
   auto it = produced.find({v, iter});
   if (it == produced.end()) {
@@ -427,12 +470,33 @@ Value PipelineBuilder::straight(OpBuilder &b, Value operand, int64_t iter) {
   case Read::External:
     return rd.value;
   case Read::Induction:
-    return b.create<LiOp>(loop.getLoc(), operand.getType(),
-                          b.getI64IntegerAttr(bounds.ivAt(iter)));
+    return inductionAt(b, iter);
   case Read::Body:
     return producedAt(rd.value, iter - rd.distance);
   }
   llvm_unreachable("unknown read");
+}
+
+/// `addd`'s immediate form takes a signed 10-bit value; past it, materialise.
+static Value addConstant(OpBuilder &b, Location loc, Value base, int64_t imm) {
+  if (imm == 0)
+    return base;
+  if (imm >= -512 && imm < 512)
+    return b.create<AdddImmOp>(loc, base.getType(), base,
+                               b.getI64IntegerAttr(imm));
+  Value k = b.create<LiOp>(loc, base.getType(), b.getI64IntegerAttr(imm));
+  return b.create<AdddOp>(loc, base.getType(), base, k);
+}
+
+Value PipelineBuilder::inductionAt(OpBuilder &b, int64_t iter) {
+  Type t = loop.getInductionVar().getType();
+  if (!ivBase)
+    return b.create<LiOp>(loop.getLoc(), t,
+                          b.getI64IntegerAttr(bounds->ivAt(iter)));
+  Value &v = ivCache[iter];
+  if (!v)
+    v = addConstant(b, loop.getLoc(), ivBase, (iter + ivShift) * step);
+  return v;
 }
 
 void PipelineBuilder::emitStraight(OpBuilder &b, const Slot &s) {
@@ -450,10 +514,112 @@ void PipelineBuilder::emitStraight(OpBuilder &b, const Slot &s) {
     produced[{orig, s.iter}] = fresh;
 }
 
+FailureOr<lvx_scf::ForOp> PipelineBuilder::buildKernel(OpBuilder &b,
+                                                        Value lb, Value ub,
+                                                        Value st) {
+  Location loc = loop.getLoc();
+  SmallVector<Value> inits;
+  SmallVector<Type> types;
+  for (auto [v, rel] : carried) {
+    Value init = producedAt(v, rel - unroll);
+    if (!init) {
+      // Nothing reads the slot on the first trip; any value of its type will
+      // do, and an earlier instance of the same value is the obvious one.
+      failedResolve = false;
+      for (auto &[key, val] : produced)
+        if (key.first == v) {
+          init = val;
+          break;
+        }
+      if (!init) {
+        loop.emitError("internal: no initial value for an iter_arg of the "
+                       "kernel");
+        return failure();
+      }
+    }
+    inits.push_back(init);
+    types.push_back(v.getType());
+  }
+  auto kernel = b.create<lvx_scf::ForOp>(loc, types, lb, ub, st, inits);
+
+  OpBuilder::InsertionGuard guard(b);
+  Block *body = b.createBlock(&kernel.getRegion());
+  body->addArgument(loop.getInductionVar().getType(), loc);
+  for (Type t : types)
+    body->addArgument(t, loc);
+  b.setInsertionPointToStart(body);
+
+  DenseMap<std::pair<Value, int64_t>, Value> slotArg, fresh;
+  for (auto [i, c] : llvm::enumerate(carried))
+    slotArg[c] = kernel.getRegionIterArgs()[i];
+  // Window iteration `l` of a trip has the trip's induction value plus `l`
+  // steps.
+  DenseMap<int64_t, Value> ivs;
+  auto iv = [&](int64_t rel) -> Value {
+    Value &v = ivs[rel];
+    if (!v)
+      v = addConstant(b, loc, kernel.getInductionVar(), rel * step);
+    return v;
+  };
+
+  for (const Slot &s : window) {
+    if (s.op == loopback())
+      continue;
+    Operation *op = ops[s.op];
+    IRMapping map;
+    for (Value operand : op->getOperands()) {
+      Read rd = readOf(operand);
+      if (rd.kind == Read::External) {
+        map.map(operand, rd.value);
+        continue;
+      }
+      if (rd.kind == Read::Induction) {
+        map.map(operand, iv(s.iter));
+        continue;
+      }
+      int64_t from = s.iter - rd.distance;
+      unsigned d = index.lookup(rd.value.getDefiningOp());
+      Value v = dateOf(d, from) >= kernelFirst
+                    ? fresh.lookup({rd.value, from})
+                    : slotArg.lookup({rd.value, from + unroll});
+      if (!v) {
+        loop.emitError("internal: a kernel instance reads a value the "
+                       "kernel does not hold");
+        return failure();
+      }
+      map.map(operand, v);
+    }
+    Operation *clone = b.clone(*op, map);
+    for (auto [orig, res] : llvm::zip(op->getResults(), clone->getResults()))
+      fresh[{orig, s.iter}] = res;
+  }
+
+  SmallVector<Value> yielded;
+  for (auto c : carried)
+    yielded.push_back(fresh.lookup(c));
+  b.create<lvx_scf::YieldOp>(loc, yielded);
+  return kernel;
+}
+
+void PipelineBuilder::afterKernel(lvx_scf::ForOp kernel) {
+  produced.clear();
+  for (auto [i, c] : llvm::enumerate(carried))
+    produced[c] = kernel.getResult(i);
+  // Nothing after the kernel reads back past its last trip's window, the
+  // lifetimes being shorter than `unroll * II`: an iteration before 0 here is
+  // a fault, not the loop's init.
+  allowIncoming = false;
+}
+
 LogicalResult PipelineBuilder::emit() {
+  return bounds ? emitConstant() : emitRuntime();
+}
+
+LogicalResult PipelineBuilder::emitConstant() {
   OpBuilder b(loop);
   Location loc = loop.getLoc();
-  int64_t trips = bounds.tripCount();
+  int64_t trips = bounds->tripCount();
+  incoming.assign(loop.getInitArgs().begin(), loop.getInitArgs().end());
 
   if (trips == 0) {
     for (auto [result, init] :
@@ -473,109 +639,22 @@ LogicalResult PipelineBuilder::emit() {
   }
 
   // --- The kernel loop, `kernelTrips` whole trips. Window iteration `l` of
-  // trip `t` is iteration `l + t * unroll`.
+  // trip `t` is iteration `l + t * unroll`. What it leaves behind is keyed in
+  // absolute iterations here, the sections after it being numbered so.
   if (kernelTrips > 0) {
-    SmallVector<Value> inits;
-    SmallVector<Type> types;
-    for (auto [v, rel] : carried) {
-      Value init = producedAt(v, rel - unroll);
-      if (!init) {
-        // Nothing reads the slot on the first trip; any value of its type
-        // will do, and the one it will hold next is the obvious candidate.
-        failedResolve = false;
-        for (auto &[key, val] : produced)
-          if (key.first == v) {
-            init = val;
-            break;
-          }
-        if (!init)
-          return loop.emitError("internal: no initial value for an iter_arg "
-                                "of the kernel");
-      }
-      inits.push_back(init);
-      types.push_back(v.getType());
-    }
     auto constant = [&](int64_t c) {
       return b.create<LiOp>(loc, loop.getLowerBound().getType(),
                             b.getI64IntegerAttr(c));
     };
-    Value lb = constant(bounds.ivAt(0));
-    Value ub = constant(bounds.ivAt(kernelTrips * unroll));
-    Value st = constant(bounds.step * static_cast<int64_t>(unroll));
-    auto kernel = b.create<lvx_scf::ForOp>(loc, types, lb, ub, st, inits);
-
-    {
-      OpBuilder::InsertionGuard guard(b);
-      Block *body = b.createBlock(&kernel.getRegion());
-      body->addArgument(loop.getInductionVar().getType(), loc);
-      for (Type t : types)
-        body->addArgument(t, loc);
-      b.setInsertionPointToStart(body);
-
-      DenseMap<std::pair<Value, int64_t>, Value> slotArg, fresh;
-      for (auto [i, c] : llvm::enumerate(carried))
-        slotArg[c] = kernel.getRegionIterArgs()[i];
-      DenseMap<int64_t, Value> ivs;
-      ivs[0] = kernel.getInductionVar();
-      auto iv = [&](int64_t rel) -> Value {
-        Value &v = ivs[rel];
-        if (!v) {
-          int64_t imm = rel * bounds.step;
-          Value base = kernel.getInductionVar();
-          // `addd`'s immediate form takes a signed 10-bit value.
-          if (imm >= -512 && imm < 512) {
-            v = b.create<AdddImmOp>(loc, base.getType(), base,
-                                    b.getI64IntegerAttr(imm));
-          } else {
-            Value k = b.create<LiOp>(loc, base.getType(),
-                                     b.getI64IntegerAttr(imm));
-            v = b.create<AdddOp>(loc, base.getType(), base, k);
-          }
-        }
-        return v;
-      };
-
-      for (const Slot &s : window) {
-        if (s.op == loopback())
-          continue;
-        Operation *op = ops[s.op];
-        IRMapping map;
-        for (Value operand : op->getOperands()) {
-          Read rd = readOf(operand);
-          if (rd.kind == Read::External) {
-            map.map(operand, rd.value);
-            continue;
-          }
-          if (rd.kind == Read::Induction) {
-            map.map(operand, iv(s.iter));
-            continue;
-          }
-          int64_t from = s.iter - rd.distance;
-          unsigned d = index.lookup(rd.value.getDefiningOp());
-          Value v = dateOf(d, from) >= kernelFirst
-                        ? fresh.lookup({rd.value, from})
-                        : slotArg.lookup({rd.value, from + unroll});
-          if (!v)
-            return loop.emitError("internal: a kernel instance reads a value "
-                                  "the kernel does not hold");
-          map.map(operand, v);
-        }
-        Operation *clone = b.clone(*op, map);
-        for (auto [orig, res] :
-             llvm::zip(op->getResults(), clone->getResults()))
-          fresh[{orig, s.iter}] = res;
-      }
-
-      SmallVector<Value> yielded;
-      for (auto c : carried)
-        yielded.push_back(fresh.lookup(c));
-      b.create<lvx_scf::YieldOp>(loc, yielded);
-    }
-
-    // What the last trip leaves behind, in absolute iterations.
+    Value lb = constant(bounds->ivAt(0));
+    Value ub = constant(bounds->ivAt(kernelTrips * unroll));
+    Value st = constant(step * static_cast<int64_t>(unroll));
+    FailureOr<lvx_scf::ForOp> kernel = buildKernel(b, lb, ub, st);
+    if (failed(kernel))
+      return failure();
     int64_t last = (kernelTrips - 1) * unroll;
     for (auto [i, c] : llvm::enumerate(carried))
-      produced[{c.first, c.second + last}] = kernel.getResult(i);
+      produced[{c.first, c.second + last}] = kernel->getResult(i);
   }
 
   // --- The leading part of one more trip, up to its exit.
@@ -614,6 +693,107 @@ LogicalResult PipelineBuilder::emit() {
   for (auto [result, v] : llvm::zip(loop.getResults(), results))
     result.replaceAllUsesWith(v);
   loop.erase();
+  return success();
+}
+
+LogicalResult PipelineBuilder::emitRuntime() {
+  Location loc = loop.getLoc();
+  Type t = loop.getInductionVar().getType();
+  OpBuilder b(loop);
+  auto i64 = [&](int64_t v) { return b.getI64IntegerAttr(v); };
+  int64_t k = unroll;
+  int64_t l0 = iterIteration - k + 1; // loopbacks the prologue covers
+
+  // --- The count, as SCFToCF computes LOOPDO's: ub >= lb is assumed, as it
+  // was for the loop being replaced.
+  Value m = b.create<SbfdOp>(loc, t, loop.getUpperBound(),
+                             loop.getLowerBound());
+  if (step != 1) {
+    m = b.create<AdddImmOp>(loc, t, m, i64(step - 1));
+    m = b.create<SrsdImmOp>(loc, t, m, i64(llvm::Log2_64(step)));
+  }
+  // Shifts by zero and masks to zero are what `kunroll` = 1 and a unit step
+  // would otherwise leave behind, in every pipelined loop.
+  auto shl = [&](Value v, int64_t by) -> Value {
+    return by ? b.create<SlldImmOp>(loc, t, v, i64(by)).getResult() : v;
+  };
+  Value ok = b.create<CompdImmOp>(loc, t, IntComp::ge, m, i64(l0 + k));
+  Value x = addConstant(b, loc, m, -l0);
+  Value trips = k == 1 ? x
+                       : b.create<SrldImmOp>(loc, t, x,
+                                             i64(llvm::Log2_64(k)))
+                             .getResult();
+  Value rem = k == 1 ? b.create<LiOp>(loc, t, i64(0)).getResult()
+                     : b.create<AnddImmOp>(loc, t, x, i64(k - 1)).getResult();
+  Value r = b.create<CmovedOp>(loc, t, BcuCond::dnez, ok, rem, m);
+  Value base = b.create<AdddOp>(loc, t, loop.getLowerBound(),
+                                shl(r, llvm::Log2_64(step)));
+
+  // --- The remainder, ahead: the original loop, cut short at `base`.
+  loop.getUpperBoundMutable().assign(base);
+
+  // --- The guard: one trip when the pipeline has whole trips to run.
+  b.setInsertionPointAfter(loop);
+  Value c0 = b.create<LiOp>(loc, t, i64(0));
+  Value c1 = b.create<LiOp>(loc, t, i64(1));
+  SmallVector<Value> loopResults(loop.getResults());
+  auto guardOp = b.create<lvx_scf::ForOp>(loc, loop.getResultTypes(), c0, ok,
+                                          c1, loopResults);
+  Block *gbody = b.createBlock(&guardOp.getRegion());
+  gbody->addArgument(t, loc);
+  for (Type rt : loop.getResultTypes())
+    gbody->addArgument(rt, loc);
+  b.setInsertionPointToStart(gbody);
+
+  // --- Prologue: iterations from `base`, entered with the remainder's values.
+  ivBase = base;
+  ivShift = 0;
+  incoming.assign(guardOp.getRegionIterArgs().begin(),
+                  guardOp.getRegionIterArgs().end());
+  allowIncoming = true;
+  for (const Slot &s : prologue)
+    emitStraight(b, s);
+
+  // --- The kernel, `trips` whole trips from `base`.
+  Value span = shl(trips, llvm::Log2_64(k * step));
+  Value kub = b.create<AdddOp>(loc, t, base, span);
+  Value kst = b.create<LiOp>(loc, t, i64(k * step));
+  FailureOr<lvx_scf::ForOp> kernel = buildKernel(b, base, kub, kst);
+  if (failed(kernel))
+    return failure();
+
+  // --- The main drain, in the last trip's window iterations: iteration `l`
+  // there is `kub + (l - unroll) * step`.
+  afterKernel(*kernel);
+  ivBase = kub;
+  ivShift = -k;
+  ivCache.clear();
+  {
+    Slot exitSlot = slot(loopback(), iterIteration);
+    SmallVector<Slot> drain;
+    int64_t lo = std::max<int64_t>(0, iterIteration - numStages + 1);
+    for (int64_t l = lo; l <= iterIteration; ++l)
+      for (unsigned i = 0; i != ops.size(); ++i) {
+        Slot s = slot(i, l);
+        if (exitSlot < s)
+          drain.push_back(s);
+      }
+    llvm::sort(drain);
+    for (const Slot &s : drain)
+      emitStraight(b, s);
+  }
+
+  SmallVector<Value> results;
+  for (Value y : yield.getOperands())
+    results.push_back(producedAt(y, iterIteration));
+  if (failedResolve)
+    return loop.emitError("internal: an instance reads a value no emitted "
+                          "instance produced");
+  b.create<lvx_scf::YieldOp>(loc, results);
+
+  for (auto [orig, guarded] :
+       llvm::zip(loop.getResults(), guardOp.getResults()))
+    orig.replaceAllUsesExcept(guarded, guardOp);
   return success();
 }
 
@@ -658,9 +838,10 @@ struct LVXPipelinePass : public lvx::impl::LVXPipelinePassBase<LVXPipelinePass> 
         return signalPassFailure();
       }
       std::optional<Bounds> bounds = boundsOf(loop);
-      if (!bounds) {
-        loop.emitError("software pipelining needs constant loop bounds for "
-                       "now: the exit taken is decided at compile time");
+      std::optional<int64_t> step = constantOf(loop.getStep());
+      if (!step || *step <= 0 || !llvm::isPowerOf2_64(*step)) {
+        loop.emitError("software pipelining needs a constant power-of-two "
+                       "step: the trip count is a shift");
         return signalPassFailure();
       }
 
@@ -670,7 +851,7 @@ struct LVXPipelinePass : public lvx::impl::LVXPipelinePassBase<LVXPipelinePass> 
       }
       loop->removeAttr(kIIAttr);
 
-      PipelineBuilder builder(loop, dates, ii, *bounds);
+      PipelineBuilder builder(loop, dates, ii, bounds, *step);
       if (builder.getNumStages() <= 1)
         continue; // nothing in flight across the back edge: not a pipeline
       if (failed(builder.plan()) || failed(builder.emit()))

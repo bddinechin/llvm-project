@@ -239,6 +239,12 @@ private:
       name += ".o";
     if (auto mode = op->getAttrOfType<FloatModeAttr>("floatmode"))
       name += ("." + stringifyFloatMode(mode.getValue())).str();
+    // The register compares print theirs in `emitCompare`; this is for the
+    // immediate forms, `compd_i` and its kin, which reach the generic
+    // immediate path and printed `compd $rd = $rs, 8` -- no predicate, which
+    // gas rejects -- until the pipeliner's trip-count guard emitted the first.
+    if (auto cmp = op->getAttrOfType<IntCompAttr>("intcomp"))
+      name += dotted(stringifyIntComp(cmp.getValue()));
     return name;
   }
 

@@ -277,10 +277,18 @@ def LVXPipelinePass
     value -- a tie's result counting as a reader of its tied operand -- comes
     before the instance that reuses its register.
 
-    Needs constant loop bounds for now: the exit taken is decided at compile
-    time, so the code is the prologue, a kernel loop of whole trips, the
-    leading part of one more trip up to the exit, and that exit's drain. A
-    trip count shorter than the pipeline exits from the prologue.
+    With constant bounds the exit taken is decided at compile time: the
+    prologue, a kernel loop of whole trips, the leading part of one more trip
+    up to the exit, and that exit's drain. A trip count shorter than the
+    pipeline exits from the prologue.
+
+    With a run-time trip count M the count is rounded down and the remainder
+    peeled AHEAD: the original loop runs the first R iterations, and the
+    prologue, T whole kernel trips and the main drain run the rest under a
+    guard loop of `ok` trips -- `ok = M >= L0 + K`, `T = (M - L0) >> log2 K`,
+    `R = ok ? (M - L0) & (K - 1) : M`, with L0 the iterations the prologue's
+    loopbacks cover. Both are `lvx_scf.for`s, so a pipeline nested in an
+    outer loop needs no branch. The step must be a constant power of two.
 
     A bare `lvx.stage` per operation, with no `lvx.ii`, is read as a date at
     an initiation interval of one, for hand-written tests.
