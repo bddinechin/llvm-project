@@ -35,6 +35,15 @@ constexpr unsigned kDefaultMaxRegisters = 64;
 LogicalResult allocateRegisters(lvx_func::FuncOp func,
                                 unsigned maxRegisters = kDefaultMaxRegisters);
 
+/// Establishes what a tie requires of the IR: an operand read through the
+/// destination is dead after the op that overwrites it. Readers of it after
+/// the op move to a copy made just before it when the op's result recurs into
+/// that operand through a loop; otherwise the op itself reads a private copy.
+/// Allocation calls it, and so must anything that schedules before allocation
+/// -- the copies are real instructions -- which is why it is exposed.
+/// Idempotent. See lvx-mlir/docs/SoftwarePipelining.md §8, "Ties".
+void legalizeTiedOperands(lvx_func::FuncOp func);
+
 } // namespace lvx
 } // namespace mlir
 

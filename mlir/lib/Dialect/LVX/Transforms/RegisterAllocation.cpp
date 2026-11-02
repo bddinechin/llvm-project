@@ -456,17 +456,6 @@ static void insertLoopCarriedPreservingCopies(lvx_func::FuncOp func) {
   }
 }
 
-// Same "preserving copy" idea as `insertLoopCarriedPreservingCopies` above,
-// for a different coalescing source: `lvx.ffmad`/`lvx.ffmaw`/`lvx.ffmsd`/
-// `lvx.ffmsw`'s third operand (`c`, the accumulator) is force-coalesced
-// with the op's own result in `buildAllocItems` below (real hardware has
-// no separate destination register -- see lvx-mlir/docs/RegisterAllocation.md,
-// "`ffma`/`ffms` accumulator coalescing"). If `c`'s value is read anywhere
-// else too, that other read must not observe the register being
-// overwritten in place by this op -- so redirect every *other* use to an
-// independent copy made right before the op, exactly mirroring the loop
-// case (the op itself keeps reading the original value; only outside
-// readers move to the copy).
 /// Ops whose operand #2 must land in the same register as their result,
 /// because real hardware overwrites that operand in place.
 ///
@@ -484,45 +473,146 @@ static ArrayRef<TiedOperand> tiedOperands(Operation *op) {
   return tiedOperandsOf(op->getName().stripDialect());
 }
 
-static bool hasTiedAccumulator(Operation *op) {
-  return !tiedOperands(op).empty();
+/// Whether `result` comes back as `c` on the next trip: `c` is an
+/// `lvx_scf.for` body's `iter_arg` and the value yielded into it is `result`,
+/// directly or as the result of a nested loop it was the init of. Then the
+/// loop's channel joins `result` to `c`, and the tie joins `result` to
+/// whatever the tying op reads -- so `c` and the tied read are one register
+/// whatever the read is.
+static bool recursInto(Value result, Value c) {
+  auto arg = dyn_cast<BlockArgument>(c);
+  if (!arg || arg.getArgNumber() == 0)
+    return false;
+  auto loop = dyn_cast_or_null<lvx_scf::ForOp>(arg.getOwner()->getParentOp());
+  if (!loop || arg.getOwner() != loop.getBody())
+    return false;
+  Value v = loop.getBody()->getTerminator()->getOperand(arg.getArgNumber() - 1);
+  // Through nested loops: an inner loop's result is its own yield's value.
+  while (auto inner = v.getDefiningOp<lvx_scf::ForOp>()) {
+    if (inner == loop)
+      break;
+    unsigned i = cast<OpResult>(v).getResultNumber();
+    v = inner.getBody()->getTerminator()->getOperand(i);
+  }
+  return v == result;
 }
 
-static void insertFmaAccumulatorPreservingCopies(lvx_func::FuncOp func) {
-  SmallVector<Operation *> fmaOps;
+static void legalizeTies(lvx_func::FuncOp func) {
+  SmallVector<Operation *> tying;
   func.walk([&](Operation *op) {
-    if (hasTiedAccumulator(op))
-      fmaOps.push_back(op);
+    if (!tiedOperands(op).empty())
+      tying.push_back(op);
   });
-  for (Operation *op : fmaOps) {
+  DominanceInfo dom(func);
+  for (Operation *op : tying) {
     for (TiedOperand tie : tiedOperands(op)) {
-    Value c = op->getOperand(tie.operand);
-    bool hasOtherUse = llvm::any_of(c.getUses(), [&](OpOperand &use) {
-      return use.getOwner() != op;
-    });
-    if (!hasOtherUse)
-      continue;
-    // Give the *ffma* a private copy, rather than redirecting the other
-    // readers to one.
-    //
-    // Redirecting the readers was the original approach and it was wrong.
-    // The copy has to sit immediately before the ffma (that is where `c`
-    // is still intact), so any reader *earlier* than the ffma would be
-    // rewired to a value defined after it -- `operand #N does not dominate
-    // this use`, a hard verifier failure. Ordering it the other way round
-    // has the same problem for a reader inside a loop, whose next
-    // iteration would read the register after the ffma overwrote it, and
-    // that one would be silent rather than caught.
-    //
-    // Copying into the ffma avoids both: `c` itself is never touched, so
-    // every other reader keeps working whatever its position or trip
-    // count, and the value that gets overwritten in place is the copy --
-    // which has exactly one reader, this op.
-    OpBuilder builder(op);
-    auto copy = builder.create<MvOp>(op->getLoc(), c.getType(), c);
-    op->setOperand(tie.operand, copy);
+      Value c = op->getOperand(tie.operand);
+      bool hasOtherUse = llvm::any_of(c.getUses(), [&](OpOperand &use) {
+        return use.getOwner() != op;
+      });
+      // A value from outside the op's innermost loop is read again on the
+      // next trip even when the op is its only reader, and the op would have
+      // overwritten it by then.
+      auto loop = op->getParentOfType<lvx_scf::ForOp>();
+      bool captured =
+          loop && !loop.getBodyRegion().isAncestor(c.getParentRegion());
+      if (!hasOtherUse && !captured)
+        continue;
+      OpBuilder builder(op);
+      auto copy = builder.create<MvOp>(op->getLoc(), c.getType(), c);
+      if (!recursInto(op->getResult(tie.result), c)) {
+        // `c` is not this op's own recurrence: give the op a private copy
+        // and leave `c` untouched, so every other reader keeps working
+        // whatever its position or trip count -- a reader earlier in the
+        // block, or in a loop's next trip reading a `c` captured from
+        // outside. Redirecting the readers instead fails for both: the
+        // earlier one would read a value defined after it (a verifier
+        // error), the next-trip one the register the op overwrote (silent).
+        op->setOperand(tie.operand, copy);
+        continue;
+      }
+      // `c` IS the recurrence -- `acc = ffma(a, b, acc)` yielded back -- and a
+      // private copy cannot work: the tie joins the copy to the result, the
+      // loop channel joins the result to `c`, so all three get one register
+      // and the copy is `mv $rN = $rN`. A reader of `c` after the op then
+      // sees the new accumulator (2026-11-02, a running sum stored every
+      // trip: wrong on the ISS with or without pipelining). So the readers
+      // the op dominates read a copy made before it instead. The copy lies
+      // off the recurrence, which is also the cheaper place: the chain from
+      // one ffma to the next is untouched. Readers before the op need
+      // nothing -- they read before it writes -- and anything else is left
+      // for `checkTiedGroups` to refuse.
+      c.replaceUsesWithIf(copy, [&](OpOperand &use) {
+        Operation *owner = use.getOwner();
+        return owner != op && owner != copy &&
+               dom.properlyDominates(op, owner);
+      });
+      if (copy->use_empty())
+        copy->erase();
     }
   }
+}
+
+/// Refuses a tie group holding a value that is live across the tying write.
+///
+/// The groups are unified, not tested for interference, so nothing else would
+/// notice: a member still read after the op wrote the group's register reads
+/// the op's result instead. `legalizeTiedOperands` exists to prevent it, and
+/// this is what makes a shape it does not handle a diagnostic rather than a
+/// wrong answer. Only units the tied result occupies are compared, so a lane
+/// view at another offset is not mistaken for a conflict, nor a tuple read
+/// only through such views; and an enclosing loop's result, whose interval
+/// starts at the `for` op and so spans the body, is defined at the loop's
+/// exit, not before the write.
+static LogicalResult checkTiedGroups(lvx_func::FuncOp func,
+                                     const LVXLiveIntervals &live,
+                                     ArrayRef<AllocItem> items) {
+  DenseMap<Value, unsigned> itemOf;
+  for (auto [i, item] : llvm::enumerate(items))
+    for (const AllocMember &m : item.members)
+      itemOf[m.value] = i;
+  WalkResult r = func.walk([&](Operation *op) -> WalkResult {
+    for (TiedOperand tie : tiedOperands(op)) {
+      Value result = op->getResult(tie.result);
+      auto it = itemOf.find(result);
+      if (it == itemOf.end())
+        continue;
+      const AllocItem &item = items[it->second];
+      unsigned n = live.getNumber(op);
+      int resLo = 0, resHi = 0;
+      for (const AllocMember &m : item.members)
+        if (m.value == result) {
+          resLo = m.offset;
+          resHi = m.offset + live.getInterval(result).width;
+        }
+      for (const AllocMember &m : item.members) {
+        if (m.value == result)
+          continue;
+        if (auto loop = m.value.getDefiningOp<lvx_scf::ForOp>())
+          if (loop->isProperAncestor(op))
+            continue;
+        // A tuple read only through lane views is read where they are, and
+        // each view is a member with its own offset and interval; the tuple's
+        // interval runs to its last view's last read, at whatever offset.
+        if (!m.value.use_empty() &&
+            llvm::all_of(m.value.getUsers(),
+                         [](Operation *u) { return isa<LaneOp>(u); }))
+          continue;
+        const LiveInterval &iv = live.getInterval(m.value);
+        int lo = m.offset, hi = m.offset + iv.width;
+        if (hi <= resLo || resHi <= lo)
+          continue;
+        if (iv.start < n && iv.end > n) {
+          op->emitError("this op writes the register of a value it is tied "
+                        "to while that value is still read after it; the "
+                        "reader would see the op's result");
+          return WalkResult::interrupt();
+        }
+      }
+    }
+    return WalkResult::advance();
+  });
+  return failure(r.wasInterrupted());
 }
 
 /// Give every repeated `lvx.concat` part its own copy.
@@ -679,10 +769,10 @@ static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
   // be printed at all -- see lvx-mlir/docs/RegisterAllocation.md, "`ffma`/`ffms`
   // accumulator coalescing". Same JOIN-style idea as the loop/branch
   // unioning above, just a 2-value group.
-  // `insertFmaAccumulatorPreservingCopies` (run before this pass builds
-  // live intervals) already guarantees any *other* use of `c` reads an
-  // independent copy first, so merging `c` and `result` here can never
-  // silently corrupt a value still needed elsewhere.
+  // `legalizeTies` (run before this pass builds live intervals) leaves no
+  // reader of `c` after the op, and `checkTiedGroups` refuses whatever it
+  // could not legalize, so merging `c` and `result` here cannot silently
+  // corrupt a value still needed elsewhere.
   func.walk([&](Operation *op) {
     for (TiedOperand tie : tiedOperands(op)) {
       Value c = op->getOperand(tie.operand);
@@ -1068,6 +1158,8 @@ static LogicalResult rewriteSpills(MLIRContext *ctx, ArrayRef<AllocItem> items,
 namespace mlir {
 namespace lvx {
 
+void legalizeTiedOperands(lvx_func::FuncOp func) { legalizeTies(func); }
+
 /// Allocates physical registers in `func`, emitting diagnostics on it and
 /// returning failure when it cannot be done -- a conflicting pin, or more
 /// pressure than `maxRegisters` can hold.
@@ -1082,7 +1174,7 @@ LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters) {
       return success();
     insertLoopCarriedPreservingCopies(func);
     splitRepeatedConcatParts(func);
-    insertFmaAccumulatorPreservingCopies(func);
+    legalizeTies(func);
     LVXLiveIntervals live(func);
     bool conflictingFixedGroup = false, conflictingLaneGroup = false;
     SmallVector<AllocItem> items = buildAllocItems(
@@ -1100,6 +1192,8 @@ LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters) {
                       "physical registers");
       return failure();
     }
+    if (failed(checkTiedGroups(func, live, items)))
+      return failure();
     markCallCrossings(func, live, items);
     bool inUse[kRegisterIdBound] = {};
     // active: indices into `items`, kept sorted by increasing `end`.

@@ -30,6 +30,8 @@
 #include "mlir/Dialect/LVX/Analysis/ParametricLabelCorrecting.h"
 #include "mlir/Dialect/LVX/IR/LVX.h"
 #include "mlir/Dialect/LVX/IR/LVXLatency.h"
+#include "mlir/Dialect/LVX/IR/LVXTiedOperands.h"
+#include "mlir/Dialect/LVX/Transforms/RegisterAllocation.h"
 #include "mlir/Dialect/LVX/IR/LVXScheduling.h"
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
@@ -187,6 +189,36 @@ static LogicalResult assignStages(lvx_scf::ForOp loop, bool annotatePeriod) {
     }
   }
 
+  // Ties. An operand read through the destination shares the result's
+  // register, so the op overwrites it, and every other reader of that value
+  // has to read first -- an anti-dependence SSA does not show, because the
+  // result is a new value. `legalizeTiedOperands` has already moved readers
+  // after the op onto a copy, so what is left precedes it in the same
+  // iteration (omega 0). The latency is the bundler's WAR rule: the write
+  // may share the reader's bundle only if it lands after the read.
+  for (unsigned t = 0; t != ops.size(); ++t) {
+    Operation *tying = ops[t];
+    const OpTiming *tt = nullptr;
+    if (auto m = mnemonicOf(tying))
+      tt = timingOf(*m);
+    for (TiedOperand tie : tiedOperandsOf(tying->getName().stripDialect())) {
+      Value c = tying->getOperand(tie.operand);
+      int64_t write = writeCycleOf(tying, tt, tie.result);
+      for (OpOperand &use : c.getUses()) {
+        Operation *reader =
+            loop.getBody()->findAncestorOpInBlock(*use.getOwner());
+        if (!reader || reader == tying || !index.count(reader))
+          continue;
+        const OpTiming *rt = nullptr;
+        if (auto m = mnemonicOf(use.getOwner()))
+          rt = timingOf(*m);
+        int64_t read = readCycleOf(rt, use.getOperandNumber());
+        g.addArc(index[reader] + 1, t + 1,
+                 std::max<int64_t>(0, read - write + 1), 0);
+      }
+    }
+  }
+
   // Memory, conservatively: any two accesses of which at least one writes keep
   // their program order within an iteration, and do not cross one. Without a
   // dependence test this is all that can be said, and it is what keeps the
@@ -239,6 +271,9 @@ struct LVXDecomposedPipelinePass
   using LVXDecomposedPipelinePassBase::LVXDecomposedPipelinePassBase;
 
   void runOnOperation() override {
+    // The copies a tie needs are instructions the stages must place, so they
+    // are made now rather than at allocation, where they used to be.
+    lvx::legalizeTiedOperands(getOperation());
     SmallVector<lvx_scf::ForOp> loops;
     getOperation().walk([&](lvx_scf::ForOp loop) {
       if (isInnermost(loop))
