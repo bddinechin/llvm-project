@@ -265,10 +265,12 @@ def LVXPipelinePass
     once on a different iteration, and a peeled epilogue finishing the last.
     See lvx-mlir/docs/SoftwarePipelining.md.
 
-    Modulo variable expansion is a shift register in SSA -- a value a later
-    stage still needs becomes an `iter_arg`, and the kernel yields the newer
-    versions so each slides back a trip. Unrolling the kernel removes the
-    copies that implies, and is not done here.
+    Modulo variable expansion is unrolling in SSA: the kernel holds as many
+    copies of the body as the longest-lived value needs, rounded up to a power
+    of two, and each copy reads an older version by name -- a result of an
+    earlier copy, or an `iter_arg` the previous kernel trip filled with a
+    fresh result. No `iter_arg` is yielded into another. Iterations the
+    unrolled kernel cannot take whole are peeled ahead of the prologue.
 
     Takes the stage assignment as an attribute rather than computing it: the
     policy that produces one (decomposed software pipelining, then converging
@@ -276,7 +278,7 @@ def LVXPipelinePass
     this is tested with.
 
     Needs constant loop bounds for now, which is what lets it leave out the
-    short-trip-count guard and the remainder loop.
+    short-trip-count guard and size the peel at compile time.
   }];
 }
 
