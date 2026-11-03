@@ -17,6 +17,11 @@
 // Eligible loops (constant step 1, no nested lvx_scf.for) instead lower to
 // a hardware zero-overhead loop (LOOPDO) -- see lvx-mlir/docs/HardwareLoops.md.
 //
+// The structured early exits (`lvx_scf.loop`/`break`/`if`,
+// docs/SoftwarePipelining.md section 8 step 2c) lower here too: an `if` to a
+// `cb` on the complementary condition around its region, a `break` to a
+// `goto` to the block after its loop, whose arguments are the loop's results.
+//
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
@@ -75,8 +80,14 @@ static std::optional<int64_t> hardwareLoopStep(lvx_scf::ForOp forOp,
   int64_t step = stepAttr.getValue().getSExtValue();
   if (step <= 0 || !llvm::isPowerOf2_64(step))
     return std::nullopt;
+  // A nested loop, or an early exit, makes the body more than one block, and
+  // a LOOPDO body is one: `-lvx-schedule`'s carried dependences across the
+  // implicit back edge are worked out within a block.
   bool hasNestedFor = false;
-  body->walk([&](lvx_scf::ForOp) { hasNestedFor = true; });
+  body->walk([&](Operation *op) {
+    if (isa<lvx_scf::ForOp, lvx_scf::LoopOp, lvx_scf::IfOp>(op))
+      hasNestedFor = true;
+  });
   if (hasNestedFor)
     return std::nullopt;
   return step;
@@ -245,13 +256,83 @@ static void lowerFor(lvx_scf::ForOp forOp) {
     lowerForBranch(forOp);
 }
 
+/// Each lowered `lvx_scf.loop`'s token, and the block after the loop that its
+/// breaks go to.
+using Continuations = DenseMap<Value, Block *>;
+
+/// A break that ends `block` becomes a `goto` to its loop's continuation,
+/// forwarding the break's values as the continuation's arguments. The
+/// allocator gave them the registers of the loop's results, so the branch
+/// moves nothing (`checkBranchOperands` in -lvx-emit-asm holds it to that).
+/// Its loop is always lowered by now: loops are lowered outermost first, and
+/// a break's loop encloses it.
+static void lowerBreakEnding(Block *block, const Continuations &continuations) {
+  auto brk = dyn_cast<lvx_scf::BreakOp>(block->getTerminator());
+  if (!brk)
+    return;
+  OpBuilder builder(brk);
+  builder.create<lvx_cf::BranchOp>(brk.getLoc(),
+                                   continuations.lookup(brk.getToken()),
+                                   SmallVector<Value>(brk.getArgs()));
+  brk.erase();
+}
+
+/// `lvx_scf.loop`: its body becomes a block of the function, entered by a
+/// fall-through, and the ops after it a block whose arguments are its
+/// results. The token stays the body's argument until every break naming it
+/// is lowered; `runOnOperation` drops it then.
+static Block *lowerLoop(lvx_scf::LoopOp loop, Continuations &continuations) {
+  Location loc = loop.getLoc();
+  Block *currentBlock = loop->getBlock();
+  Block *body = loop.getBody();
+  Block *after = currentBlock->splitBlock(Block::iterator(loop));
+  for (Value result : loop.getResults())
+    result.replaceAllUsesWith(after->addArgument(result.getType(), loc));
+  continuations[loop.getToken()] = after;
+
+  currentBlock->getParent()->getBlocks().splice(after->getIterator(),
+                                                loop.getRegion().getBlocks());
+  OpBuilder builder(loop.getContext());
+  builder.setInsertionPointToEnd(currentBlock);
+  builder.create<lvx_cf::BranchOp>(loc, body, ValueRange());
+  lowerBreakEnding(body, continuations);
+  loop.erase();
+  return body;
+}
+
+/// `lvx_scf.if`: a `cb` on the complementary condition jumps over the region,
+/// which falls through from the test, as -lvx-if-convert's guards read the
+/// same register with the complementary code. A region that falls through
+/// ends in a `goto` to the next block, which prints nothing.
+static void lowerIf(lvx_scf::IfOp ifOp, const Continuations &continuations) {
+  Location loc = ifOp.getLoc();
+  Block *currentBlock = ifOp->getBlock();
+  Block *then = ifOp.getThenBlock();
+  Block *after = currentBlock->splitBlock(Block::iterator(ifOp));
+  currentBlock->getParent()->getBlocks().splice(
+      after->getIterator(), ifOp.getThenRegion().getBlocks());
+
+  OpBuilder builder(ifOp.getContext());
+  builder.setInsertionPointToEnd(currentBlock);
+  builder.create<lvx_cf::CondBranchOp>(
+      loc, ifOp.getTest(), *negateBcuCond(ifOp.getCondition()), after,
+      ValueRange(), then, ValueRange());
+  if (auto yield = dyn_cast<lvx_scf::YieldOp>(then->getTerminator())) {
+    builder.setInsertionPoint(yield);
+    builder.create<lvx_cf::BranchOp>(loc, after, ValueRange());
+    yield.erase();
+  } else {
+    lowerBreakEnding(then, continuations);
+  }
+  ifOp.erase();
+}
+
 struct LVXSCFToCFPass
     : public lvx::impl::LVXSCFToCFPassBase<LVXSCFToCFPass> {
   using LVXSCFToCFPassBase::LVXSCFToCFPassBase;
 
   void runOnOperation() override {
     lvx_func::FuncOp func = getOperation();
-    SmallVector<lvx_scf::ForOp> forOps;
     // Pre-order, outer before inner: `Operation::walk`'s default is
     // *post-order* (`mlir/include/mlir/IR/Operation.h`), which would
     // process a nested loop before its containing one -- `lowerFor*`
@@ -261,10 +342,28 @@ struct LVXSCFToCFPass
     // before it gets its turn (found as a real crash: `body->getTerminator()`
     // stops being the expected `lvx_scf.yield` once the inner loop has
     // already spliced pieces of the outer's body elsewhere).
-    func.walk<WalkOrder::PreOrder>(
-        [&](lvx_scf::ForOp op) { forOps.push_back(op); });
-    for (lvx_scf::ForOp forOp : forOps)
-      lowerFor(forOp);
+    //
+    // The early exits go in the same walk, for the same reason and one more:
+    // a break is lowered when the region it ends is spliced into the
+    // function, which must come after its loop's continuation exists.
+    SmallVector<Operation *> structured;
+    func.walk<WalkOrder::PreOrder>([&](Operation *op) {
+      if (isa<lvx_scf::ForOp, lvx_scf::LoopOp, lvx_scf::IfOp>(op))
+        structured.push_back(op);
+    });
+    Continuations continuations;
+    SmallVector<Block *> loopBodies;
+    for (Operation *op : structured) {
+      if (auto forOp = dyn_cast<lvx_scf::ForOp>(op))
+        lowerFor(forOp);
+      else if (auto loop = dyn_cast<lvx_scf::LoopOp>(op))
+        loopBodies.push_back(lowerLoop(loop, continuations));
+      else
+        lowerIf(cast<lvx_scf::IfOp>(op), continuations);
+    }
+    // Every break is a branch now, so the tokens have no uses left.
+    for (Block *body : loopBodies)
+      body->eraseArgument(0);
 
     // This pass creates copies of its own -- a loop's induction-variable
     // channel move among them -- and some land on the register they came

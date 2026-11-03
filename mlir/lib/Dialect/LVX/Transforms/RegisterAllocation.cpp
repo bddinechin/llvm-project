@@ -456,6 +456,26 @@ static void insertLoopCarriedPreservingCopies(lvx_func::FuncOp func) {
   }
 }
 
+// A break's values become its loop's results, so `buildAllocItems` joins each
+// to the result it becomes, as it joins a branch operand to its block
+// argument. Joined directly, two exits' values would share a group, and so a
+// register, whether or not both are live at once -- the straight line
+// computes the next exit's values while the last one's are still needed --
+// and a value broken out twice, or in two positions of one break, would
+// force two results into one register. So every break operand is first
+// copied just before its break: the copy is live only from there to the
+// break, and the copies are what join. They are the parallel copy at each
+// exit that lvx-gcc's `seq_pcopy` sequences; here the scan places them, and
+// the identity sweep removes the ones that land in place.
+static void insertBreakCopies(lvx_func::FuncOp func) {
+  func.walk([&](lvx_scf::BreakOp brk) {
+    OpBuilder builder(brk);
+    for (OpOperand &arg : brk.getArgsMutable())
+      arg.set(builder.create<MvOp>(brk.getLoc(), arg.get().getType(),
+                                   arg.get()));
+  });
+}
+
 /// Ops whose operand #2 must land in the same register as their result,
 /// because real hardware overwrites that operand in place.
 ///
@@ -726,6 +746,18 @@ static SmallVector<AllocItem> buildAllocItems(lvx_func::FuncOp func,
       unite(vIter, vYield);
       unite(vYield, vResult);
       orderedValues.append({vInit, vIter, vYield, vResult});
+    }
+  });
+
+  // A break's values and its loop's results, joined like a branch edge's
+  // operands and block arguments below, and for the same reason: the
+  // lowering makes the break a `goto` that moves nothing. Each value is a
+  // copy of its own (`insertBreakCopies`), so this joins nothing else.
+  func.walk([&](lvx_scf::BreakOp brk) {
+    for (auto [arg, result] :
+         llvm::zip_equal(brk.getArgs(), brk.getLoop().getResults())) {
+      unite(arg, result);
+      orderedValues.append({arg, result});
     }
   });
 
@@ -1173,6 +1205,7 @@ LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters) {
     if (func.isExternal())
       return success();
     insertLoopCarriedPreservingCopies(func);
+    insertBreakCopies(func);
     splitRepeatedConcatParts(func);
     legalizeTies(func);
     LVXLiveIntervals live(func);

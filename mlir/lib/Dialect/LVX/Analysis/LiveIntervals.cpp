@@ -29,6 +29,16 @@ void LVXLiveIntervals::numberBlock(Block *block, unsigned &counter) {
     opNumber[&op] = counter++;
     if (auto forOp = dyn_cast<lvx_scf::ForOp>(op))
       numberBlock(forOp.getBody(), counter);
+    // The early exits' regions inline too, and need nothing more: each runs
+    // at most once and leaves only forward, to the ops after its loop, which
+    // are numbered after it. So a value live across an exit is live from
+    // before the region to after it, which is what the numbering says --
+    // unlike `for`, whose body runs again (the captured-value extension
+    // below).
+    if (auto loop = dyn_cast<lvx_scf::LoopOp>(op))
+      numberBlock(loop.getBody(), counter);
+    if (auto ifOp = dyn_cast<lvx_scf::IfOp>(op))
+      numberBlock(ifOp.getThenBlock(), counter);
     // A guarded op's instruction reads real registers, so it needs a number
     // of its own -- without it the values it uses would look dead here and
     // the allocator would reuse their registers underneath it.
@@ -64,8 +74,13 @@ void LVXLiveIntervals::buildIntervals(lvx_func::FuncOp func) {
   // at their block's reserved entry slot, op results at the op's number.
   // A value that turns out to be a pinned `!lvx.reg<rN>` (ABI-constrained)
   // becomes a fixed interval.
+  //
+  // Only register values: an `lvx_scf.loop`'s token names the loop for its
+  // breaks and is in no register.
   func.walk([&](Block *block) {
     for (BlockArgument arg : block->getArguments()) {
+      if (!widthOf(arg.getType()))
+        continue;
       LiveInterval &iv = getOrCreate(arg, valueToIntervalIndex, intervals);
       iv.start = iv.end = getNumber(block);
       setFixedRegIfPinned(iv);
@@ -81,6 +96,8 @@ void LVXLiveIntervals::buildIntervals(lvx_func::FuncOp func) {
       setFixedRegIfPinned(iv);
     }
     for (Value operand : op->getOperands()) {
+      if (!widthOf(operand.getType()))
+        continue;
       LiveInterval &iv = getOrCreate(operand, valueToIntervalIndex, intervals);
       iv.end = std::max(iv.end, n);
     }
@@ -176,6 +193,8 @@ void LVXLiveIntervals::buildIntervals(lvx_func::FuncOp func) {
       return;
     unsigned blockEnd = getNumber(&block->back());
     for (Value value : info->out()) {
+      if (!widthOf(value.getType()))
+        continue;
       LiveInterval &iv = getOrCreate(value, valueToIntervalIndex, intervals);
       iv.end = std::max(iv.end, blockEnd);
     }
