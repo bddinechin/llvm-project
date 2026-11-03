@@ -282,13 +282,14 @@ def LVXPipelinePass
     up to the exit, and that exit's drain. A trip count shorter than the
     pipeline exits from the prologue.
 
-    With a run-time trip count M the count is rounded down and the remainder
-    peeled AHEAD: the original loop runs the first R iterations, and the
-    prologue, T whole kernel trips and the main drain run the rest under a
-    guard loop of `ok` trips -- `ok = M >= L0 + K`, `T = (M - L0) >> log2 K`,
-    `R = ok ? (M - L0) & (K - 1) : M`, with L0 the iterations the prologue's
-    loopbacks cover. Both are `lvx_scf.for`s, so a pipeline nested in an
-    outer loop needs no branch. The step must be a constant power of two.
+    With a run-time trip count M the construction is LVX GCC's, in one
+    `lvx_scf.loop` whose breaks are the exits: a zero test; the prologue,
+    each of its loopback instances a counted exit to its own drain;
+    `T = (M - 1 - L0) >> log2 K` trips of an exit-free kernel; the remainder
+    copy, whose K - 1 non-closing loopback instances exit on
+    `(M - 1 - L0) & (K - 1)`; and the main drain, which its closing instance
+    falls into. L0 is the loopbacks the prologue holds. At K = 1 there is no
+    remainder copy. The step must be a constant power of two.
 
     A bare `lvx.stage` per operation, with no `lvx.ii`, is read as a date at
     an initiation interval of one, for hand-written tests.
