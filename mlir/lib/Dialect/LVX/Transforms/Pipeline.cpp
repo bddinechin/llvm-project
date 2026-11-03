@@ -41,23 +41,29 @@
 //    exit instance, and the drain. A trip count shorter than the pipeline
 //    exits from the prologue, which needs no guard.
 //
-//  - A RUN-TIME TRIP COUNT is rounded down and peeled, the remainder AHEAD:
-//    the original loop runs the first R iterations, then the pipeline -- the
-//    prologue, T whole kernel trips, the main drain -- runs the rest, inside a
-//    loop of `ok` trips that is the guard. With M the count, L0 the
-//    iterations the prologue's loopbacks cover and K the unrolling,
+//  - A RUN-TIME TRIP COUNT is GCC's arrangement exactly (ROUNDING DOWN in
+//    `lvx_cms_emit_pipeline`, cms-foundations.md §7tricies.62), in one
+//    `lvx_scf.loop` whose breaks are the exits. With M the count, K the
+//    unrolling and L0 the loopbacks the prologue holds:
 //
-//        ok = M >= L0 + K,   T = (M - L0) >> log2 K,
-//        R  = ok ? (M - L0) & (K - 1) : M.
+//      a test that M is zero, then the prologue, each of its loopback
+//      instances l an exit when M == l + 1, to that exit's drain;
+//      T = (M - 1 - L0) >> log2 K whole trips of the kernel, which has no
+//      exit, so it stays one block and LOOPDO repeats it for nothing;
+//      the remainder copy, one more trip in straight line, whose loopback
+//      instance j < K - 1 exits when J = (M - 1 - L0) & (K - 1) is j;
+//      its closing instance dropped, falling into the main drain.
 //
-//    GCC puts the remainder after the kernel, in a copy whose K - 1 loopback
-//    instances are counted exits to drains of their own; that needs branches,
-//    and `lvx_scf.for`'s body is one block, so a pipeline nested in an outer
-//    loop could not hold them. Peeling ahead needs no branch: the remainder
-//    loop's count of zero is LOOPDO's skip, and the guard is a loop of zero
-//    or one trip. Both are ordinary `lvx_scf.for`s, so allocation, the
-//    hardware-loop lowering and the scheduler see nothing new.
+//    The remainder runs 1 to K iterations, never 0, and T may be 0, which
+//    LOOPDO skips. At K = 1 there is no remainder copy: the kernel runs
+//    M - L0 trips and its own closing instance is the main exit.
 //
+//    Rounding up instead -- ceil(M / K) trips with the counted exits inside
+//    the kernel -- is legal here, since nothing downstream has to recognise
+//    the hardware loop (mlir-pipeliner-design.md §6d), and it would save the
+//    remainder copy. It is not taken because the exits would cut the kernel
+//    into K blocks, and the bundler schedules a block at a time.
+
 // In SSA the renaming GCC's construction has to do over hard registers is the
 // allocator's ordinary job: every instance defines a fresh value, and a value
 // crossing the kernel's back edge is an `iter_arg` yielded a fresh instance,
@@ -217,6 +223,14 @@ private:
   /// Starts the section after the kernel: only what the kernel carried out of
   /// its last trip, in that trip's window iterations, is readable.
   void afterKernel(lvx_scf::ForOp kernel);
+  /// What is in flight when iteration `exitIter`'s loopback exits: every
+  /// instance of an iteration up to it that the walk has not reached yet.
+  void emitDrain(OpBuilder &b, int64_t exitIter);
+  /// A counted exit: when `test` passes `cond`, the drain of `exitIter` runs
+  /// and the pipeline is left, through `token`, with that iteration's yielded
+  /// values.
+  void emitExit(OpBuilder &b, Value token, BcuCond cond, Value test,
+                int64_t exitIter);
 
   LogicalResult emitConstant();
   LogicalResult emitRuntime();
@@ -669,19 +683,7 @@ LogicalResult PipelineBuilder::emitConstant() {
 
   // --- The drain: every instance of iterations 0..exit not yet run.
   // `lvx_cms_build_plan`'s epilogue loop, at the one exit taken.
-  {
-    SmallVector<Slot> drain;
-    int64_t lo = std::max<int64_t>(0, exitIter - numStages + 1);
-    for (int64_t l = lo; l <= exitIter; ++l)
-      for (unsigned i = 0; i != ops.size(); ++i) {
-        Slot s = slot(i, l);
-        if (exitSlot < s)
-          drain.push_back(s);
-      }
-    llvm::sort(drain);
-    for (const Slot &s : drain)
-      emitStraight(b, s);
-  }
+  emitDrain(b, exitIter);
 
   // --- The loop's results are the last iteration's yielded values.
   SmallVector<Value> results;
@@ -696,104 +698,148 @@ LogicalResult PipelineBuilder::emitConstant() {
   return success();
 }
 
+void PipelineBuilder::emitDrain(OpBuilder &b, int64_t exitIter) {
+  Slot exitSlot = slot(loopback(), exitIter);
+  SmallVector<Slot> drain;
+  int64_t lo = std::max<int64_t>(0, exitIter - numStages + 1);
+  for (int64_t l = lo; l <= exitIter; ++l)
+    for (unsigned i = 0; i != ops.size(); ++i) {
+      Slot s = slot(i, l);
+      if (exitSlot < s)
+        drain.push_back(s);
+    }
+  llvm::sort(drain);
+  for (const Slot &s : drain)
+    emitStraight(b, s);
+}
+
+void PipelineBuilder::emitExit(OpBuilder &b, Value token, BcuCond cond,
+                               Value test, int64_t exitIter) {
+  Location loc = loop.getLoc();
+  auto exit = b.create<lvx_scf::IfOp>(loc, cond, test);
+  OpBuilder::InsertionGuard guard(b);
+  Operation *fallThrough = exit.getThenBlock()->getTerminator();
+  b.setInsertionPoint(fallThrough);
+  // What the drain produces lives in the exit's region and is gone after it,
+  // and so are the induction values it materialised there: the straight line
+  // that continues past the `if` must not read either.
+  auto outerProduced = produced;
+  auto outerIvs = ivCache;
+  emitDrain(b, exitIter);
+  SmallVector<Value> results;
+  for (Value y : yield.getOperands())
+    results.push_back(producedAt(y, exitIter));
+  if (!failedResolve) {
+    b.create<lvx_scf::BreakOp>(loc, token, results);
+    fallThrough->erase();
+  }
+  produced = std::move(outerProduced);
+  ivCache = std::move(outerIvs);
+}
+
 LogicalResult PipelineBuilder::emitRuntime() {
   Location loc = loop.getLoc();
   Type t = loop.getInductionVar().getType();
   OpBuilder b(loop);
   auto i64 = [&](int64_t v) { return b.getI64IntegerAttr(v); };
   int64_t k = unroll;
-  int64_t l0 = iterIteration - k + 1; // loopbacks the prologue covers
+  int64_t l0 = iterIteration - k + 1; // loopbacks the prologue holds
 
-  // --- The count, as SCFToCF computes LOOPDO's: ub >= lb is assumed, as it
-  // was for the loop being replaced.
+  // --- The count, as SCFToCF computes LOOPDO's. A negative one exits at the
+  // first test, which is `dlez` for that reason.
   Value m = b.create<SbfdOp>(loc, t, loop.getUpperBound(),
                              loop.getLowerBound());
   if (step != 1) {
     m = b.create<AdddImmOp>(loc, t, m, i64(step - 1));
     m = b.create<SrsdImmOp>(loc, t, m, i64(llvm::Log2_64(step)));
   }
-  // Shifts by zero and masks to zero are what `kunroll` = 1 and a unit step
-  // would otherwise leave behind, in every pipelined loop.
+
+  // Shifts by zero are what a unit step and `kunroll` = 1 would otherwise
+  // leave in every pipelined loop.
   auto shl = [&](Value v, int64_t by) -> Value {
     return by ? b.create<SlldImmOp>(loc, t, v, i64(by)).getResult() : v;
   };
-  Value ok = b.create<CompdImmOp>(loc, t, IntComp::ge, m, i64(l0 + k));
-  Value x = addConstant(b, loc, m, -l0);
-  Value trips = k == 1 ? x
-                       : b.create<SrldImmOp>(loc, t, x,
-                                             i64(llvm::Log2_64(k)))
-                             .getResult();
-  Value rem = k == 1 ? b.create<LiOp>(loc, t, i64(0)).getResult()
-                     : b.create<AnddImmOp>(loc, t, x, i64(k - 1)).getResult();
-  Value r = b.create<CmovedOp>(loc, t, BcuCond::dnez, ok, rem, m);
-  Value base = b.create<AdddOp>(loc, t, loop.getLowerBound(),
-                                shl(r, llvm::Log2_64(step)));
+  // M - c, each made once: the prologue's last exit test is K = 1's count.
+  DenseMap<int64_t, Value> mMinus;
+  auto minus = [&](int64_t c) {
+    Value &v = mMinus[c];
+    if (!v)
+      v = addConstant(b, loc, m, -c);
+    return v;
+  };
 
-  // --- The remainder, ahead: the original loop, cut short at `base`.
-  loop.getUpperBoundMutable().assign(base);
+  auto pipeline = b.create<lvx_scf::LoopOp>(loc, loop.getResultTypes());
+  Value token = pipeline.getToken();
+  b.setInsertionPointToStart(pipeline.getBody());
 
-  // --- The guard: one trip when the pipeline has whole trips to run.
-  b.setInsertionPointAfter(loop);
-  Value c0 = b.create<LiOp>(loc, t, i64(0));
-  Value c1 = b.create<LiOp>(loc, t, i64(1));
-  SmallVector<Value> loopResults(loop.getResults());
-  auto guardOp = b.create<lvx_scf::ForOp>(loc, loop.getResultTypes(), c0, ok,
-                                          c1, loopResults);
-  Block *gbody = b.createBlock(&guardOp.getRegion());
-  gbody->addArgument(t, loc);
-  for (Type rt : loop.getResultTypes())
-    gbody->addArgument(rt, loc);
-  b.setInsertionPointToStart(gbody);
-
-  // --- Prologue: iterations from `base`, entered with the remainder's values.
-  ivBase = base;
+  // --- No iteration at all: leave with what the loop was entered with.
+  ivBase = loop.getLowerBound();
   ivShift = 0;
-  incoming.assign(guardOp.getRegionIterArgs().begin(),
-                  guardOp.getRegionIterArgs().end());
+  incoming.assign(loop.getInitArgs().begin(), loop.getInitArgs().end());
   allowIncoming = true;
-  for (const Slot &s : prologue)
-    emitStraight(b, s);
+  emitExit(b, token, BcuCond::dlez, m, -1);
 
-  // --- The kernel, `trips` whole trips from `base`.
-  Value span = shl(trips, llvm::Log2_64(k * step));
-  Value kub = b.create<AdddOp>(loc, t, base, span);
+  // --- Prologue. Its loopback instance of iteration l is the exit taken when
+  // l is the last iteration; the earlier ones having failed, `dlez` on
+  // M - (l + 1) is that test.
+  for (const Slot &s : prologue) {
+    emitStraight(b, s);
+    if (s.op == loopback())
+      emitExit(b, token, BcuCond::dlez, minus(s.iter + 1), s.iter);
+  }
+
+  // --- SETUP: the whole trips, and which of the remainder's exits is taken.
+  // Past the prologue M >= L0 + 1, so X is not negative.
+  Value trips, which;
+  if (k == 1) {
+    trips = minus(l0);
+  } else {
+    Value x = minus(l0 + 1);
+    trips = b.create<SrldImmOp>(loc, t, x, i64(llvm::Log2_64(k)));
+    which = b.create<AnddImmOp>(loc, t, x, i64(k - 1));
+  }
+
+  // --- The kernel, exit-free: `trips` whole trips from the lower bound.
+  Value kub = b.create<AdddOp>(loc, t, loop.getLowerBound(),
+                               shl(trips, llvm::Log2_64(k * step)));
   Value kst = b.create<LiOp>(loc, t, i64(k * step));
-  FailureOr<lvx_scf::ForOp> kernel = buildKernel(b, base, kub, kst);
+  FailureOr<lvx_scf::ForOp> kernel =
+      buildKernel(b, loop.getLowerBound(), kub, kst);
   if (failed(kernel))
     return failure();
 
-  // --- The main drain, in the last trip's window iterations: iteration `l`
-  // there is `kub + (l - unroll) * step`.
+  // --- After it, iterations are numbered as the last trip's window: `l` is
+  // `kub + (l - K) * step`, and the remainder copy is that window again, K
+  // iterations on.
   afterKernel(*kernel);
   ivBase = kub;
   ivShift = -k;
   ivCache.clear();
-  {
-    Slot exitSlot = slot(loopback(), iterIteration);
-    SmallVector<Slot> drain;
-    int64_t lo = std::max<int64_t>(0, iterIteration - numStages + 1);
-    for (int64_t l = lo; l <= iterIteration; ++l)
-      for (unsigned i = 0; i != ops.size(); ++i) {
-        Slot s = slot(i, l);
-        if (exitSlot < s)
-          drain.push_back(s);
-      }
-    llvm::sort(drain);
-    for (const Slot &s : drain)
-      emitStraight(b, s);
+  int64_t mainExit = iterIteration;
+  if (k > 1) {
+    for (const Slot &s : window) {
+      Slot next{s.op, s.iter + k, s.date + k * ii};
+      emitStraight(b, next);
+      if (s.op == loopback() && s.iter != iterIteration)
+        emitExit(b, token, BcuCond::deqz,
+                 addConstant(b, loc, which, -(s.iter - l0)), next.iter);
+    }
+    mainExit = iterIteration + k;
   }
 
+  // --- The main drain, where the closing instance's exit went.
+  emitDrain(b, mainExit);
   SmallVector<Value> results;
   for (Value y : yield.getOperands())
-    results.push_back(producedAt(y, iterIteration));
+    results.push_back(producedAt(y, mainExit));
   if (failedResolve)
     return loop.emitError("internal: an instance reads a value no emitted "
                           "instance produced");
-  b.create<lvx_scf::YieldOp>(loc, results);
+  b.create<lvx_scf::BreakOp>(loc, token, results);
 
-  for (auto [orig, guarded] :
-       llvm::zip(loop.getResults(), guardOp.getResults()))
-    orig.replaceAllUsesExcept(guarded, guardOp);
+  for (auto [orig, piped] : llvm::zip(loop.getResults(), pipeline.getResults()))
+    orig.replaceAllUsesWith(piped);
+  loop.erase();
   return success();
 }
 

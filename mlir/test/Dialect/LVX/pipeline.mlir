@@ -238,37 +238,59 @@ lvx_func.func @dates(%base: !lvx.reg<r0>) {
 
 // -----
 
-// A run-time trip count M. The original loop runs the first R iterations, and
-// the pipeline the rest under a guard of `ok` trips: three loads ramp up
-// (L0 = 3), T whole trips of four copies, and three stores drain, so
-//   ok = M >= L0 + K = 7,  T = (M - 3) >> 2,  R = ok ? (M - 3) & 3 : M.
-// A count of zero is LOOPDO's skip for the remainder, and a loop of zero trips
-// for the guard, so neither needs a branch of its own.
+// A run-time trip count M, in GCC's arrangement: one lvx_scf.loop whose
+// breaks are the exits. Three loads ramp up (L0 = 3), each prologue loopback
+// an exit to its own drain; then T = (M - 4) >> 2 exit-free kernel trips; then
+// the remainder copy, whose first three loopbacks exit when
+// J = (M - 4) & 3 is 0, 1 or 2, and whose closing one falls into the main
+// drain. Every exit's drain stores exactly the iterations up to it.
 // CHECK-LABEL: lvx_func.func @dyn_deep
 // CHECK: %[[M:.*]] = lvx.sbfd %{{.*}}, %[[LO:[^ ]*]] :
-// CHECK-NEXT: %[[OK:.*]] = lvx.compd_i ge %[[M]], 7
-// CHECK-NEXT: %[[X:.*]] = lvx.addd_i %[[M]], -3
-// CHECK-NEXT: %[[T:.*]] = lvx.srld_i %[[X]], 2
-// CHECK-NEXT: %[[REM:.*]] = lvx.andd_i %[[X]], 3
-// CHECK-NEXT: %[[R:.*]] = lvx.cmoved dnez %[[OK]], %[[REM]], %[[M]]
-// CHECK-NEXT: %[[BASE:.*]] = lvx.addd %[[LO]], %[[R]]
-// The remainder, the original loop cut short at BASE:
-// CHECK-NEXT: lvx_scf.for %[[LO]] : !lvx.reg to %[[BASE]]
-// CHECK: lvx.ld
-// CHECK-NEXT: lvx.sd
-// The guard, and inside it the pipeline from BASE:
-// CHECK: lvx_scf.for %{{.*}} to %[[OK]]
-// CHECK-COUNT-3: lvx.ld
-// CHECK-NEXT: %[[SPAN:.*]] = lvx.slld_i %[[T]], 2
-// CHECK-NEXT: %[[KUB:.*]] = lvx.addd %[[BASE]], %[[SPAN]]
-// CHECK-NEXT: %[[KST:.*]] = lvx.li 4
-// CHECK-NEXT: %[[K:.*]]:3 = lvx_scf.for %[[BASE]] : !lvx.reg to %[[KUB]] : !lvx.reg step %[[KST]]
-// CHECK-COUNT-4: lvx.sd
-// CHECK: lvx_scf.yield
+// CHECK-NEXT: lvx_scf.loop token(%[[L:.*]]) {
+// CHECK-NEXT:   lvx_scf.if dlez %[[M]]
+// CHECK-NEXT:     lvx_scf.break [%[[L]]]
+// The prologue's exits, one store per iteration started:
+// CHECK:        lvx.ld
+// CHECK-NEXT:   %[[M1:.*]] = lvx.addd_i %[[M]], -1
+// CHECK-NEXT:   lvx_scf.if dlez %[[M1]]
+// CHECK-COUNT-1: lvx.sd
+// CHECK-NEXT:     lvx_scf.break [%[[L]]]
+// CHECK:        lvx_scf.if dlez
+// CHECK-COUNT-2: lvx.sd
+// CHECK-NEXT:     lvx_scf.break [%[[L]]]
+// CHECK:        lvx_scf.if dlez
+// CHECK-COUNT-3: lvx.sd
+// CHECK-NEXT:     lvx_scf.break [%[[L]]]
+// SETUP, and the kernel from the lower bound:
+// CHECK:        %[[X:.*]] = lvx.addd_i %[[M]], -4
+// CHECK-NEXT:   %[[T:.*]] = lvx.srld_i %[[X]], 2
+// CHECK-NEXT:   %[[J:.*]] = lvx.andd_i %[[X]], 3
+// CHECK-NEXT:   %[[SPAN:.*]] = lvx.slld_i %[[T]], 2
+// CHECK-NEXT:   %[[KUB:.*]] = lvx.addd %[[LO]], %[[SPAN]]
+// CHECK-NEXT:   %[[KST:.*]] = lvx.li 4
+// CHECK-NEXT:   %[[K:.*]]:3 = lvx_scf.for %[[LO]] : !lvx.reg to %[[KUB]] : !lvx.reg step %[[KST]]
+// CHECK-NOT:      lvx_scf.if
+// CHECK:        lvx_scf.yield
+// The remainder copy's three exits, then the main drain:
+// CHECK:        lvx.sd %[[K]]#0
+// CHECK:        lvx_scf.if deqz %[[J]]
+// CHECK-COUNT-3: lvx.sd
+// CHECK-NEXT:     lvx_scf.break [%[[L]]]
+// CHECK:        %[[J1:.*]] = lvx.addd_i %[[J]], -1
+// CHECK-NEXT:   lvx_scf.if deqz %[[J1]]
+// CHECK:        %[[J2:.*]] = lvx.addd_i %[[J]], -2
+// CHECK-NEXT:   lvx_scf.if deqz %[[J2]]
+// CHECK-COUNT-3: lvx.sd
+// CHECK-NEXT:     lvx_scf.break [%[[L]]]
+// CHECK-NEXT:   }
+// CHECK-NEXT:   lvx.sd
+// CHECK-NEXT:   lvx.ld
+// CHECK-NEXT:   lvx.sd
+// CHECK-NEXT:   lvx.sd
+// CHECK-NEXT:   lvx.sd
+// CHECK-NEXT:   lvx_scf.break [%[[L]]]
 // CHECK-NEXT: }
-// CHECK-NEXT: lvx.sd %[[K]]#0
-// CHECK-NEXT: lvx.sd %[[K]]#1
-// CHECK-NEXT: lvx.sd %[[K]]#2
+// CHECK-NEXT: lvx_func.return
 lvx_func.func @dyn_deep(%base: !lvx.reg<r0>, %n: !lvx.reg<r1>) {
   %lo = lvx.li 0 : i64 : !lvx.reg
   %st = lvx.li 1 : i64 : !lvx.reg
@@ -283,13 +305,26 @@ lvx_func.func @dyn_deep(%base: !lvx.reg<r0>, %n: !lvx.reg<r1>) {
 
 // -----
 
-// A run-time count with an accumulator: the guard carries the remainder's
-// results in and the drain's out, so a count too short for the pipeline
-// returns what the remainder loop computed.
+// A run-time count with an accumulator, at kunroll 1: no remainder copy.
+// Every break carries the sum: the inits when M is zero, the prologue's
+// drain when M is one, and otherwise the kernel's M - 1 trips and the main
+// drain. The last prologue exit's test, M - 1, is also the kernel's count.
 // CHECK-LABEL: lvx_func.func @dyn_acc
-// CHECK: %[[REM:.*]] = lvx_scf.for
-// CHECK: %[[G:.*]] = lvx_scf.for %{{.*}} iter_args(%[[REM]])
-// CHECK: lvx.mv %[[G]]
+// CHECK: lvx.li 1
+// CHECK-NEXT: %[[Z:.*]] = lvx.li 0
+// CHECK-NEXT: %[[M:.*]] = lvx.sbfd
+// CHECK-NEXT: %[[R:.*]] = lvx_scf.loop token(%[[L:.*]]) -> (!lvx.reg) {
+// CHECK-NEXT:   lvx_scf.if dlez %[[M]]
+// CHECK-NEXT:     lvx_scf.break [%[[L]]] %[[Z]]
+// CHECK:        %[[M1:.*]] = lvx.addd_i %[[M]], -1
+// CHECK-NEXT:   lvx_scf.if dlez %[[M1]]
+// CHECK-NEXT:     %[[S:.*]] = lvx.addd %[[Z]],
+// CHECK-NEXT:     lvx_scf.break [%[[L]]] %[[S]]
+// CHECK:        %[[KUB:.*]] = lvx.addd %{{.*}}, %[[M1]]
+// CHECK:        %[[K:.*]]:2 = lvx_scf.for
+// CHECK:        %[[F:.*]] = lvx.addd %[[K]]#0, %[[K]]#1
+// CHECK-NEXT:   lvx_scf.break [%[[L]]] %[[F]]
+// CHECK:      lvx.mv %[[R]]
 lvx_func.func @dyn_acc(%base: !lvx.reg<r0>, %n: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %lo = lvx.li 0 : i64 : !lvx.reg
   %st = lvx.li 1 : i64 : !lvx.reg
