@@ -18,6 +18,9 @@
 
 #include "mlir/Dialect/LVXSCF/IR/LVXSCFOpsDialect.h.inc"
 
+#define GET_TYPEDEF_CLASSES
+#include "mlir/Dialect/LVXSCF/IR/LVXSCFOpsTypes.h.inc"
+
 #define GET_OP_CLASSES
 #include "mlir/Dialect/LVXSCF/IR/LVXSCFOps.h.inc"
 

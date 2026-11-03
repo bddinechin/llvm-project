@@ -15,13 +15,17 @@ def LVXSCF_Dialect : Dialect {
   let name = "lvx_scf";
   let cppNamespace = "::mlir::lvx_scf";
   let description = [{
-    Structured LVX control flow: a single `for` loop op mirroring `scf.for`,
-    operating on `!lvx.reg` values. Kept structural (not lowered to
+    Structured LVX control flow: a counted `for` loop mirroring `scf.for`,
+    operating on `!lvx.reg` values, and the structured early exits of
+    upstream's proposal (llvm-project #166688) -- `loop`, `break` and an
+    `if` a break may leave through -- for the pipeliner's counted exits
+    (docs/SoftwarePipelining.md, section 8 step 2c). Kept structural (not lowered to
     `lvx_cf` branches) through this phase so that a later register
     allocation pass can build live ranges directly from loop structure
     (paper section 3.3), and so a later software-pipelining pass has a loop
     body to transform before that structure is discarded.
   }];
+  let useDefaultTypePrinterParser = 1;
 }
 
 #endif // LVX_SCF_BASE
