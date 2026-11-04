@@ -41,6 +41,9 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/Support/Debug.h"
+
+#define DEBUG_TYPE "lvx-decomposed-pipeline"
 
 namespace mlir {
 namespace lvx {
@@ -287,6 +290,9 @@ static LogicalResult assignStages(lvx_scf::ForOp loop, bool annotatePeriod,
     }
     floor = period + 1;
   }
+  LLVM_DEBUG(if (period != first) llvm::dbgs()
+             << "lvx-decomposed-pipeline: period raised from " << first
+             << " to " << period << " to allocate\n");
 
   OpBuilder b(loop);
   for (unsigned i = 0; i != ops.size(); ++i)
