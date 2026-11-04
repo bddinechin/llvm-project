@@ -78,6 +78,7 @@
 #include "mlir/Dialect/LVX/IR/LVXLatency.h"
 #include "mlir/Dialect/LVX/IR/LVXTiedOperands.h"
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
+#include "mlir/Dialect/LVX/Transforms/Pipeline.h"
 #include "mlir/Dialect/LVX/Transforms/RegisterAllocation.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
 #include "mlir/Dialect/LVXSCF/IR/LVXSCF.h"
@@ -889,6 +890,60 @@ LogicalResult PipelineBuilder::emitRuntime() {
   return success();
 }
 
+/// Pipelines `loop` at the modulo schedule (`dates`, `ii`), its body already
+/// stripped of the schedule's attributes. Refuses what the construction
+/// cannot build, with a diagnostic, before changing anything; a schedule of
+/// one stage is left alone.
+static LogicalResult buildPipeline(lvx_scf::ForOp loop,
+                                   ArrayRef<int64_t> dates, int64_t ii) {
+  std::optional<int64_t> step = constantOf(loop.getStep());
+  if (!step || *step <= 0 || !llvm::isPowerOf2_64(*step))
+    return loop.emitError("software pipelining needs a constant power-of-two "
+                          "step: the trip count is a shift");
+  PipelineBuilder builder(loop, dates, ii, boundsOf(loop), *step);
+  if (builder.getNumStages() <= 1)
+    return success(); // nothing in flight across the back edge
+  if (failed(builder.plan()))
+    return failure();
+  return builder.emit();
+}
+
+/// Removes the schedule's attributes from `loop` and its body.
+static void stripSchedule(lvx_scf::ForOp loop) {
+  for (Operation &op : loop.getBody()->without_terminator()) {
+    op.removeAttr(kDateAttr);
+    op.removeAttr(kStageAttr);
+  }
+  loop->removeAttr(kIIAttr);
+}
+
+namespace {
+/// A detached copy of the function holding `loop`, and `loop`'s copy in it,
+/// for trying something without committing to it.
+struct Trial {
+  lvx_func::FuncOp func;
+  lvx_scf::ForOp loop;
+
+  explicit Trial(lvx_scf::ForOp original) {
+    IRMapping map;
+    func = cast<lvx_func::FuncOp>(
+        original->getParentOfType<lvx_func::FuncOp>()->clone(map));
+    loop = cast<lvx_scf::ForOp>(map.lookup(original.getOperation()));
+    stripSchedule(loop);
+  }
+  ~Trial() { func->erase(); }
+};
+} // namespace
+
+/// Whether the construction accepts (`dates`, `ii`) for `loop`, tried on a
+/// copy so that a refusal leaves the loop intact. The copy keeps the loop's
+/// locations, so its diagnostics point where the reader expects.
+static LogicalResult checkBuildable(lvx_scf::ForOp loop,
+                                    ArrayRef<int64_t> dates, int64_t ii) {
+  Trial trial(loop);
+  return buildPipeline(trial.loop, dates, ii);
+}
+
 struct LVXPipelinePass : public lvx::impl::LVXPipelinePassBase<LVXPipelinePass> {
   using LVXPipelinePassBase::LVXPipelinePassBase;
 
@@ -929,27 +984,44 @@ struct LVXPipelinePass : public lvx::impl::LVXPipelinePassBase<LVXPipelinePass> 
         loop.emitError("`" + Twine(kIIAttr) + "` must be positive");
         return signalPassFailure();
       }
-      std::optional<Bounds> bounds = boundsOf(loop);
-      std::optional<int64_t> step = constantOf(loop.getStep());
-      if (!step || *step <= 0 || !llvm::isPowerOf2_64(*step)) {
-        loop.emitError("software pipelining needs a constant power-of-two "
-                       "step: the trip count is a shift");
+      stripSchedule(loop);
+
+      // What the construction refuses is an error: the schedule is wrong.
+      // That is decided on a clone first, so the loop is still intact.
+      if (failed(checkBuildable(loop, dates, ii)))
         return signalPassFailure();
+      // What allocation refuses is an outcome: the loop stays as it was.
+      if (!pipelineAllocates(loop, dates, ii, maxRegisters)) {
+        loop.emitRemark("not software-pipelined: at II = ")
+            << ii << " it does not allocate as well as the loop it replaces";
+        continue;
       }
-
-      for (Operation &op : loop.getBody()->without_terminator()) {
-        op.removeAttr(kDateAttr);
-        op.removeAttr(kStageAttr);
-      }
-      loop->removeAttr(kIIAttr);
-
-      PipelineBuilder builder(loop, dates, ii, bounds, *step);
-      if (builder.getNumStages() <= 1)
-        continue; // nothing in flight across the back edge: not a pipeline
-      if (failed(builder.plan()) || failed(builder.emit()))
+      if (failed(buildPipeline(loop, dates, ii)))
         return signalPassFailure();
     }
   }
 };
 
 } // namespace
+
+bool mlir::lvx::pipelineAllocates(lvx_scf::ForOp loop,
+                                  ArrayRef<int64_t> dates, int64_t ii,
+                                  unsigned maxRegisters) {
+  // A trial's refusals are its answer, not the user's errors.
+  ScopedDiagnosticHandler quiet(loop.getContext(),
+                                [](Diagnostic &) { return success(); });
+  AllocationStats before, after;
+  bool baseline;
+  {
+    Trial trial(loop);
+    baseline = succeeded(allocateRegisters(trial.func, maxRegisters, &before));
+  }
+  Trial trial(loop);
+  if (failed(buildPipeline(trial.loop, dates, ii)))
+    return false;
+  if (failed(allocateRegisters(trial.func, maxRegisters, &after)))
+    return !baseline; // no worse than a function that cannot allocate anyway
+  if (!baseline)
+    return true;
+  return after.spilled <= before.spilled && after.kernelMisses == 0;
+}

@@ -1283,7 +1283,8 @@ void legalizeTiedOperands(lvx_func::FuncOp func) { legalizeTies(func); }
 /// (lvx-mlir/docs/SoftwarePipelining.md §1): modulo variable expansion raises
 /// register demand, the bail-out is "keep the unpipelined version", and a pass
 /// cannot run another pass.
-LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters) {
+LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters,
+                                AllocationStats *stats) {
     if (func.isExternal())
       return success();
     insertLoopCarriedPreservingCopies(func);
@@ -1325,6 +1326,7 @@ LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters) {
         for (unsigned u = items[idx].base(); u != items[idx].loc().end(); ++u)
           kernelHolders[u].push_back(idx);
     };
+    unsigned kernelMisses = 0;
     bool inUse[kRegisterIdBound] = {};
     // active: indices into `items`, kept sorted by increasing `end`.
     SmallVector<unsigned> active;
@@ -1428,7 +1430,8 @@ LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters) {
       // choice is still correct, and costs the bundler a cycle rather than
       // costing a spill.
       std::optional<unsigned> base;
-      if (const std::optional<KernelOccupancy> &occ = occupancy[idx]) {
+      const std::optional<KernelOccupancy> &occ = occupancy[idx];
+      if (occ) {
         bool modulo[kRegisterIdBound];
         for (unsigned u = 0; u != kRegisterIdBound; ++u) {
           modulo[u] = unavailable[u];
@@ -1441,6 +1444,8 @@ LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters) {
         }
         base = pickFree(item.width, item.crossesCall, maxRegisters, modulo);
       }
+      if (occ && !base)
+        ++kernelMisses;
       if (!base)
         base = pickFree(item.width, item.crossesCall, maxRegisters,
                         unavailable);
@@ -1536,6 +1541,11 @@ LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters) {
       }
       allocateSpillSlot(item);
       // Not inserted into `active`: a spilled item holds no register.
+    }
+    if (stats) {
+      stats->spilled = llvm::count_if(
+          items, [](const AllocItem &item) { return item.spilled; });
+      stats->kernelMisses = kernelMisses;
     }
     // Rewrite: every item holding a block updates all of its member values'
     // types in place -- a fixed item too, since a lane view of a pinned

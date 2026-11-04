@@ -293,7 +293,18 @@ def LVXPipelinePass
 
     A bare `lvx.stage` per operation, with no `lvx.ii`, is read as a date at
     an initiation interval of one, for hand-written tests.
+
+    Allocation decides feasibility, and failure is an outcome: a schedule
+    whose pipeline allocates worse than the loop it replaces -- more spills,
+    or a kernel value that cannot be kept free in its own cycles -- leaves
+    the loop as it was, with a remark. A schedule the construction refuses
+    is an error.
   }];
+  let options = [
+    Option<"maxRegisters", "max-registers", "unsigned", /*default=*/"59",
+           "The allocatable pool the feasibility test allocates against; "
+           "the same knob as -lvx-allocate-registers'">,
+  ];
 }
 
 def LVXDecomposedPipelinePass
@@ -315,9 +326,18 @@ def LVXDecomposedPipelinePass
     consumes: `lvx.date` on each body operation, from zero, and `lvx.ii` on
     the loop. A loop whose schedule spans one stage is left unannotated.
     See lvx-mlir/docs/SoftwarePipelining.md.
+
+    The period is searched upward from max(RecMII, ResMII), at most eight
+    past it, until the pipeline the schedule describes allocates
+    (`lvx::pipelineAllocates`, the back half's feasibility test). A loop
+    with no such period is left unannotated, with a remark, and stays
+    unpipelined.
   }];
   let options = [
     Option<"annotatePeriod", "annotate-period", "bool", /*default=*/"false",
            "Also record the period as `lvx.period` on the loop, for tests">,
+    Option<"maxRegisters", "max-registers", "unsigned", /*default=*/"59",
+           "The allocatable pool the feasibility test allocates against; "
+           "the same knob as -lvx-allocate-registers'">,
   ];
 }

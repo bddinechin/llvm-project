@@ -34,6 +34,7 @@
 #include "mlir/Dialect/LVX/Transforms/RegisterAllocation.h"
 #include "mlir/Dialect/LVX/IR/LVXScheduling.h"
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
+#include "mlir/Dialect/LVX/Transforms/Pipeline.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
 #include "mlir/Dialect/LVXSCF/IR/LVXSCF.h"
 #include "mlir/IR/Builders.h"
@@ -59,6 +60,9 @@ namespace {
 /// two by the construction (lvx-csw/docs/mlir-pipeliner-design.md §1).
 constexpr llvm::StringLiteral kDateAttr = "lvx.date";
 constexpr llvm::StringLiteral kIIAttr = "lvx.ii";
+/// How far past its first period the search goes before leaving the loop
+/// unpipelined: GCC's bound (`try_ii <= first_ii + 8`).
+constexpr int64_t kMaxPeriodRaise = 8;
 
 /// The instruction an op prints, from LVXLatency.h -- which the bundler reads
 /// too, and must. Resolving it as the operation's own name finds nothing in
@@ -141,7 +145,8 @@ static bool isInnermost(lvx_scf::ForOp loop) {
 
 /// Records the resource-free schedule of `loop`'s body: `lvx.date` on every
 /// operation and `lvx.ii` on the loop.
-static LogicalResult assignStages(lvx_scf::ForOp loop, bool annotatePeriod) {
+static LogicalResult assignStages(lvx_scf::ForOp loop, bool annotatePeriod,
+                                  unsigned maxRegisters) {
   SmallVector<Operation *> ops;
   DenseMap<Operation *, unsigned> index;
   for (Operation &op : loop.getBody()->without_terminator()) {
@@ -153,116 +158,140 @@ static LogicalResult assignStages(lvx_scf::ForOp loop, bool annotatePeriod) {
 
   auto yield = cast<lvx_scf::YieldOp>(loop.getBody()->getTerminator());
 
-  // Node 0 is the source; body operation i is node i+1.
-  ParametricLabelCorrecting g;
-  for (unsigned i = 0; i != ops.size() + 1; ++i)
-    g.addNode();
-  for (unsigned i = 0; i != ops.size(); ++i)
-    g.addArc(0, i + 1, 0, 0);
+  // The dependence graph, built afresh for each period tried.
+  auto buildGraph = [&](ParametricLabelCorrecting &g) {
+    // Node 0 is the source; body operation i is node i+1.
+    for (unsigned i = 0; i != ops.size() + 1; ++i)
+      g.addNode();
+    for (unsigned i = 0; i != ops.size(); ++i)
+      g.addArc(0, i + 1, 0, 0);
 
-  // Flow dependences. A value arriving through an `iter_arg` is produced by
-  // the previous iteration's yield operand, hence an arc of distance one --
-  // the recurrence that bounds the period.
-  for (unsigned j = 0; j != ops.size(); ++j) {
-    Operation *use = ops[j];
-    for (auto [k, operand] : llvm::enumerate(use->getOperands())) {
-      Operation *def = operand.getDefiningOp();
-      int64_t omega = 0;
-      unsigned resultIdx = 0;
-      if (auto arg = dyn_cast<BlockArgument>(operand)) {
-        if (arg.getOwner() != loop.getBody() || arg.getArgNumber() == 0)
-          continue; // the induction variable, or something from outside
-        Value yielded = yield.getOperand(arg.getArgNumber() - 1);
-        def = yielded.getDefiningOp();
-        omega = 1;
-        if (def)
-          resultIdx = cast<OpResult>(yielded).getResultNumber();
-      } else if (def) {
-        resultIdx = cast<OpResult>(operand).getResultNumber();
-      }
-      if (!def || !index.count(def))
-        continue;
-      g.addArc(index[def] + 1, j + 1,
-               rawLatency(def, resultIdx, use, k), omega);
-    }
-  }
-
-  // Ties. An operand read through the destination shares the result's
-  // register, so the op overwrites it, and every other reader of that value
-  // has to read first -- an anti-dependence SSA does not show, because the
-  // result is a new value. `legalizeTiedOperands` has already moved readers
-  // after the op onto a copy, so what is left precedes it in the same
-  // iteration (omega 0). The latency is the bundler's WAR rule: the write
-  // may share the reader's bundle only if it lands after the read.
-  for (unsigned t = 0; t != ops.size(); ++t) {
-    Operation *tying = ops[t];
-    const OpTiming *tt = nullptr;
-    if (auto m = mnemonicOf(tying))
-      tt = timingOf(*m);
-    for (TiedOperand tie : tiedOperandsOf(tying->getName().stripDialect())) {
-      Value c = tying->getOperand(tie.operand);
-      int64_t write = writeCycleOf(tying, tt, tie.result);
-      for (OpOperand &use : c.getUses()) {
-        Operation *reader =
-            loop.getBody()->findAncestorOpInBlock(*use.getOwner());
-        if (!reader || reader == tying || !index.count(reader))
+    // Flow dependences. A value arriving through an `iter_arg` is produced by
+    // the previous iteration's yield operand, hence an arc of distance one --
+    // the recurrence that bounds the period.
+    for (unsigned j = 0; j != ops.size(); ++j) {
+      Operation *use = ops[j];
+      for (auto [k, operand] : llvm::enumerate(use->getOperands())) {
+        Operation *def = operand.getDefiningOp();
+        int64_t omega = 0;
+        unsigned resultIdx = 0;
+        if (auto arg = dyn_cast<BlockArgument>(operand)) {
+          if (arg.getOwner() != loop.getBody() || arg.getArgNumber() == 0)
+            continue; // the induction variable, or something from outside
+          Value yielded = yield.getOperand(arg.getArgNumber() - 1);
+          def = yielded.getDefiningOp();
+          omega = 1;
+          if (def)
+            resultIdx = cast<OpResult>(yielded).getResultNumber();
+        } else if (def) {
+          resultIdx = cast<OpResult>(operand).getResultNumber();
+        }
+        if (!def || !index.count(def))
           continue;
-        const OpTiming *rt = nullptr;
-        if (auto m = mnemonicOf(use.getOwner()))
-          rt = timingOf(*m);
-        int64_t read = readCycleOf(rt, use.getOperandNumber());
-        g.addArc(index[reader] + 1, t + 1,
-                 std::max<int64_t>(0, read - write + 1), 0);
+        g.addArc(index[def] + 1, j + 1,
+                 rawLatency(def, resultIdx, use, k), omega);
       }
     }
-  }
 
-  // Memory, conservatively: any two accesses of which at least one writes keep
-  // their program order within an iteration, and do not cross one. Without a
-  // dependence test this is all that can be said, and it is what keeps the
-  // period honest rather than optimistic.
-  for (unsigned a = 0; a != ops.size(); ++a) {
-    if (!readsMemory(ops[a]) && !writesMemory(ops[a]))
-      continue;
-    if (writesMemory(ops[a]))
-      g.addArc(a + 1, a + 1, 1, 1); // its own next iteration
-    for (unsigned b = a + 1; b != ops.size(); ++b) {
-      bool touches = readsMemory(ops[b]) || writesMemory(ops[b]);
-      if (!touches || (!writesMemory(ops[a]) && !writesMemory(ops[b])))
-        continue;
-      g.addArc(a + 1, b + 1, 1, 0);
-      g.addArc(b + 1, a + 1, 1, 1);
+    // Ties. An operand read through the destination shares the result's
+    // register, so the op overwrites it, and every other reader of that value
+    // has to read first -- an anti-dependence SSA does not show, because the
+    // result is a new value. `legalizeTiedOperands` has already moved readers
+    // after the op onto a copy, so what is left precedes it in the same
+    // iteration (omega 0). The latency is the bundler's WAR rule: the write
+    // may share the reader's bundle only if it lands after the read.
+    for (unsigned t = 0; t != ops.size(); ++t) {
+      Operation *tying = ops[t];
+      const OpTiming *tt = nullptr;
+      if (auto m = mnemonicOf(tying))
+        tt = timingOf(*m);
+      for (TiedOperand tie : tiedOperandsOf(tying->getName().stripDialect())) {
+        Value c = tying->getOperand(tie.operand);
+        int64_t write = writeCycleOf(tying, tt, tie.result);
+        for (OpOperand &use : c.getUses()) {
+          Operation *reader =
+              loop.getBody()->findAncestorOpInBlock(*use.getOwner());
+          if (!reader || reader == tying || !index.count(reader))
+            continue;
+          const OpTiming *rt = nullptr;
+          if (auto m = mnemonicOf(use.getOwner()))
+            rt = timingOf(*m);
+          int64_t read = readCycleOf(rt, use.getOperandNumber());
+          g.addArc(index[reader] + 1, t + 1,
+                   std::max<int64_t>(0, read - write + 1), 0);
+        }
+      }
     }
-  }
 
-  int64_t resMII = resourceBound(ops);
-  auto result = g.solve(resMII);
-  if (result != ParametricLabelCorrecting::Result::Solved) {
-    if (result == ParametricLabelCorrecting::Result::InfeasibleCircuit)
-      return loop.emitError("the loop body has a dependence circuit with no "
-                            "iteration distance: no period makes it feasible");
-    return loop.emitError("could not compute a resource-free schedule for "
-                          "this loop body");
-  }
+    // Memory, conservatively: any two accesses of which at least one writes keep
+    // their program order within an iteration, and do not cross one. Without a
+    // dependence test this is all that can be said, and it is what keeps the
+    // period honest rather than optimistic.
+    for (unsigned a = 0; a != ops.size(); ++a) {
+      if (!readsMemory(ops[a]) && !writesMemory(ops[a]))
+        continue;
+      if (writesMemory(ops[a]))
+        g.addArc(a + 1, a + 1, 1, 1); // its own next iteration
+      for (unsigned b = a + 1; b != ops.size(); ++b) {
+        bool touches = readsMemory(ops[b]) || writesMemory(ops[b]);
+        if (!touches || (!writesMemory(ops[a]) && !writesMemory(ops[b])))
+          continue;
+        g.addArc(a + 1, b + 1, 1, 0);
+        g.addArc(b + 1, a + 1, 1, 1);
+      }
+    }
+  };
 
-  int64_t period = g.getPeriod();
-  // Dates from zero: the source is at zero and every arc from it is too, so
-  // the earliest operation's date is the origin only after this shift.
-  int64_t lo = g.getDate(1);
-  for (unsigned i = 1; i != ops.size(); ++i)
-    lo = std::min(lo, g.getDate(i + 1));
-  int64_t maxStage = 0;
-  for (unsigned i = 0; i != ops.size(); ++i)
-    maxStage = std::max(maxStage, (g.getDate(i + 1) - lo) / period);
-  if (maxStage == 0)
-    return success(); // one stage: nothing crosses the back edge
+  // The period, searched upward until the pipeline it describes allocates
+  // (SoftwarePipelining.md §8, step 3). PLC settles on max(RecMII, floor), so
+  // raising the floor is the whole of trying the next period. A longer period
+  // overlaps fewer iterations, needing fewer names and fewer registers at
+  // once; past `kMaxPeriodRaise` the loop is better left alone.
+  int64_t floor = resourceBound(ops), first = 0, period = 0;
+  SmallVector<int64_t> dates(ops.size());
+  for (;;) {
+    ParametricLabelCorrecting g;
+    buildGraph(g);
+    auto result = g.solve(floor);
+    if (result != ParametricLabelCorrecting::Result::Solved) {
+      if (result == ParametricLabelCorrecting::Result::InfeasibleCircuit)
+        return loop.emitError("the loop body has a dependence circuit with "
+                              "no iteration distance: no period makes it "
+                              "feasible");
+      return loop.emitError("could not compute a resource-free schedule for "
+                            "this loop body");
+    }
+
+    period = g.getPeriod();
+    if (!first)
+      first = period;
+    // Dates from zero: the source is at zero and every arc from it is too, so
+    // the earliest operation's date is the origin only after this shift.
+    int64_t lo = g.getDate(1);
+    for (unsigned i = 1; i != ops.size(); ++i)
+      lo = std::min(lo, g.getDate(i + 1));
+    int64_t maxStage = 0;
+    for (unsigned i = 0; i != ops.size(); ++i) {
+      dates[i] = g.getDate(i + 1) - lo;
+      maxStage = std::max(maxStage, dates[i] / period);
+    }
+    if (maxStage == 0)
+      return success(); // one stage: nothing crosses the back edge
+    if (pipelineAllocates(loop, dates, period, maxRegisters))
+      break;
+    if (period >= first + kMaxPeriodRaise) {
+      loop.emitRemark("not software-pipelined: no period from ")
+          << first << " to " << period
+          << " gives a pipeline that allocates as well as the loop";
+      return success();
+    }
+    floor = period + 1;
+  }
 
   OpBuilder b(loop);
   for (unsigned i = 0; i != ops.size(); ++i)
-    ops[i]->setAttr(kDateAttr, b.getI64IntegerAttr(g.getDate(i + 1) - lo));
+    ops[i]->setAttr(kDateAttr, b.getI64IntegerAttr(dates[i]));
   loop->setAttr(kIIAttr, b.getI64IntegerAttr(period));
-  if (annotatePeriod)
-    loop->setAttr("lvx.period", b.getI64IntegerAttr(period));
   if (annotatePeriod)
     loop->setAttr("lvx.period", b.getI64IntegerAttr(period));
   return success();
@@ -283,7 +312,7 @@ struct LVXDecomposedPipelinePass
         loops.push_back(loop);
     });
     for (lvx_scf::ForOp loop : loops)
-      if (failed(assignStages(loop, this->annotatePeriod)))
+      if (failed(assignStages(loop, this->annotatePeriod, this->maxRegisters)))
         return signalPassFailure();
   }
 };

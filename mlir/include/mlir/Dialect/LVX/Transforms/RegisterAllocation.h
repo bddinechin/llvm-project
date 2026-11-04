@@ -34,16 +34,27 @@ constexpr llvm::StringLiteral kKernelCycleAttr = "lvx.kernel_cycle";
 /// `max-registers` shrinks it, which is how the spill path is tested.
 constexpr unsigned kDefaultMaxRegisters = 64;
 
+/// What an allocation cost, for a caller deciding between two versions of a
+/// function: the items it spilled, and the pipelined-kernel items it could not
+/// keep free in their own cycles (`kKernelCycleAttr`) -- each of those a
+/// register the bundler will have to wait for.
+struct AllocationStats {
+  unsigned spilled = 0;
+  unsigned kernelMisses = 0;
+};
+
 /// Allocates physical registers in `func`, emitting diagnostics on it and
 /// returning failure when it cannot be done -- a conflicting pin, or more
-/// pressure than `maxRegisters` can hold.
+/// pressure than `maxRegisters` can hold. `stats`, when given, receives the
+/// cost.
 ///
 /// The software pipeliner is why this is a function: modulo variable expansion
 /// raises register demand, its bail-out is "keep the unpipelined version", and
 /// a pass cannot run another pass. So the pipeliner allocates a clone and
-/// discards it on failure (lvx-mlir/docs/SoftwarePipelining.md §1).
+/// discards it (lvx-mlir/docs/SoftwarePipelining.md §8, step 3).
 LogicalResult allocateRegisters(lvx_func::FuncOp func,
-                                unsigned maxRegisters = kDefaultMaxRegisters);
+                                unsigned maxRegisters = kDefaultMaxRegisters,
+                                AllocationStats *stats = nullptr);
 
 /// Establishes what a tie requires of the IR: an operand read through the
 /// destination is dead after the op that overwrites it. Readers of it after
