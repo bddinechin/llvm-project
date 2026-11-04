@@ -25,6 +25,7 @@
 #include "mlir/Dialect/LVX/Transforms/RegisterAllocation.h"
 #include "mlir/Dialect/LVX/Transforms/ScratchRegisters.h"
 #include "mlir/Dialect/LVX/IR/LVXConvention.h"
+#include "mlir/Dialect/LVX/IR/LVXLatency.h"
 #include "mlir/Dialect/LVX/IR/LVXTiedOperands.h"
 #include "mlir/Dialect/LVX/IR/RegisterUnits.h"
 
@@ -36,6 +37,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -920,6 +922,86 @@ static void markCallCrossings(lvx_func::FuncOp func,
 }
 
 //===----------------------------------------------------------------------===//
+// Pipelined kernels: allocating against the schedule's cycles. See
+// lvx-mlir/docs/SoftwarePipelining.md §8, "Allocating against the kernel's
+// cycles".
+//===----------------------------------------------------------------------===//
+
+/// The cycles a kernel item holds its register in, modulo the kernel's
+/// period: from the stage its value is written in to the stage its last
+/// reader reads it in, both ends included. That is the bundler's rule turned
+/// round -- a write must land a stage after every read of the value it
+/// replaces (WAR) and after the previous write (WAW) -- so two items whose
+/// cells are disjoint can share a register without the bundler having to
+/// move either off the cycle the modulo schedule gave it. Program order cannot
+/// say this: the kernel's instances overlap iterations, and a write the
+/// bundler wants early is numbered after the read it would then precede.
+///
+/// This is GCC's occupancy (`lvx_cms_colour`, cms-foundations.md §7ter.9),
+/// with the stages of LVXLatency.h in place of its one-cycle-after-issue: the
+/// bundler judges in stages, so the allocator does too.
+struct KernelOccupancy {
+  Block *body = nullptr;
+  llvm::BitVector cells;
+
+  bool meets(const KernelOccupancy &o) const {
+    return body == o.body && cells.anyCommon(o.cells);
+  }
+};
+
+/// The occupancy of `item`, when every member is defined and read only by
+/// dated operations of one pipelined kernel. Anything else -- a value crossing
+/// the back edge, read by the yield or defined outside -- is live across the
+/// whole body in program order already, so the scan keeps it apart from every
+/// kernel item without help.
+static std::optional<KernelOccupancy> kernelOccupancyOf(const AllocItem &item) {
+  auto cycleOf = [](Operation *op) -> std::optional<int64_t> {
+    if (auto a = op->getAttrOfType<IntegerAttr>(kKernelCycleAttr))
+      return a.getInt();
+    return std::nullopt;
+  };
+  KernelOccupancy occ;
+  for (const AllocMember &m : item.members) {
+    auto res = dyn_cast<OpResult>(m.value);
+    if (!res)
+      return std::nullopt;
+    Operation *def = res.getOwner();
+    std::optional<int64_t> defCycle = cycleOf(def);
+    auto kernel = dyn_cast_or_null<lvx_scf::ForOp>(def->getParentOp());
+    if (!defCycle || !kernel)
+      return std::nullopt;
+    auto period = kernel->getAttrOfType<IntegerAttr>(kKernelPeriodAttr);
+    if (!period || period.getInt() <= 0)
+      return std::nullopt;
+    if (occ.body && occ.body != def->getBlock())
+      return std::nullopt;
+    if (!occ.body) {
+      occ.body = def->getBlock();
+      occ.cells.resize(period.getInt());
+    }
+    int64_t write = *defCycle + writeCycleOf(def, res.getResultNumber());
+    int64_t last = write;
+    for (OpOperand &use : m.value.getUses()) {
+      Operation *user = use.getOwner();
+      std::optional<int64_t> c = cycleOf(user);
+      if (user->getBlock() != occ.body || !c)
+        return std::nullopt;
+      last = std::max<int64_t>(
+          last, *c + readCycleOf(user, use.getOperandNumber()));
+    }
+    int64_t p = occ.cells.size();
+    if (last - write + 1 >= p)
+      occ.cells.set();
+    else
+      for (int64_t t = write; t <= last; ++t)
+        occ.cells.set(t % p);
+  }
+  if (!occ.body)
+    return std::nullopt;
+  return occ;
+}
+
+//===----------------------------------------------------------------------===//
 // Step 3 rewrite: prologue/epilogue and spill store/reload insertion. See
 // lvx-mlir/docs/RegisterAllocation.md, "Frame layout and prologue/epilogue" and
 // "No interval splitting / no lifetime holes".
@@ -1228,6 +1310,21 @@ LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters) {
     if (failed(checkTiedGroups(func, live, items)))
       return failure();
     markCallCrossings(func, live, items);
+    SmallVector<std::optional<KernelOccupancy>> occupancy;
+    for (const AllocItem &item : items)
+      occupancy.push_back(item.isFixed() ? std::nullopt
+                                         : kernelOccupancyOf(item));
+    func.walk([](Operation *op) {
+      op->removeAttr(kKernelCycleAttr);
+      op->removeAttr(kKernelPeriodAttr);
+    });
+    // Per register unit, the kernel items placed on it so far.
+    SmallVector<SmallVector<unsigned, 2>> kernelHolders(kRegisterIdBound);
+    auto recordHolder = [&](unsigned idx) {
+      if (occupancy[idx])
+        for (unsigned u = items[idx].base(); u != items[idx].loc().end(); ++u)
+          kernelHolders[u].push_back(idx);
+    };
     bool inUse[kRegisterIdBound] = {};
     // active: indices into `items`, kept sorted by increasing `end`.
     SmallVector<unsigned> active;
@@ -1325,11 +1422,33 @@ LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters) {
       blockedByFixed(item.start, item.end, unavailable);
       for (unsigned u = 0; u != kRegisterIdBound; ++u)
         unavailable[u] = unavailable[u] || inUse[u];
-      if (std::optional<unsigned> base = pickFree(
-              item.width, item.crossesCall, maxRegisters, unavailable)) {
+      // In a pipelined kernel, also what an earlier item holds in a cycle this
+      // one does, modulo the period: free in program order, taken in time.
+      // Only a preference -- with no such register left, the program-order
+      // choice is still correct, and costs the bundler a cycle rather than
+      // costing a spill.
+      std::optional<unsigned> base;
+      if (const std::optional<KernelOccupancy> &occ = occupancy[idx]) {
+        bool modulo[kRegisterIdBound];
+        for (unsigned u = 0; u != kRegisterIdBound; ++u) {
+          modulo[u] = unavailable[u];
+          for (unsigned h : kernelHolders[u])
+            if (!modulo[u] && items[h].assigned &&
+                occupancy[h]->meets(*occ)) {
+              modulo[u] = true;
+              break;
+            }
+        }
+        base = pickFree(item.width, item.crossesCall, maxRegisters, modulo);
+      }
+      if (!base)
+        base = pickFree(item.width, item.crossesCall, maxRegisters,
+                        unavailable);
+      if (base) {
         item.assigned = *base;
         markInUse(inUse, item.loc(), true);
         insertActive(idx);
+        recordHolder(idx);
         continue;
       }
       // SpillAtInterval (Fig. 1), over blocks (lvx-mlir/docs/
@@ -1395,6 +1514,7 @@ LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters) {
         item.assigned = *bestBase;
         markInUse(inUse, item.loc(), true);
         insertActive(idx);
+        recordHolder(idx);
         continue;
       }
       if (item.isGroup()) {

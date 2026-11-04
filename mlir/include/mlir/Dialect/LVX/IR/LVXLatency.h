@@ -106,6 +106,33 @@ inline unsigned writeCycleOf(Operation *op, const OpTiming *t, unsigned i) {
   return t && i < t->numResults ? resultWriteOf(*t, i, variantOf(op)) : 2;
 }
 
+/// `op`'s timing, or null for an op that prints nothing.
+inline const OpTiming *lvxTimingOf(Operation *op) {
+  if (std::optional<llvm::StringRef> m = lvxPrintedMnemonic(op))
+    return timingOf(*m);
+  return nullptr;
+}
+
+/// The cycles after its own issue that `op` reads operand `i` in and writes
+/// result `i` in -- the two ends of a register's occupancy.
+inline unsigned readCycleOf(Operation *op, unsigned i) {
+  return readCycleOf(lvxTimingOf(op), i);
+}
+inline unsigned writeCycleOf(Operation *op, unsigned i) {
+  return writeCycleOf(op, lvxTimingOf(op), i);
+}
+
+/// The RAW latency from result `resultIdx` of `def` to operand `operandIdx`
+/// of `use`, with the clamp the ISS's bundle rule imposes: within one bundle
+/// every source is read before any result is written, so a reader in the
+/// producer's own bundle would see the old value -- RAW is at least 1.
+inline int64_t rawLatencyOf(Operation *def, unsigned resultIdx, Operation *use,
+                            unsigned operandIdx) {
+  int64_t raw = static_cast<int64_t>(writeCycleOf(def, resultIdx)) -
+                static_cast<int64_t>(readCycleOf(use, operandIdx));
+  return raw < 1 ? 1 : raw;
+}
+
 } // namespace lvx
 } // namespace mlir
 

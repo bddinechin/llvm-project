@@ -75,8 +75,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LVX/IR/LVX.h"
+#include "mlir/Dialect/LVX/IR/LVXLatency.h"
 #include "mlir/Dialect/LVX/IR/LVXTiedOperands.h"
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
+#include "mlir/Dialect/LVX/Transforms/RegisterAllocation.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
 #include "mlir/Dialect/LVXSCF/IR/LVXSCF.h"
 #include "mlir/IR/Builders.h"
@@ -89,6 +91,7 @@
 #include "llvm/Support/MathExtras.h"
 
 #include <functional>
+#include <limits>
 #include <tuple>
 
 #define DEBUG_TYPE "lvx-pipeline"
@@ -220,6 +223,7 @@ private:
   /// are read from the current section, which must be the prologue's.
   FailureOr<lvx_scf::ForOp> buildKernel(OpBuilder &b, Value lb, Value ub,
                                         Value st);
+  void dateKernel(lvx_scf::ForOp kernel);
   /// Starts the section after the kernel: only what the kernel carried out of
   /// its last trip, in that trip's window iterations, is readable.
   void afterKernel(lvx_scf::ForOp kernel);
@@ -604,6 +608,7 @@ FailureOr<lvx_scf::ForOp> PipelineBuilder::buildKernel(OpBuilder &b,
       map.map(operand, v);
     }
     Operation *clone = b.clone(*op, map);
+    clone->setAttr(kKernelCycleAttr, b.getI64IntegerAttr(s.date - kernelFirst));
     for (auto [orig, res] : llvm::zip(op->getResults(), clone->getResults()))
       fresh[{orig, s.iter}] = res;
   }
@@ -612,7 +617,48 @@ FailureOr<lvx_scf::ForOp> PipelineBuilder::buildKernel(OpBuilder &b,
   for (auto c : carried)
     yielded.push_back(fresh.lookup(c));
   b.create<lvx_scf::YieldOp>(loc, yielded);
+  dateKernel(kernel);
   return kernel;
+}
+
+/// Leaves the kernel's schedule for the allocator: the period on the loop, and
+/// a cycle on every operation. The window's instances have theirs already.
+/// What the construction added -- the induction values of the window's later
+/// iterations -- the modulo schedule never placed, so each is dated as late as
+/// its earliest reader allows, which is where the bundler can still put it:
+/// a register the allocator keeps free from that cycle cannot hold it back.
+/// Dating it at its reader instead would let the allocator reuse a register
+/// the bundler then has to wait for, which is what cost `mymma` VEC=4 its
+/// fourth cycle (SoftwarePipelining.md §8, "Allocating against the kernel's
+/// cycles").
+void PipelineBuilder::dateKernel(lvx_scf::ForOp kernel) {
+  OpBuilder b(kernel);
+  kernel->setAttr(kKernelPeriodAttr,
+                  b.getI64IntegerAttr(static_cast<int64_t>(unroll) * ii));
+  Block *body = kernel.getBody();
+  auto cycleOf = [](Operation *op) -> std::optional<int64_t> {
+    if (auto a = op->getAttrOfType<IntegerAttr>(kKernelCycleAttr))
+      return a.getInt();
+    return std::nullopt;
+  };
+  // Backwards, so a constant feeding an added `addd` sees it dated.
+  for (Operation &op : llvm::reverse(body->without_terminator())) {
+    if (cycleOf(&op))
+      continue;
+    int64_t cycle = std::numeric_limits<int64_t>::max();
+    for (OpResult res : op.getResults())
+      for (OpOperand &use : res.getUses()) {
+        Operation *user = body->findAncestorOpInBlock(*use.getOwner());
+        std::optional<int64_t> c = user ? cycleOf(user) : std::nullopt;
+        if (c)
+          cycle = std::min(cycle, *c - rawLatencyOf(&op, res.getResultNumber(),
+                                                    user,
+                                                    use.getOperandNumber()));
+      }
+    if (cycle == std::numeric_limits<int64_t>::max())
+      cycle = 0;
+    op.setAttr(kKernelCycleAttr, b.getI64IntegerAttr(std::max<int64_t>(0, cycle)));
+  }
 }
 
 void PipelineBuilder::afterKernel(lvx_scf::ForOp kernel) {

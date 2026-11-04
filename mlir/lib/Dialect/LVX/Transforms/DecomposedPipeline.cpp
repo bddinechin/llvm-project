@@ -79,19 +79,11 @@ static std::optional<StringRef> mnemonicOf(Operation *op) {
 /// the stages are how the latency gets hidden, so getting this wrong here
 /// under-stages the pipeline and no later pass can recover it.
 
-/// A dependence latency, with the clamp the ISS's bundle rule imposes: within
-/// one bundle every source is read before any result is written, so a reader
-/// in the producer's own bundle would see the old value -- RAW is at least 1.
+/// A dependence latency: `rawLatencyOf`, shared with the pipeliner, which
+/// dates the operations it adds to the kernel by the same rule.
 static int64_t rawLatency(Operation *def, unsigned resultIdx, Operation *use,
                           unsigned operandIdx) {
-  const OpTiming *dt = nullptr, *ut = nullptr;
-  if (auto m = mnemonicOf(def))
-    dt = timingOf(*m);
-  if (auto m = mnemonicOf(use))
-    ut = timingOf(*m);
-  int64_t raw = static_cast<int64_t>(writeCycleOf(def, dt, resultIdx)) -
-                static_cast<int64_t>(readCycleOf(ut, operandIdx));
-  return std::max<int64_t>(1, raw);
+  return rawLatencyOf(def, resultIdx, use, operandIdx);
 }
 
 /// Whether an operation touches memory at all, and whether it writes.

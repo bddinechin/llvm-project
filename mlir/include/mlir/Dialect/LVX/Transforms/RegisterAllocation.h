@@ -16,9 +16,19 @@
 
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
 #include "mlir/Support/LLVM.h"
+#include "llvm/ADT/StringRef.h"
 
 namespace mlir {
 namespace lvx {
+
+/// The schedule of a software-pipelined kernel, as `-lvx-pipeline` leaves it
+/// for allocation: the kernel loop's period, `kunroll * II` cycles, and each
+/// body operation's issue cycle within it. The allocator keeps two values out
+/// of one register when their occupancies meet modulo the period, which
+/// program order alone cannot see (SoftwarePipelining.md §8, "Allocating
+/// against the kernel's cycles"). Allocation consumes and removes both.
+constexpr llvm::StringLiteral kKernelPeriodAttr = "lvx.kernel_period";
+constexpr llvm::StringLiteral kKernelCycleAttr = "lvx.kernel_cycle";
 
 /// The size of the allocatable pool the pass uses by default; the pass option
 /// `max-registers` shrinks it, which is how the spill path is tested.
