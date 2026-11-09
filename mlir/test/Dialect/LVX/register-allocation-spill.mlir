@@ -10,7 +10,7 @@
 // `muld`, since those are two different consuming ops).
 // CHECK-LABEL: lvx_func.func @straight
 // CHECK-NEXT: %0 = lvx.sp : !lvx.reg<r12>
-// CHECK-NEXT: %1 = lvx.li 8 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %1 = lvx.li 32 : i64 : !lvx.reg<r61>
 // CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
 // CHECK-NEXT: %3 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r61>
 // CHECK-NEXT: lvx.sd %3, %2, 0 : i64 : (!lvx.reg<r61>, !lvx.reg<r12>)
@@ -19,7 +19,7 @@
 // CHECK-NEXT: %6 = lvx.addd %5, %4 : (!lvx.reg<r61>, !lvx.reg<r0>) -> !lvx.reg<r0>
 // CHECK-NEXT: %7 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
 // CHECK-NEXT: %8 = lvx.muld %6, %7 : (!lvx.reg<r0>, !lvx.reg<r61>) -> !lvx.reg<r0>
-// CHECK-NEXT: %9 = lvx.li 8 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %9 = lvx.li 32 : i64 : !lvx.reg<r61>
 // CHECK-NEXT: %10 = lvx.addd %2, %9 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
 // CHECK-NEXT: lvx_func.return %8 : !lvx.reg<r0>
 // CHECK-NEXT: }
@@ -41,7 +41,7 @@ lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // offset 16 only in `^bb2`.
 // CHECK-LABEL: lvx_func.func @branches
 // CHECK-NEXT: %0 = lvx.sp : !lvx.reg<r12>
-// CHECK-NEXT: %1 = lvx.li 16 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %1 = lvx.li 32 : i64 : !lvx.reg<r61>
 // CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
 // CHECK-NEXT: %3 = lvx.mv %arg1 : (!lvx.reg<r1>) -> !lvx.reg<r61>
 // CHECK-NEXT: lvx.sd %3, %2, 0 : i64 : (!lvx.reg<r61>, !lvx.reg<r12>)
@@ -54,14 +54,13 @@ lvx_func.func @straight(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) -> !lvx.reg<r0> {
 // CHECK-NEXT: ^bb1:  // pred: ^bb0
 // CHECK-NEXT: %8 = lvx.ld %2, 8 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
 // CHECK-NEXT: %9 = lvx.mv %8 : (!lvx.reg<r61>) -> !lvx.reg<r0>
-// CHECK-NEXT: %10 = lvx.li 16 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %10 = lvx.li 32 : i64 : !lvx.reg<r61>
 // CHECK-NEXT: %11 = lvx.addd %2, %10 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
 // CHECK-NEXT: lvx_func.return %9 : !lvx.reg<r0>
 // CHECK-NEXT: ^bb2:  // pred: ^bb0
-// CHECK-NEXT: %12 = lvx.li 16 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %12 = lvx.li 32 : i64 : !lvx.reg<r61>
 // CHECK-NEXT: %13 = lvx.addd %2, %12 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
 // CHECK-NEXT: lvx_func.return %6 : !lvx.reg<r0>
-// CHECK-NEXT: }
 // CHECK-NEXT: }
 lvx_func.func @branches(%a: !lvx.reg<r0>, %cond: !lvx.reg<r1>) -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg

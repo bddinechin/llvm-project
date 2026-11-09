@@ -1028,10 +1028,17 @@ static std::optional<KernelOccupancy> kernelOccupancyOf(const AllocItem &item) {
 /// time (one is always fully consumed before the next is defined).
 /// Returns the value spill loads/stores should use as their base operand.
 /// Only called when `frameSize > 0`.
+/// A run of callee-saved registers saved by one store: `sd`, `sq` or `so`
+/// for a single, an aligned pair or an aligned quad, at `offset` from the
+/// frame base.
+struct SavedBlock {
+  PhysLoc loc;
+  unsigned offset;
+};
+
 static Value insertPrologueEpilogue(lvx_func::FuncOp func, unsigned frameSize,
                                     std::optional<unsigned> raOffset,
-                                    ArrayRef<std::pair<Register, unsigned>>
-                                        calleeSaved,
+                                    ArrayRef<SavedBlock> calleeSaved,
                                     MLIRContext *ctx) {
   Type r12Ty = RegisterType::get(ctx, kStackReg);
   Type raScratchTy = RegisterType::get(ctx, kSpillScratchRegs[0]);
@@ -1059,13 +1066,33 @@ static Value insertPrologueEpilogue(lvx_func::FuncOp func, unsigned frameSize,
   }
 
   // Save the caller's value in every callee-saved register this function
-  // went on to use. `lvx.reg_live_in` emits nothing -- it only names the
-  // incoming register so the `lvx.sd` has an operand to store.
-  for (auto [reg, offset] : calleeSaved) {
-    Type regTy = RegisterType::get(ctx, reg);
-    auto offsetAttr = builder.getI64IntegerAttr(offset);
-    Value live = builder.create<RegLiveInOp>(loc, regTy);
-    builder.create<SdOp>(loc, live, spBase, offsetAttr);
+  // went on to use, a pair or a quad at a time where the registers allow it
+  // (`sq`/`so`, as lvx-gcc's `lvx_save_or_restore_callee_save_registers`
+  // packs them). `lvx.reg_live_in` emits nothing -- it only names the
+  // incoming register so the store has an operand -- and takes a single, so
+  // a tuple is named by an `lvx.concat` of its lanes, which emits nothing
+  // either: they are already where the tuple's type says.
+  for (const SavedBlock &blk : calleeSaved) {
+    auto offsetAttr = builder.getI64IntegerAttr(blk.offset);
+    SmallVector<Value, 4> lanes;
+    for (unsigned u = blk.loc.base; u != blk.loc.end(); ++u)
+      lanes.push_back(builder.create<RegLiveInOp>(
+          loc, RegisterType::get(ctx, static_cast<Register>(u))));
+    switch (blk.loc.width) {
+    case 1:
+      builder.create<SdOp>(loc, lanes[0], spBase, offsetAttr);
+      break;
+    case 2:
+      builder.create<SqOp>(
+          loc, builder.create<ConcatOp>(loc, typeFor(ctx, blk.loc), lanes),
+          spBase, offsetAttr);
+      break;
+    case 4:
+      builder.create<SoOp>(
+          loc, builder.create<ConcatOp>(loc, typeFor(ctx, blk.loc), lanes),
+          spBase, offsetAttr);
+      break;
+    }
   }
 
   func.walk([&](lvx_func::ReturnOp ret) {
@@ -1080,13 +1107,35 @@ static Value insertPrologueEpilogue(lvx_func::FuncOp func, unsigned frameSize,
     // unused read is trivially dead: `-canonicalize` on allocated IR deleted
     // the restore and left the caller's register clobbered. See
     // LVX_RegLiveOutOp's description.
-    for (auto [reg, offset] : calleeSaved) {
-      Type regTy = RegisterType::get(ctx, reg);
-      auto offsetAttr =
-          builder.getI64IntegerAttr(offset);
-      Value restored =
-          builder.create<LdOp>(ret.getLoc(), regTy, spBase, offsetAttr);
-      builder.create<RegLiveOutOp>(ret.getLoc(), restored);
+    // A tuple comes back with one `lq`/`lo`, and each of its lanes is
+    // marked live out on its own, through an `lvx.lane` that emits nothing.
+    for (const SavedBlock &blk : calleeSaved) {
+      auto offsetAttr = builder.getI64IntegerAttr(blk.offset);
+      Type ty = typeFor(ctx, blk.loc);
+      Value restored;
+      switch (blk.loc.width) {
+      case 1:
+        restored = builder.create<LdOp>(ret.getLoc(), ty, spBase, offsetAttr);
+        break;
+      case 2:
+        restored = builder.create<LqOp>(ret.getLoc(), ty, spBase, offsetAttr);
+        break;
+      case 4:
+        restored = builder.create<LoOp>(ret.getLoc(), ty, spBase, offsetAttr);
+        break;
+      }
+      if (blk.loc.width == 1) {
+        builder.create<RegLiveOutOp>(ret.getLoc(), restored);
+        continue;
+      }
+      for (unsigned i = 0; i != blk.loc.width; ++i)
+        builder.create<RegLiveOutOp>(
+            ret.getLoc(),
+            builder.create<LaneOp>(
+                ret.getLoc(),
+                RegisterType::get(
+                    ctx, static_cast<Register>(blk.loc.base + i)),
+                restored, i));
     }
     if (raOffset) {
       auto raOffsetAttr =
@@ -1396,8 +1445,9 @@ LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters,
       active.insert(pos, idx);
     };
     unsigned frameSize = 0;
-    // A slot is 8 * width bytes, aligned to its own size: `sq`/`so` want
-    // their natural alignment, and the frame's base is 32-byte aligned.
+    // A slot is 8 * width bytes, aligned to its own size within a frame
+    // whose base is 32-byte aligned. Not required -- LVX memory accesses
+    // other than atomics are insensitive to alignment -- but free here.
     auto allocateSpillSlot = [&](AllocItem &victim) {
       unsigned size = 8 * victim.width;
       frameSize = (frameSize + size - 1) / size * size;
@@ -1600,11 +1650,17 @@ LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters,
     // Every callee-saved register this function actually used must be given
     // back to the caller unchanged (`Convention.table`'s `callee` set), so
     // reserve a frame slot per distinct one and save/restore it around the
-    // body. Walking the final types rather than `items` catches the
-    // registers pinned by other means too -- ABI-pinned entry arguments --
-    // which never appear as an assigned item. Sorted, so the prologue is
-    // deterministic.
-    SmallVector<std::pair<Register, unsigned>> calleeSaved;
+    // body -- packed into as few stores as the aligned tuples allow. An
+    // aligned quad of callee-saved registers is one `so` whenever used
+    // registers fall in both its halves, even if not all four are used:
+    // saving and restoring an unused callee-saved register gives the caller
+    // back the value it already holds. Otherwise a wholly used aligned pair
+    // is one `sq`, and the rest are `sd`. Slots are packed with no padding:
+    // LVX memory accesses other than atomics are insensitive to alignment.
+    // Walking the final types rather than `items` catches the registers
+    // pinned by other means too -- ABI-pinned entry arguments -- which never
+    // appear as an assigned item. Sorted, so the prologue is deterministic.
+    SmallVector<SavedBlock> calleeSaved;
     {
       llvm::SmallSet<Register, 16> used;
       // A tuple type names every unit it covers: a pair in r18r19 uses
@@ -1630,11 +1686,37 @@ LogicalResult allocateRegisters(lvx_func::FuncOp func, unsigned maxRegisters,
       llvm::sort(sorted, [](Register a, Register b) {
         return static_cast<unsigned>(a) < static_cast<unsigned>(b);
       });
+      auto isUsed = [&](unsigned u) {
+        return used.contains(static_cast<Register>(u));
+      };
+      auto allCalleeSaved = [](unsigned base, unsigned width) {
+        for (unsigned u = base; u != base + width; ++u)
+          if (!isCalleeSaved(static_cast<Register>(u)))
+            return false;
+        return true;
+      };
+      unsigned covered = 0; // every unit below this is already saved
       for (Register r : sorted) {
-        calleeSaved.emplace_back(r, frameSize);
-        frameSize += 8;
+        unsigned u = static_cast<unsigned>(r);
+        if (u < covered)
+          continue;
+        unsigned quad = u & ~3u, pair = u & ~1u;
+        PhysLoc blk{u, 1};
+        if (quad >= covered && allCalleeSaved(quad, 4) &&
+            (isUsed(quad) || isUsed(quad + 1)) &&
+            (isUsed(quad + 2) || isUsed(quad + 3)))
+          blk = {quad, 4};
+        else if (pair == u && allCalleeSaved(pair, 2) && isUsed(pair + 1))
+          blk = {pair, 2};
+        calleeSaved.push_back({blk, frameSize});
+        frameSize += 8 * blk.width;
+        covered = blk.end();
       }
     }
+    // The stack pointer stays 32-byte aligned (lvx-gcc's STACK_BOUNDARY,
+    // 256 bits), which a callee may rely on, so the frame is a whole number
+    // of 32-byte units. The slots above it are laid out from its base.
+    frameSize = (frameSize + 31) / 32 * 32;
     if (frameSize > 0) {
       Value spBase = insertPrologueEpilogue(func, frameSize, raOffset,
                                             calleeSaved, func.getContext());

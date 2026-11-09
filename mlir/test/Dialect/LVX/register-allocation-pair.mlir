@@ -52,30 +52,33 @@ lvx_func.func @units(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>) {
 
 // A pair live across a call needs every unit callee-saved: the first such
 // pair is r18r19 (r14r15 is mixed -- r15 is caller-saved -- and is skipped
-// for a crossing item), and both units are saved in the prologue.
+// for a crossing item), and both units are saved in the prologue -- by one
+// `sq` of an `lvx.concat` of the two incoming registers, and restored by
+// one `lq` whose lanes are each marked live out.
 // CHECK-LABEL: lvx_func.func @across_call
 // CHECK-NEXT: %0 = lvx.sp : !lvx.reg<r12>
-// CHECK-NEXT: %1 = lvx.li 24 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %1 = lvx.li 32 : i64 : !lvx.reg<r61>
 // CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
 // CHECK-NEXT: %3 = lvx.reg_live_in : !lvx.reg<ra>
 // CHECK-NEXT: %4 = lvx.get %3 : (!lvx.reg<ra>) -> !lvx.reg<r61>
 // CHECK-NEXT: lvx.sd %4, %2, 0 : i64 : (!lvx.reg<r61>, !lvx.reg<r12>)
 // CHECK-NEXT: %5 = lvx.reg_live_in : !lvx.reg<r18>
-// CHECK-NEXT: lvx.sd %5, %2, 8 : i64 : (!lvx.reg<r18>, !lvx.reg<r12>)
 // CHECK-NEXT: %6 = lvx.reg_live_in : !lvx.reg<r19>
-// CHECK-NEXT: lvx.sd %6, %2, 16 : i64 : (!lvx.reg<r19>, !lvx.reg<r12>)
-// CHECK-NEXT: %7 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r18r19>
-// CHECK-NEXT: %8 = lvx_func.call @callee(%arg0) : (!lvx.reg<r0>) -> !lvx.reg<r0>
-// CHECK-NEXT: lvx.sq %7, %8, 0 : i64 : (!lvx.pair<r18r19>, !lvx.reg<r0>)
-// CHECK-NEXT: %9 = lvx.ld %2, 8 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r18>
-// CHECK-NEXT: lvx.reg_live_out %9 : !lvx.reg<r18>
-// CHECK-NEXT: %10 = lvx.ld %2, 16 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r19>
-// CHECK-NEXT: lvx.reg_live_out %10 : !lvx.reg<r19>
-// CHECK-NEXT: %11 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
-// CHECK-NEXT: %12 = lvx.set %11 : (!lvx.reg<r61>) -> !lvx.reg<ra>
-// CHECK-NEXT: %13 = lvx.li 24 : i64 : !lvx.reg<r61>
-// CHECK-NEXT: %14 = lvx.addd %2, %13 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
-// CHECK-NEXT: lvx_func.return %8 : !lvx.reg<r0>
+// CHECK-NEXT: %7 = lvx.concat %5, %6 : (!lvx.reg<r18>, !lvx.reg<r19>) -> !lvx.pair<r18r19>
+// CHECK-NEXT: lvx.sq %7, %2, 8 : i64 : (!lvx.pair<r18r19>, !lvx.reg<r12>)
+// CHECK-NEXT: %8 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r18r19>
+// CHECK-NEXT: %9 = lvx_func.call @callee(%arg0) : (!lvx.reg<r0>) -> !lvx.reg<r0>
+// CHECK-NEXT: lvx.sq %8, %9, 0 : i64 : (!lvx.pair<r18r19>, !lvx.reg<r0>)
+// CHECK-NEXT: %10 = lvx.lq %2, 8 : i64 : (!lvx.reg<r12>) -> !lvx.pair<r18r19>
+// CHECK-NEXT: %11 = lvx.lane %10[0] : (!lvx.pair<r18r19>) -> !lvx.reg<r18>
+// CHECK-NEXT: lvx.reg_live_out %11 : !lvx.reg<r18>
+// CHECK-NEXT: %12 = lvx.lane %10[1] : (!lvx.pair<r18r19>) -> !lvx.reg<r19>
+// CHECK-NEXT: lvx.reg_live_out %12 : !lvx.reg<r19>
+// CHECK-NEXT: %13 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
+// CHECK-NEXT: %14 = lvx.set %13 : (!lvx.reg<r61>) -> !lvx.reg<ra>
+// CHECK-NEXT: %15 = lvx.li 32 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %16 = lvx.addd %2, %15 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
+// CHECK-NEXT: lvx_func.return %9 : !lvx.reg<r0>
 // CHECK-NEXT: }
 lvx_func.func private @callee(!lvx.reg<r0>) -> !lvx.reg<r0>
 lvx_func.func @across_call(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
@@ -91,66 +94,67 @@ lvx_func.func @across_call(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // live the 22nd lands there, and the prologue saves r14 alone.
 // CHECK-LABEL: lvx_func.func @mixed_pair
 // CHECK-NEXT: %0 = lvx.sp : !lvx.reg<r12>
-// CHECK-NEXT: %1 = lvx.li 24 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %1 = lvx.li 32 : i64 : !lvx.reg<r61>
 // CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
 // CHECK-NEXT: %3 = lvx.reg_live_in : !lvx.reg<r14>
 // CHECK-NEXT: lvx.sd %3, %2, 0 : i64 : (!lvx.reg<r14>, !lvx.reg<r12>)
 // CHECK-NEXT: %4 = lvx.reg_live_in : !lvx.reg<r18>
-// CHECK-NEXT: lvx.sd %4, %2, 8 : i64 : (!lvx.reg<r18>, !lvx.reg<r12>)
 // CHECK-NEXT: %5 = lvx.reg_live_in : !lvx.reg<r19>
-// CHECK-NEXT: lvx.sd %5, %2, 16 : i64 : (!lvx.reg<r19>, !lvx.reg<r12>)
-// CHECK-NEXT: %6 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r2r3>
-// CHECK-NEXT: %7 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r4r5>
-// CHECK-NEXT: %8 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r6r7>
-// CHECK-NEXT: %9 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r8r9>
-// CHECK-NEXT: %10 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r10r11>
-// CHECK-NEXT: %11 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r16r17>
-// CHECK-NEXT: %12 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r32r33>
-// CHECK-NEXT: %13 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r34r35>
-// CHECK-NEXT: %14 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r36r37>
-// CHECK-NEXT: %15 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r38r39>
-// CHECK-NEXT: %16 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r40r41>
-// CHECK-NEXT: %17 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r42r43>
-// CHECK-NEXT: %18 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r44r45>
-// CHECK-NEXT: %19 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r46r47>
-// CHECK-NEXT: %20 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r48r49>
-// CHECK-NEXT: %21 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r50r51>
-// CHECK-NEXT: %22 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r52r53>
-// CHECK-NEXT: %23 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r54r55>
-// CHECK-NEXT: %24 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r56r57>
-// CHECK-NEXT: %25 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r58r59>
-// CHECK-NEXT: %26 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r14r15>
-// CHECK-NEXT: %27 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r18r19>
-// CHECK-NEXT: lvx.sq %6, %arg0, 0 : i64 : (!lvx.pair<r2r3>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %7, %arg0, 0 : i64 : (!lvx.pair<r4r5>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %8, %arg0, 0 : i64 : (!lvx.pair<r6r7>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %9, %arg0, 0 : i64 : (!lvx.pair<r8r9>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %10, %arg0, 0 : i64 : (!lvx.pair<r10r11>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %11, %arg0, 0 : i64 : (!lvx.pair<r16r17>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %12, %arg0, 0 : i64 : (!lvx.pair<r32r33>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %13, %arg0, 0 : i64 : (!lvx.pair<r34r35>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %14, %arg0, 0 : i64 : (!lvx.pair<r36r37>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %15, %arg0, 0 : i64 : (!lvx.pair<r38r39>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %16, %arg0, 0 : i64 : (!lvx.pair<r40r41>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %17, %arg0, 0 : i64 : (!lvx.pair<r42r43>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %18, %arg0, 0 : i64 : (!lvx.pair<r44r45>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %19, %arg0, 0 : i64 : (!lvx.pair<r46r47>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %20, %arg0, 0 : i64 : (!lvx.pair<r48r49>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %21, %arg0, 0 : i64 : (!lvx.pair<r50r51>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %22, %arg0, 0 : i64 : (!lvx.pair<r52r53>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %23, %arg0, 0 : i64 : (!lvx.pair<r54r55>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %24, %arg0, 0 : i64 : (!lvx.pair<r56r57>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %25, %arg0, 0 : i64 : (!lvx.pair<r58r59>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %26, %arg0, 0 : i64 : (!lvx.pair<r14r15>, !lvx.reg<r0>)
-// CHECK-NEXT: lvx.sq %27, %arg0, 0 : i64 : (!lvx.pair<r18r19>, !lvx.reg<r0>)
-// CHECK-NEXT: %28 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r14>
-// CHECK-NEXT: lvx.reg_live_out %28 : !lvx.reg<r14>
-// CHECK-NEXT: %29 = lvx.ld %2, 8 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r18>
-// CHECK-NEXT: lvx.reg_live_out %29 : !lvx.reg<r18>
-// CHECK-NEXT: %30 = lvx.ld %2, 16 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r19>
-// CHECK-NEXT: lvx.reg_live_out %30 : !lvx.reg<r19>
-// CHECK-NEXT: %31 = lvx.li 24 : i64 : !lvx.reg<r61>
-// CHECK-NEXT: %32 = lvx.addd %2, %31 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
+// CHECK-NEXT: %6 = lvx.concat %4, %5 : (!lvx.reg<r18>, !lvx.reg<r19>) -> !lvx.pair<r18r19>
+// CHECK-NEXT: lvx.sq %6, %2, 8 : i64 : (!lvx.pair<r18r19>, !lvx.reg<r12>)
+// CHECK-NEXT: %7 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r2r3>
+// CHECK-NEXT: %8 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r4r5>
+// CHECK-NEXT: %9 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r6r7>
+// CHECK-NEXT: %10 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r8r9>
+// CHECK-NEXT: %11 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r10r11>
+// CHECK-NEXT: %12 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r16r17>
+// CHECK-NEXT: %13 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r32r33>
+// CHECK-NEXT: %14 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r34r35>
+// CHECK-NEXT: %15 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r36r37>
+// CHECK-NEXT: %16 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r38r39>
+// CHECK-NEXT: %17 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r40r41>
+// CHECK-NEXT: %18 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r42r43>
+// CHECK-NEXT: %19 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r44r45>
+// CHECK-NEXT: %20 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r46r47>
+// CHECK-NEXT: %21 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r48r49>
+// CHECK-NEXT: %22 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r50r51>
+// CHECK-NEXT: %23 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r52r53>
+// CHECK-NEXT: %24 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r54r55>
+// CHECK-NEXT: %25 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r56r57>
+// CHECK-NEXT: %26 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r58r59>
+// CHECK-NEXT: %27 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r14r15>
+// CHECK-NEXT: %28 = lvx.splatwq %arg0 : (!lvx.reg<r0>) -> !lvx.pair<r18r19>
+// CHECK-NEXT: lvx.sq %7, %arg0, 0 : i64 : (!lvx.pair<r2r3>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %8, %arg0, 0 : i64 : (!lvx.pair<r4r5>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %9, %arg0, 0 : i64 : (!lvx.pair<r6r7>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %10, %arg0, 0 : i64 : (!lvx.pair<r8r9>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %11, %arg0, 0 : i64 : (!lvx.pair<r10r11>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %12, %arg0, 0 : i64 : (!lvx.pair<r16r17>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %13, %arg0, 0 : i64 : (!lvx.pair<r32r33>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %14, %arg0, 0 : i64 : (!lvx.pair<r34r35>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %15, %arg0, 0 : i64 : (!lvx.pair<r36r37>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %16, %arg0, 0 : i64 : (!lvx.pair<r38r39>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %17, %arg0, 0 : i64 : (!lvx.pair<r40r41>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %18, %arg0, 0 : i64 : (!lvx.pair<r42r43>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %19, %arg0, 0 : i64 : (!lvx.pair<r44r45>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %20, %arg0, 0 : i64 : (!lvx.pair<r46r47>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %21, %arg0, 0 : i64 : (!lvx.pair<r48r49>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %22, %arg0, 0 : i64 : (!lvx.pair<r50r51>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %23, %arg0, 0 : i64 : (!lvx.pair<r52r53>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %24, %arg0, 0 : i64 : (!lvx.pair<r54r55>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %25, %arg0, 0 : i64 : (!lvx.pair<r56r57>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %26, %arg0, 0 : i64 : (!lvx.pair<r58r59>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %27, %arg0, 0 : i64 : (!lvx.pair<r14r15>, !lvx.reg<r0>)
+// CHECK-NEXT: lvx.sq %28, %arg0, 0 : i64 : (!lvx.pair<r18r19>, !lvx.reg<r0>)
+// CHECK-NEXT: %29 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r14>
+// CHECK-NEXT: lvx.reg_live_out %29 : !lvx.reg<r14>
+// CHECK-NEXT: %30 = lvx.lq %2, 8 : i64 : (!lvx.reg<r12>) -> !lvx.pair<r18r19>
+// CHECK-NEXT: %31 = lvx.lane %30[0] : (!lvx.pair<r18r19>) -> !lvx.reg<r18>
+// CHECK-NEXT: lvx.reg_live_out %31 : !lvx.reg<r18>
+// CHECK-NEXT: %32 = lvx.lane %30[1] : (!lvx.pair<r18r19>) -> !lvx.reg<r19>
+// CHECK-NEXT: lvx.reg_live_out %32 : !lvx.reg<r19>
+// CHECK-NEXT: %33 = lvx.li 32 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %34 = lvx.addd %2, %33 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
 // CHECK-NEXT: lvx_func.return
 // CHECK-NEXT: }
 lvx_func.func @mixed_pair(%a: !lvx.reg<r0>) {

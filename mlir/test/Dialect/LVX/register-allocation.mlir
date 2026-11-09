@@ -125,8 +125,9 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 //
 // This also exercises the callee-saved save/restore: `%live` above is
 // forced into r14, which is callee-saved, so the caller's own r14 has to
-// be preserved. The frame is therefore 16 bytes, not 8 -- slot 0 for $ra,
-// slot 8 for r14 -- and the prologue names the incoming register with
+// be preserved. The frame therefore needs 16 bytes, not 8 -- slot 0 for
+// $ra, slot 8 for r14 -- rounded up to 32 so the stack pointer stays 32-byte
+// aligned, and the prologue names the incoming register with
 // `lvx.reg_live_in` (which emits nothing) so an ordinary `lvx.sd` can
 // store it. The restore is that same `lvx.ld` -- whose *result* typed
 // !lvx.reg<r14> already is `ld $r14 = 8[$r12]` -- followed by
@@ -139,7 +140,7 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // against any lvx-gcc-compiled caller.
 // CHECK-LABEL: lvx_func.func @caller
 // CHECK-NEXT: %0 = lvx.sp : !lvx.reg<r12>
-// CHECK-NEXT: %1 = lvx.li 16 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %1 = lvx.li 32 : i64 : !lvx.reg<r61>
 // CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
 // CHECK-NEXT: %3 = lvx.reg_live_in : !lvx.reg<ra>
 // CHECK-NEXT: %4 = lvx.get %3 : (!lvx.reg<ra>) -> !lvx.reg<r61>
@@ -153,7 +154,7 @@ lvx_func.func @loop(%a: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // CHECK-NEXT: lvx.reg_live_out %9 : !lvx.reg<r14>
 // CHECK-NEXT: %10 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
 // CHECK-NEXT: %11 = lvx.set %10 : (!lvx.reg<r61>) -> !lvx.reg<ra>
-// CHECK-NEXT: %12 = lvx.li 16 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %12 = lvx.li 32 : i64 : !lvx.reg<r61>
 // CHECK-NEXT: %13 = lvx.addd %2, %12 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
 // CHECK-NEXT: lvx_func.return %8 : !lvx.reg<r0>
 // CHECK-NEXT: }
@@ -233,7 +234,6 @@ lvx_func.func @ffma_accumulator_read_earlier(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>)
 // CHECK-NEXT: %1 = lvx.mv %0 : (!lvx.reg<r2>) -> !lvx.reg<r0>
 // CHECK-NEXT: lvx_func.return %1 : !lvx.reg<r0>
 // CHECK-NEXT: }
-// CHECK-NEXT: }
 lvx_func.func @cmove_tied(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %c: !lvx.reg<r2>)
     -> !lvx.reg<r0> {
   %0 = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
@@ -241,5 +241,90 @@ lvx_func.func @cmove_tied(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %c: !lvx.reg<r2>)
   %2 = lvx.mv %c : (!lvx.reg<r2>) -> !lvx.reg
   %3 = lvx.cmoved dnez %0, %1, %2 : (!lvx.reg, !lvx.reg, !lvx.reg) -> !lvx.reg
   %p = lvx.mv %3 : (!lvx.reg) -> !lvx.reg<r0>
+  lvx_func.return %p : !lvx.reg<r0>
+}
+
+// Callee-saved registers are saved and restored as few at a time as the
+// aligned tuples allow (lvx-gcc packs them the same way). Six values live
+// across the call take r14 and r18-r22: r14 is saved alone (r15 is
+// caller-saved), r18r19 by one `sq`, and r20-r23 by one `so` -- r23 is not
+// used, but r20/r21 and r22 fill both halves of the quad, and restoring an
+// untouched callee-saved register gives the caller back the value it
+// already holds. Each store reads its tuple through an `lvx.concat` of
+// `lvx.reg_live_in`s, and each `lq`/`lo` restore is split by `lvx.lane`s
+// into one `lvx.reg_live_out` per register; all four pseudos emit nothing.
+// The slots need 8 + 8 + 16 + 32 = 64 bytes, already a multiple of 32.
+// CHECK-LABEL: lvx_func.func @packed
+// CHECK-NEXT: %0 = lvx.sp : !lvx.reg<r12>
+// CHECK-NEXT: %1 = lvx.li 64 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %2 = lvx.sbfd %0, %1 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
+// CHECK-NEXT: %3 = lvx.reg_live_in : !lvx.reg<ra>
+// CHECK-NEXT: %4 = lvx.get %3 : (!lvx.reg<ra>) -> !lvx.reg<r61>
+// CHECK-NEXT: lvx.sd %4, %2, 0 : i64 : (!lvx.reg<r61>, !lvx.reg<r12>)
+// CHECK-NEXT: %5 = lvx.reg_live_in : !lvx.reg<r14>
+// CHECK-NEXT: lvx.sd %5, %2, 8 : i64 : (!lvx.reg<r14>, !lvx.reg<r12>)
+// CHECK-NEXT: %6 = lvx.reg_live_in : !lvx.reg<r18>
+// CHECK-NEXT: %7 = lvx.reg_live_in : !lvx.reg<r19>
+// CHECK-NEXT: %8 = lvx.concat %6, %7 : (!lvx.reg<r18>, !lvx.reg<r19>) -> !lvx.pair<r18r19>
+// CHECK-NEXT: lvx.sq %8, %2, 16 : i64 : (!lvx.pair<r18r19>, !lvx.reg<r12>)
+// CHECK-NEXT: %9 = lvx.reg_live_in : !lvx.reg<r20>
+// CHECK-NEXT: %10 = lvx.reg_live_in : !lvx.reg<r21>
+// CHECK-NEXT: %11 = lvx.reg_live_in : !lvx.reg<r22>
+// CHECK-NEXT: %12 = lvx.reg_live_in : !lvx.reg<r23>
+// CHECK-NEXT: %13 = lvx.concat %9, %10, %11, %12 : (!lvx.reg<r20>, !lvx.reg<r21>, !lvx.reg<r22>, !lvx.reg<r23>) -> !lvx.quad<r20r21r22r23>
+// CHECK-NEXT: lvx.so %13, %2, 32 : i64 : (!lvx.quad<r20r21r22r23>, !lvx.reg<r12>)
+// CHECK-NEXT: %14 = lvx.mv %arg0 : (!lvx.reg<r0>) -> !lvx.reg<r14>
+// CHECK-NEXT: %15 = lvx.mv %arg1 : (!lvx.reg<r1>) -> !lvx.reg<r18>
+// CHECK-NEXT: %16 = lvx.mv %arg2 : (!lvx.reg<r2>) -> !lvx.reg<r19>
+// CHECK-NEXT: %17 = lvx.mv %arg3 : (!lvx.reg<r3>) -> !lvx.reg<r20>
+// CHECK-NEXT: %18 = lvx.mv %arg4 : (!lvx.reg<r4>) -> !lvx.reg<r21>
+// CHECK-NEXT: %19 = lvx.mv %arg5 : (!lvx.reg<r5>) -> !lvx.reg<r22>
+// CHECK-NEXT: %20 = lvx_func.call @callee(%arg0) : (!lvx.reg<r0>) -> !lvx.reg<r0>
+// CHECK-NEXT: %21 = lvx.addd %14, %20 : (!lvx.reg<r14>, !lvx.reg<r0>) -> !lvx.reg<r0>
+// CHECK-NEXT: %22 = lvx.addd %21, %15 : (!lvx.reg<r0>, !lvx.reg<r18>) -> !lvx.reg<r0>
+// CHECK-NEXT: %23 = lvx.addd %22, %16 : (!lvx.reg<r0>, !lvx.reg<r19>) -> !lvx.reg<r0>
+// CHECK-NEXT: %24 = lvx.addd %23, %17 : (!lvx.reg<r0>, !lvx.reg<r20>) -> !lvx.reg<r0>
+// CHECK-NEXT: %25 = lvx.addd %24, %18 : (!lvx.reg<r0>, !lvx.reg<r21>) -> !lvx.reg<r0>
+// CHECK-NEXT: %26 = lvx.addd %25, %19 : (!lvx.reg<r0>, !lvx.reg<r22>) -> !lvx.reg<r0>
+// CHECK-NEXT: %27 = lvx.ld %2, 8 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r14>
+// CHECK-NEXT: lvx.reg_live_out %27 : !lvx.reg<r14>
+// CHECK-NEXT: %28 = lvx.lq %2, 16 : i64 : (!lvx.reg<r12>) -> !lvx.pair<r18r19>
+// CHECK-NEXT: %29 = lvx.lane %28[0] : (!lvx.pair<r18r19>) -> !lvx.reg<r18>
+// CHECK-NEXT: lvx.reg_live_out %29 : !lvx.reg<r18>
+// CHECK-NEXT: %30 = lvx.lane %28[1] : (!lvx.pair<r18r19>) -> !lvx.reg<r19>
+// CHECK-NEXT: lvx.reg_live_out %30 : !lvx.reg<r19>
+// CHECK-NEXT: %31 = lvx.lo %2, 32 : i64 : (!lvx.reg<r12>) -> !lvx.quad<r20r21r22r23>
+// CHECK-NEXT: %32 = lvx.lane %31[0] : (!lvx.quad<r20r21r22r23>) -> !lvx.reg<r20>
+// CHECK-NEXT: lvx.reg_live_out %32 : !lvx.reg<r20>
+// CHECK-NEXT: %33 = lvx.lane %31[1] : (!lvx.quad<r20r21r22r23>) -> !lvx.reg<r21>
+// CHECK-NEXT: lvx.reg_live_out %33 : !lvx.reg<r21>
+// CHECK-NEXT: %34 = lvx.lane %31[2] : (!lvx.quad<r20r21r22r23>) -> !lvx.reg<r22>
+// CHECK-NEXT: lvx.reg_live_out %34 : !lvx.reg<r22>
+// CHECK-NEXT: %35 = lvx.lane %31[3] : (!lvx.quad<r20r21r22r23>) -> !lvx.reg<r23>
+// CHECK-NEXT: lvx.reg_live_out %35 : !lvx.reg<r23>
+// CHECK-NEXT: %36 = lvx.ld %2, 0 : i64 : (!lvx.reg<r12>) -> !lvx.reg<r61>
+// CHECK-NEXT: %37 = lvx.set %36 : (!lvx.reg<r61>) -> !lvx.reg<ra>
+// CHECK-NEXT: %38 = lvx.li 64 : i64 : !lvx.reg<r61>
+// CHECK-NEXT: %39 = lvx.addd %2, %38 : (!lvx.reg<r12>, !lvx.reg<r61>) -> !lvx.reg<r12>
+// CHECK-NEXT: lvx_func.return %26 : !lvx.reg<r0>
+// CHECK-NEXT: }
+// CHECK-NEXT: }
+lvx_func.func @packed(%a: !lvx.reg<r0>, %b: !lvx.reg<r1>, %c: !lvx.reg<r2>,
+                      %d: !lvx.reg<r3>, %e: !lvx.reg<r4>, %f: !lvx.reg<r5>)
+    -> !lvx.reg<r0> {
+  %la = lvx.mv %a : (!lvx.reg<r0>) -> !lvx.reg
+  %lb = lvx.mv %b : (!lvx.reg<r1>) -> !lvx.reg
+  %lc = lvx.mv %c : (!lvx.reg<r2>) -> !lvx.reg
+  %ld = lvx.mv %d : (!lvx.reg<r3>) -> !lvx.reg
+  %le = lvx.mv %e : (!lvx.reg<r4>) -> !lvx.reg
+  %lf = lvx.mv %f : (!lvx.reg<r5>) -> !lvx.reg
+  %r = lvx_func.call @callee(%a) : (!lvx.reg<r0>) -> !lvx.reg<r0>
+  %s1 = lvx.addd %la, %r : (!lvx.reg, !lvx.reg<r0>) -> !lvx.reg
+  %s2 = lvx.addd %s1, %lb : (!lvx.reg, !lvx.reg) -> !lvx.reg
+  %s3 = lvx.addd %s2, %lc : (!lvx.reg, !lvx.reg) -> !lvx.reg
+  %s4 = lvx.addd %s3, %ld : (!lvx.reg, !lvx.reg) -> !lvx.reg
+  %s5 = lvx.addd %s4, %le : (!lvx.reg, !lvx.reg) -> !lvx.reg
+  %s6 = lvx.addd %s5, %lf : (!lvx.reg, !lvx.reg) -> !lvx.reg
+  %p = lvx.mv %s6 : (!lvx.reg) -> !lvx.reg<r0>
   lvx_func.return %p : !lvx.reg<r0>
 }
