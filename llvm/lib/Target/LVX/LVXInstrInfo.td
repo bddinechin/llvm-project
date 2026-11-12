@@ -251,6 +251,48 @@ def : Pat<(simm16imm:$imm), (MAKED_DWI   simm16imm:$imm)>;
 def : Pat<(simm43imm:$imm), (MAKED_DWI_X simm43imm:$imm)>;
 def : Pat<(wimm64imm:$imm), (MAKED_DWI_Y wimm64imm:$imm)>;
 
+// ---- Materializing a constant splat ---------------------------------------
+//
+// "makedp $rM = imm32" writes the 32-bit immediate, sign-extended to 64 bits,
+// into BOTH halves of a pair -- the duplication is in the instruction, not in
+// the immediate expansion. That is a v2i64 splat of any int32 in one ALU_LITE
+// instruction (one extension syllable), on both cores, where the generic
+// splat_vector pattern would take two: a maked into a GPR, then a splatdq.
+//
+// Only lvx-2 reaches these: splat_vector is Legal only where LVXLaneSIMD.inc
+// says so, which is what makes DAGCombiner turn a constant splat BUILD_VECTOR
+// into one. On lvx-1 -- and for v2f64 everywhere, splat_vector never being
+// Legal for it -- the splat stays a BUILD_VECTOR, and LVXISelDAGToDAG's
+// Select() catches the same constants there.
+//
+// The packed lane shapes reach makedp only at all-zeros and all-ones: a lane
+// pattern replicated through 64 bits is a sign-extended 32-bit value only
+// when every bit is the same. Those two are the zeroed accumulator and the
+// all-true mask, which is why they are worth the patterns. splat_vector's
+// operand is an i64 whose bits above the lane are not defined, so the
+// all-ones test reads the lane's own bits only.
+//
+// AddedComplexity because these must beat the generated register patterns
+// in LVXInstrPatterns.td, which would otherwise take the splat and leave the
+// constant to a maked of its own.
+def splatLaneOnes8  : ImmLeaf<i64, [{ return uint8_t(Imm)  == 0xFFu; }]>;
+def splatLaneOnes16 : ImmLeaf<i64, [{ return uint16_t(Imm) == 0xFFFFu; }]>;
+def splatLaneOnes32 : ImmLeaf<i64, [{ return uint32_t(Imm) == 0xFFFFFFFFu; }]>;
+
+let AddedComplexity = 10 in {
+def : Pat<(v2i64 (splat_vector wimm32imm:$imm)),
+          (COPY_TO_REGCLASS (MAKEDP_DPWR_S wimm32imm:$imm), GPR128V)>;
+foreach VT = [v4i32, v8i16, v16i8] in
+def : Pat<(VT (splat_vector (i64 0))),
+          (COPY_TO_REGCLASS (MAKEDP_DPWR_S 0), GPR128V)>;
+def : Pat<(v4i32 (splat_vector splatLaneOnes32)),
+          (COPY_TO_REGCLASS (MAKEDP_DPWR_S -1), GPR128V)>;
+def : Pat<(v8i16 (splat_vector splatLaneOnes16)),
+          (COPY_TO_REGCLASS (MAKEDP_DPWR_S -1), GPR128V)>;
+def : Pat<(v16i8 (splat_vector splatLaneOnes8)),
+          (COPY_TO_REGCLASS (MAKEDP_DPWR_S -1), GPR128V)>;
+}
+
 // ---- Integer arithmetic and logic, register-register ----------------------
 
 // add/sub and the bitwise register-register forms are GENERATED from the

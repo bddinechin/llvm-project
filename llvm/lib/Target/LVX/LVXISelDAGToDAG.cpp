@@ -18,6 +18,7 @@
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/Support/MathExtras.h"
 #include <iterator>
+#include <optional>
 
 using namespace llvm;
 
@@ -397,6 +398,33 @@ static bool isNullConstant(SDValue V) {
   return C && C->isZero();
 }
 
+// The 64-bit lane a makedp would write, if N -- a BUILD_VECTOR of two 64-bit
+// lanes, or the BUILD_PAIR of an i128 -- is one constant in both and that
+// constant is a sign-extended 32-bit value; an undefined lane takes whatever
+// the other one is. A ConstantFP lane
+// counts by its bit pattern -- FP lives in the GPRs, and loading the bits is
+// loading the value, as for the scalar ConstantFP in Select().
+static std::optional<int64_t> getMakedpSplat(const SDNode *N) {
+  std::optional<int64_t> Lane;
+  for (const SDValue &Op : N->op_values()) {
+    if (Op.isUndef())
+      continue;
+    int64_t V;
+    if (auto *C = dyn_cast<ConstantSDNode>(Op))
+      V = C->getSExtValue();
+    else if (auto *CF = dyn_cast<ConstantFPSDNode>(Op))
+      V = CF->getValueAPF().bitcastToAPInt().getSExtValue();
+    else
+      return std::nullopt;
+    if (Lane && *Lane != V)
+      return std::nullopt;
+    Lane = V;
+  }
+  if (!Lane || !isInt<32>(*Lane))
+    return std::nullopt;
+  return Lane;
+}
+
 // Split every i128 constant before matching begins.
 //
 // The generated immediate predicates are `ImmLeaf<i64, ...>`, which TableGen
@@ -485,6 +513,16 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
   // simply never ends. At isel there is no combiner left to undo it.
   if (N->getOpcode() == ISD::Constant && N->getValueType(0) == MVT::i128) {
     const APInt &V = cast<ConstantSDNode>(N)->getAPIntValue();
+    // Both halves the same sign-extended 32-bit value -- 0 and -1 above all --
+    // is one makedp rather than a maked, a copy and the pairing: see the
+    // BUILD_VECTOR case below.
+    int64_t Lo = V.trunc(64).getSExtValue();
+    if (Lo == V.lshr(64).trunc(64).getSExtValue() && isInt<32>(Lo)) {
+      ReplaceNode(N, CurDAG->getMachineNode(
+                         LVX::MAKEDP_DPWR_S, DL, MVT::i128,
+                         CurDAG->getTargetConstant(Lo, DL, MVT::i64)));
+      return;
+    }
     auto Make = [&](int64_t Val) {
       unsigned Opc = isInt<16>(Val) ? LVX::MAKED_DWI
                    : isInt<43>(Val) ? LVX::MAKED_DWI_X
@@ -613,6 +651,18 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
   // the LOW 64 bits.
   if (N->getOpcode() == ISD::BUILD_PAIR &&
       N->getValueType(0) == MVT::i128) {
+    // Two equal constant halves that sign-extend from 32 bits are one makedp.
+    // This is where most such i128 constants arrive, not at the ISD::Constant
+    // case above: a value needing more than 64 bits -- (-7, -7) is one -- was
+    // split into exactly this BUILD_PAIR by PreprocessISelDAG. And clang's
+    // ABI returns a 128-bit vector AS an i128, so `return (v2di){-7, -7}`
+    // reaches the back end as this, never as a vector splat.
+    if (std::optional<int64_t> Lane = getMakedpSplat(N)) {
+      ReplaceNode(N, CurDAG->getMachineNode(
+                         LVX::MAKEDP_DPWR_S, DL, MVT::i128,
+                         CurDAG->getTargetConstant(*Lane, DL, MVT::i64)));
+      return;
+    }
     SDValue RegClass =
         CurDAG->getTargetConstant(LVX::GPR128RegClassID, DL, MVT::i32);
     SDValue Ops[] = {RegClass,
@@ -623,6 +673,35 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     ReplaceNode(N, CurDAG->getMachineNode(TargetOpcode::REG_SEQUENCE, DL,
                                           MVT::i128, Ops));
     return;
+  }
+
+  // A BUILD_VECTOR of one constant in both 64-bit lanes, when that constant is
+  // a sign-extended 32-bit value, is one makedp -- which writes its immediate,
+  // sign-extended, into both halves of the pair. The REG_SEQUENCE below would
+  // otherwise get one maked used twice, and the allocator, unable to put one
+  // virtual register in two places, adds a copy: two dependent instructions
+  // for what is one.
+  //
+  // The splat_vector of the same constant has its pattern in LVXInstrInfo.td;
+  // this is the route that reaches lvx-1 (where splat_vector is not Legal and
+  // DAGCombiner leaves the BUILD_VECTOR alone), v2f64 on both cores, and the
+  // packed lane types on lvx-1 too -- lowerBuildVectorPacked turns those into
+  // a v2i64 BUILD_VECTOR of the packed halves, which getNode constant-folds.
+  // The lanes are still ISD::Constant/ConstantFP here: selection runs users
+  // before operands.
+  if (N->getOpcode() == ISD::BUILD_VECTOR &&
+      (N->getValueType(0) == MVT::v2i64 || N->getValueType(0) == MVT::v2f64)) {
+    if (std::optional<int64_t> Lane = getMakedpSplat(N)) {
+      SDNode *Make = CurDAG->getMachineNode(
+          LVX::MAKEDP_DPWR_S, DL, MVT::i128,
+          CurDAG->getTargetConstant(*Lane, DL, MVT::i64));
+      ReplaceNode(N, CurDAG->getMachineNode(
+                         TargetOpcode::COPY_TO_REGCLASS, DL,
+                         N->getValueType(0), SDValue(Make, 0),
+                         CurDAG->getTargetConstant(LVX::GPR128VRegClassID, DL,
+                                                   MVT::i32)));
+      return;
+    }
   }
 
   // ISD::BUILD_VECTOR for a 128-bit pair: the two lanes are the pair's two
