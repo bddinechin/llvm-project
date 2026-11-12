@@ -28,9 +28,11 @@ define i64 @udiv_by_10(i64 %u) {
 ; quotient, then a plain low multiply by 10 to subtract it back out. Both
 ; multiply flavours therefore appear in one function, which is precisely the
 ; case a rotated highmult table gets wrong in two different ways at once.
+; The low multiply takes the 10 as its 32-bit immediate (muld's .S form,
+; generated since lvx-mds c389303) rather than from a maked register.
 ; CHECK-LABEL: urem_by_10:
 ; CHECK-DAG: muld.hu $r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
-; CHECK-DAG: muld $r{{[0-9]+}} = $r{{[0-9]+}}, $r{{[0-9]+}}
+; CHECK-DAG: muld $r{{[0-9]+}} = $r{{[0-9]+}}, 10
 define i64 @urem_by_10(i64 %u) {
   %r = urem i64 %u, 10
   ret i64 %r
