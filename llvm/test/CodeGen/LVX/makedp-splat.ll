@@ -182,11 +182,13 @@ define i128 @int128_five() {
   ret i128 5
 }
 
-; A splat used as an operand, not only returned: one makedp feeding the add.
+; A splat used as an operand is not materialised at all: the add's .S form
+; takes it as its immediate (lane-immediate.ll), so no makedp either.
 define <2 x i64> @add_splat(<2 x i64> %a) {
 ; CHECK-LABEL: add_splat:
+; CHECK-NOT:   makedp
 ; CHECK-NOT:   splatdq
-; CHECK:       {{makedp|adddp|addd}}
+; CHECK:       adddp $r0r1 = $r0r1, 70000
 ; CHECK:       ret
   %r = add <2 x i64> %a, <i64 70000, i64 70000>
   ret <2 x i64> %r
