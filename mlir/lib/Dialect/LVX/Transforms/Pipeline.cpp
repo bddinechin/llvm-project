@@ -78,6 +78,7 @@
 #include "mlir/Dialect/LVX/IR/LVXLatency.h"
 #include "mlir/Dialect/LVX/IR/LVXTiedOperands.h"
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
+#include "mlir/Dialect/LVX/Transforms/ModuloScheduling.h"
 #include "mlir/Dialect/LVX/Transforms/Pipeline.h"
 #include "mlir/Dialect/LVX/Transforms/RegisterAllocation.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
@@ -179,8 +180,9 @@ struct Read {
 class PipelineBuilder {
 public:
   PipelineBuilder(lvx_scf::ForOp loop, ArrayRef<int64_t> dates, int64_t ii,
-                  std::optional<Bounds> bounds, int64_t step)
+                  std::optional<Bounds> bounds, int64_t step, bool keepDates)
       : loop(loop), dates(dates), ii(ii), bounds(bounds), step(step),
+        keepDates(keepDates),
         yield(cast<lvx_scf::YieldOp>(loop.getBody()->getTerminator())) {
     for (Operation &op : loop.getBody()->without_terminator()) {
       index[&op] = ops.size();
@@ -245,6 +247,8 @@ private:
   int64_t ii;
   std::optional<Bounds> bounds; // when constant
   int64_t step;
+  /// Whether the kernel copies carry their dates on to `-lvx-schedule`.
+  bool keepDates;
   lvx_scf::YieldOp yield;
 
   SmallVector<Operation *> ops;
@@ -559,6 +563,43 @@ FailureOr<lvx_scf::ForOp> PipelineBuilder::buildKernel(OpBuilder &b,
     inits.push_back(init);
     types.push_back(v.getType());
   }
+  // The kernel's induction variable is read only through `iv` below, so it
+  // may count from any iteration of the window: from the first one whose
+  // instance reads it, the reads are at 0, 1, ... and the earliest needs no
+  // add. Counting from the trip's first iteration instead left every read
+  // an `addd` of its own -- one more instruction a trip than the iterations
+  // need, which no modulo scheduler was charged for. Shifting both bounds
+  // keeps the trip count, and nothing after the kernel reads its induction
+  // variable.
+  int64_t ivFirst = std::numeric_limits<int64_t>::max();
+  for (const Slot &s : window)
+    if (s.op != loopback())
+      for (Value operand : ops[s.op]->getOperands())
+        if (readOf(operand).kind == Read::Induction)
+          ivFirst = std::min(ivFirst, s.iter);
+  if (ivFirst == std::numeric_limits<int64_t>::max())
+    ivFirst = 0;
+  if (ivFirst != 0) {
+    // A constant bound shifts into a new constant rather than an add.
+    auto shift = [&](Value bound) -> Value {
+      if (auto li = bound.getDefiningOp<LiOp>())
+        if (auto c = dyn_cast<IntegerAttr>(li.getValueAttr()))
+          return b.create<LiOp>(loc, bound.getType(),
+                                b.getI64IntegerAttr(c.getInt() +
+                                                    ivFirst * step));
+      return addConstant(b, loc, bound, ivFirst * step);
+    };
+    Value oldLb = lb, oldUb = ub;
+    lb = shift(lb);
+    ub = shift(ub);
+    // Nothing downstream removes a dead constant, and the allocator would
+    // give it a register and the bundler a slot.
+    if (auto li = oldLb.getDefiningOp<LiOp>(); li && li->use_empty())
+      li->erase();
+    if (oldUb != oldLb)
+      if (auto li = oldUb.getDefiningOp<LiOp>(); li && li->use_empty())
+        li->erase();
+  }
   auto kernel = b.create<lvx_scf::ForOp>(loc, types, lb, ub, st, inits);
 
   OpBuilder::InsertionGuard guard(b);
@@ -577,7 +618,7 @@ FailureOr<lvx_scf::ForOp> PipelineBuilder::buildKernel(OpBuilder &b,
   auto iv = [&](int64_t rel) -> Value {
     Value &v = ivs[rel];
     if (!v)
-      v = addConstant(b, loc, kernel.getInductionVar(), rel * step);
+      v = addConstant(b, loc, kernel.getInductionVar(), (rel - ivFirst) * step);
     return v;
   };
 
@@ -610,6 +651,8 @@ FailureOr<lvx_scf::ForOp> PipelineBuilder::buildKernel(OpBuilder &b,
     }
     Operation *clone = b.clone(*op, map);
     clone->setAttr(kKernelCycleAttr, b.getI64IntegerAttr(s.date - kernelFirst));
+    if (keepDates)
+      clone->setAttr(kKernelDateAttr, b.getI64IntegerAttr(s.date - kernelFirst));
     for (auto [orig, res] : llvm::zip(op->getResults(), clone->getResults()))
       fresh[{orig, s.iter}] = res;
   }
@@ -895,12 +938,13 @@ LogicalResult PipelineBuilder::emitRuntime() {
 /// cannot build, with a diagnostic, before changing anything; a schedule of
 /// one stage is left alone.
 static LogicalResult buildPipeline(lvx_scf::ForOp loop,
-                                   ArrayRef<int64_t> dates, int64_t ii) {
+                                   ArrayRef<int64_t> dates, int64_t ii,
+                                   bool keepDates = false) {
   std::optional<int64_t> step = constantOf(loop.getStep());
   if (!step || *step <= 0 || !llvm::isPowerOf2_64(*step))
     return loop.emitError("software pipelining needs a constant power-of-two "
                           "step: the trip count is a shift");
-  PipelineBuilder builder(loop, dates, ii, boundsOf(loop), *step);
+  PipelineBuilder builder(loop, dates, ii, boundsOf(loop), *step, keepDates);
   if (builder.getNumStages() <= 1)
     return success(); // nothing in flight across the back edge
   if (failed(builder.plan()))
@@ -915,6 +959,7 @@ static void stripSchedule(lvx_scf::ForOp loop) {
     op.removeAttr(kStageAttr);
   }
   loop->removeAttr(kIIAttr);
+  loop->removeAttr(kKeepDatesAttr);
 }
 
 namespace {
@@ -984,6 +1029,7 @@ struct LVXPipelinePass : public lvx::impl::LVXPipelinePassBase<LVXPipelinePass> 
         loop.emitError("`" + Twine(kIIAttr) + "` must be positive");
         return signalPassFailure();
       }
+      bool keepDates = loop->hasAttr(kKeepDatesAttr);
       stripSchedule(loop);
 
       // What the construction refuses is an error: the schedule is wrong.
@@ -996,7 +1042,7 @@ struct LVXPipelinePass : public lvx::impl::LVXPipelinePassBase<LVXPipelinePass> 
             << ii << " it does not allocate as well as the loop it replaces";
         continue;
       }
-      if (failed(buildPipeline(loop, dates, ii)))
+      if (failed(buildPipeline(loop, dates, ii, keepDates)))
         return signalPassFailure();
     }
   }

@@ -73,7 +73,7 @@ public:
       return false;
     }
     dates.clear();
-    for (unsigned i = 0; i != p.ops.size(); ++i)
+    for (unsigned i = 0; i != p.numNodes(); ++i)
       dates.push_back(g.getDate(i + 1));
     return true;
   }

@@ -76,7 +76,7 @@ public:
   RCMSEngine(const ModuloProblem &p, const RCMSOptions &o) : p(p), o(o) {
     // The span an operation occupies for the horizon and the makespan rows:
     // its longest outgoing flow latency, and at least the cycle it issues in.
-    length.assign(p.ops.size(), 1);
+    length.assign(p.numNodes(), 1);
     for (const ModuloArc &a : p.arcs)
       if (a.kind == ModuloArcKind::RegRaw)
         length[a.src] = std::max(length[a.src], a.theta);
@@ -124,7 +124,7 @@ private:
 /// II enters, and why this is per interval. A positive cycle means II is
 /// below the graph's own period: a refusal, and the ladder moves on.
 bool RCMSEngine::windows(int64_t ii, std::string &why) {
-  unsigned n = p.ops.size();
+  unsigned n = p.numNodes();
   SmallVector<int64_t> asap(n, 0), alap(n, 0);
   auto weight = [&](const ModuloArc &a) { return a.theta - ii * a.omega; };
 
@@ -186,7 +186,7 @@ bool RCMSEngine::windows(int64_t ii, std::string &why) {
 
 bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
                        ArrayRef<int64_t> check, std::string &why) const {
-  unsigned n = p.ops.size();
+  unsigned n = p.numNodes();
   auto weight = [&](const ModuloArc &a) { return a.theta - ii * a.omega; };
   auto x = [&](unsigned i, int64_t t) {
     return "x_" + std::to_string(i) + "_" + std::to_string(t);
@@ -385,7 +385,7 @@ bool RCMSEngine::read(StringRef solPath, SmallVectorImpl<int64_t> &dates,
     why = "no solution file";
     return false;
   }
-  unsigned n = p.ops.size();
+  unsigned n = p.numNodes();
   SmallVector<int64_t> got(n, -1);
   bool haveStatus = false;
   SmallVector<StringRef> lines;
@@ -435,7 +435,7 @@ bool RCMSEngine::read(StringRef solPath, SmallVectorImpl<int64_t> &dates,
 
 bool RCMSEngine::scheduleAtII(int64_t ii, SmallVectorImpl<int64_t> &dates,
                               std::string &why) {
-  if (p.ops.empty()) {
+  if (p.numNodes() == 0) {
     why = "empty loop";
     return false;
   }

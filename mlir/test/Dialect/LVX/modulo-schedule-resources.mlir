@@ -14,31 +14,45 @@
 // RUN: FileCheck %s --check-prefix=MODEL < %t.dir/wide.0.ii2.lp
 //
 // The schedule GLPK finds for that model (validation/cms/rcms-glpk):
-// RUN: printf '#!/bin/sh\nprintf "STATUS OPTIMAL\\nx_0_0 1\\nx_1_1 1\\nx_2_1 1\\nx_3_2 1\\nx_4_4 1\\nx_5_4 1\\nx_6_5 1\\n" > "$2"\n' > %t.rcms && chmod +x %t.rcms
+// RUN: printf '#!/bin/sh\nprintf "STATUS OPTIMAL\\nx_0_0 1\\nx_1_1 1\\nx_2_1 1\\nx_3_2 1\\nx_4_4 1\\nx_5_4 1\\nx_6_5 1\\nx_7_1 1\\n" > "$2"\n' > %t.rcms && chmod +x %t.rcms
 // RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.rcms}))' 2>&1 | FileCheck %s --check-prefix=RCMS
 //
 // DSP's dates, handed back as though a solver had found them:
-// RUN: printf '#!/bin/sh\nprintf "STATUS OPTIMAL\\nx_0_0 1\\nx_1_1 1\\nx_2_1 1\\nx_3_1 1\\nx_4_4 1\\nx_5_4 1\\nx_6_5 1\\n" > "$2"\n' > %t.dsp && chmod +x %t.dsp
+// RUN: printf '#!/bin/sh\nprintf "STATUS OPTIMAL\\nx_0_0 1\\nx_1_1 1\\nx_2_1 1\\nx_3_1 1\\nx_4_4 1\\nx_5_4 1\\nx_6_5 1\\nx_7_1 1\\n" > "$2"\n' > %t.dsp && chmod +x %t.dsp
 // RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.dsp}))' 2>&1 | FileCheck %s --check-prefix=REFUSED
 
-// DSP: lvx.ld {{.*}}lvx.date = 1
-// DSP: lvx.ld {{.*}}lvx.date = 1
-// DSP: lvx.ld {{.*}}lvx.date = 1
-// DSP: lvx.ii = 2
+// Through the back end: the kernel keeps RCMS's dates through
+// `-lvx-schedule` (`lvx.keep_dates`, `lvx.kernel_date`), so the hardware loop
+// runs in its modulo schedule, II * kunroll = 2 * 2 cycles a trip, the
+// induction's two adds in the TINY slots the model left for them. DSP's
+// stages bundle as tightly, but its third load lands where its latency
+// stalls the next trip.
+// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.rcms},lvx-pipeline),any(lvx-allocate-registers),any(lvx-scf-to-cf),any(lvx-schedule),lvx-emit-asm)' -o /dev/null | FileCheck %s --check-prefix=KEPT
+// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=dsp},lvx-pipeline),any(lvx-allocate-registers),any(lvx-scf-to-cf),any(lvx-schedule),lvx-emit-asm)' -o /dev/null | FileCheck %s --check-prefix=STAGED
+// KEPT: loopdo
+// KEPT: end of hardware loop body -- LOOPDO back-edge is implicit; 4 cycles per trip
+// STAGED: loopdo
+// STAGED: end of hardware loop body -- LOOPDO back-edge is implicit; 5 cycles per trip
 
-// MODEL: \ RCMS fn=wide ii=2 n=7 horizon=8
-// MODEL:  res_tiny_0: + 1 x_0_0 + 1 x_0_2 + 1 x_1_2 + 1 x_1_4 + 1 x_2_2 + 1 x_3_2 + 1 x_3_4 + 1 x_4_4 + 1 x_4_6 + 1 x_5_4 + 1 x_5_6 + 1 x_6_6 <= 4
-// MODEL:  res_tiny_1: + 1 x_0_1 + 1 x_1_1 + 1 x_1_3 + 1 x_2_1 + 1 x_2_3 + 1 x_3_1 + 1 x_3_3 + 1 x_4_5 + 1 x_4_7 + 1 x_5_5 + 1 x_6_5 + 1 x_6_7 <= 4
-// MODEL:  res_lsu_0: + 1 x_1_2 + 1 x_1_4 + 1 x_2_2 + 1 x_3_2 + 1 x_3_4 <= 2
-// MODEL:  res_lsu_1: + 1 x_1_1 + 1 x_1_3 + 1 x_2_1 + 1 x_2_3 + 1 x_3_1 + 1 x_3_3 <= 2
-// MODEL:  res_auxw_0: + 1 x_1_2 + 1 x_1_4 + 1 x_2_2 + 1 x_3_2 + 1 x_3_4 <= 2
-// MODEL:  res_auxw_1: + 1 x_1_1 + 1 x_1_3 + 1 x_2_1 + 1 x_2_3 + 1 x_3_1 + 1 x_3_3 <= 2
+// DSP: lvx.ld {{.*}}lvx.date = 1
+// DSP: lvx.ld {{.*}}lvx.date = 1
+// DSP: lvx.ld {{.*}}lvx.date = 1
+// DSP: lvx.ii = 2 : i64}
+
+// MODEL: \ RCMS fn=wide ii=2 n=8 horizon=8
+// MODEL: res_tiny_0: + 1 x_0_0 + 1 x_0_2 + 1 x_1_2 + 1 x_1_4 + 1 x_2_2 + 1 x_3_2 + 1 x_3_4 + 1 x_4_4 + 1 x_4_6 + 1 x_5_4 + 1 x_5_6 + 1 x_6_6 + 1 x_7_0 + 1 x_7_2 <= 4
+// MODEL: res_tiny_1: + 1 x_0_1 + 1 x_1_1 + 1 x_1_3 + 1 x_2_1 + 1 x_2_3 + 1 x_3_1 + 1 x_3_3 + 1 x_4_5 + 1 x_4_7 + 1 x_5_5 + 1 x_6_5 + 1 x_6_7 + 1 x_7_1 + 1 x_7_3 <= 4
+// MODEL: res_lsu_0: + 1 x_1_2 + 1 x_1_4 + 1 x_2_2 + 1 x_3_2 + 1 x_3_4 <= 2
+// MODEL: res_lsu_1: + 1 x_1_1 + 1 x_1_3 + 1 x_2_1 + 1 x_2_3 + 1 x_3_1 + 1 x_3_3 <= 2
+// MODEL: res_auxw_0: + 1 x_1_2 + 1 x_1_4 + 1 x_2_2 + 1 x_3_2 + 1 x_3_4 <= 2
+// MODEL: res_auxw_1: + 1 x_1_1 + 1 x_1_3 + 1 x_2_1 + 1 x_2_3 + 1 x_3_1 + 1 x_3_3 <= 2
+
 
 // RCMS-NOT: remark
 // RCMS: lvx.ld {{.*}}lvx.date = 1
 // RCMS: lvx.ld {{.*}}lvx.date = 1
 // RCMS: lvx.ld {{.*}}lvx.date = 2
-// RCMS: lvx.ii = 2
+// RCMS: lvx.ii = 2 : i64, lvx.keep_dates}
 
 // REFUSED: remark: not software-pipelined: no period from 2 to 10 is accepted
 // REFUSED-SAME: lsu oversubscribed

@@ -167,18 +167,54 @@ FailureOr<ModuloProblem> ModuloProblem::build(lvx_scf::ForOp loop) {
     }
   }
 
-  // What each operation reserves, and how wide the value it defines is.
+  // The induction's increment, when the body reads the induction variable:
+  // an `addd` an iteration. The increment of iteration i computes iv(i+1),
+  // so iteration i's readers read what iteration i-1's increment wrote --
+  // distance one, both to the readers and around its own recurrence.
+  unsigned induction = p.ops.size();
+  const OpTiming *adddTiming = timingOf("addd");
+  int64_t ivWrite =
+      adddTiming ? resultWriteOf(*adddTiming, 0, std::nullopt) : 2;
+  for (unsigned j = 0; j != p.ops.size(); ++j)
+    for (OpOperand &use : loop.getInductionVar().getUses()) {
+      Operation *reader = loop.getBody()->findAncestorOpInBlock(*use.getOwner());
+      if (reader != p.ops[j])
+        continue;
+      int64_t read =
+          readCycleOf(lvxTimingOf(use.getOwner()), use.getOperandNumber());
+      arc(induction, j, std::max<int64_t>(1, ivWrite - read), 1,
+          ModuloArcKind::RegRaw);
+      p.induction = true;
+    }
+  if (p.induction)
+    arc(induction, induction,
+        std::max<int64_t>(1, ivWrite - readCycleOf(adddTiming, 0)), 1,
+        ModuloArcKind::RegRaw);
+
+  // What each node reserves, and how wide the value it defines is.
   SmallVector<unsigned> demandTotal(kNumResources, 0);
-  for (Operation *op : p.ops) {
+  for (Operation *op : p.ops)
     p.demand.push_back(demandOf(op));
-    for (unsigned r = 0; r != kNumResources; ++r)
-      demandTotal[r] += p.demand.back()[r];
+  if (p.induction) {
+    ResourceVector d{};
+    if (const Reservation *r = reservationOf("addd", std::nullopt))
+      for (unsigned u = 0; u != r->numUses; ++u)
+        d[static_cast<unsigned>(r->uses[u].resource)] += r->uses[u].count;
+    p.demand.push_back(d);
   }
-  p.width.assign(p.ops.size(), 0);
+  for (const ResourceVector &d : p.demand)
+    for (unsigned r = 0; r != kNumResources; ++r)
+      demandTotal[r] += d[r];
+  p.width.assign(p.numNodes(), 0);
   for (const ModuloArc &a : p.arcs)
-    if (a.kind == ModuloArcKind::RegRaw && !p.width[a.src])
+    if (a.kind == ModuloArcKind::RegRaw && !p.width[a.src]) {
+      if (a.src == induction) {
+        p.width[a.src] = 1;
+        continue;
+      }
       for (Type t : p.ops[a.src]->getResultTypes())
         p.width[a.src] = std::max(p.width[a.src], std::max(1u, widthOf(t)));
+    }
 
   // ResMII: for each resource, the total demand over its availability,
   // rounded up.
@@ -207,9 +243,9 @@ FailureOr<ModuloProblem> ModuloProblem::build(lvx_scf::ForOp loop) {
 }
 
 void ModuloProblem::addTo(ParametricLabelCorrecting &g) const {
-  for (unsigned i = 0; i != ops.size() + 1; ++i)
+  for (unsigned i = 0; i != numNodes() + 1; ++i)
     g.addNode();
-  for (unsigned i = 0; i != ops.size(); ++i)
+  for (unsigned i = 0; i != numNodes(); ++i)
     g.addArc(0, i + 1, 0, 0);
   for (const ModuloArc &a : arcs)
     g.addArc(a.src + 1, a.dst + 1, a.theta, a.omega);
@@ -226,8 +262,8 @@ static int64_t rowOf(int64_t date, int64_t ii) {
 std::optional<std::string>
 mlir::lvx::checkDependences(const ModuloProblem &p, int64_t ii,
                             ArrayRef<int64_t> dates) {
-  if (dates.size() != p.ops.size())
-    return std::string("not one date per operation");
+  if (dates.size() != p.numNodes())
+    return std::string("not one date per node");
   for (const ModuloArc &a : p.arcs)
     if (dates[a.dst] - dates[a.src] < a.theta - a.omega * ii)
       return ("arc " + Twine(a.src) + " -> " + Twine(a.dst) + " (theta " +
@@ -240,7 +276,7 @@ std::optional<std::string>
 mlir::lvx::checkResources(const ModuloProblem &p, int64_t ii,
                           ArrayRef<int64_t> dates) {
   SmallVector<ResourceVector> rows(ii, ResourceVector{});
-  for (unsigned i = 0; i != p.ops.size(); ++i)
+  for (unsigned i = 0; i != p.numNodes(); ++i)
     for (unsigned r = 0; r != kNumResources; ++r)
       rows[rowOf(dates[i], ii)][r] += p.demand[i][r];
   for (int64_t row = 0; row != ii; ++row)
@@ -264,7 +300,9 @@ std::optional<ModuloSchedule> mlir::lvx::scheduleLoop(const ModuloProblem &p,
   // never wrong code.
   int64_t first = p.lower();
   LLVM_DEBUG(llvm::dbgs() << "lvx-modulo-schedule: " << engine.name() << ": "
-                          << p.ops.size() << " operations, " << p.arcs.size()
+                          << p.ops.size() << " operations"
+                          << (p.induction ? " and the induction, " : ", ")
+                          << p.arcs.size()
                           << " arcs, RecMII " << p.recMII << ", ResMII "
                           << p.resMII << "\n");
   for (int64_t ii = first; ii <= first + kMaxPeriodRaise; ++ii) {
@@ -279,18 +317,21 @@ std::optional<ModuloSchedule> mlir::lvx::scheduleLoop(const ModuloProblem &p,
       refuse(refusal);
       continue;
     }
-    if (s.dates.size() != p.ops.size()) {
-      refuse("not one date per operation");
+    if (s.dates.size() != p.numNodes()) {
+      refuse("not one date per node");
       continue;
     }
-    // Dates from zero, which is what the construction reads stages from.
-    int64_t lo = s.dates.empty() ? 0 : s.dates.front();
-    for (int64_t d : s.dates)
-      lo = std::min(lo, d);
+    // The operations' dates from zero, which is what the construction reads
+    // stages from. The induction has no operation, and its date only says
+    // which row its increment was charged to.
+    int64_t lo = s.dates.front();
+    for (unsigned i = 0; i != p.ops.size(); ++i)
+      lo = std::min(lo, s.dates[i]);
     int64_t maxStage = 0;
-    for (int64_t &d : s.dates) {
+    for (auto [i, d] : llvm::enumerate(s.dates)) {
       d -= lo;
-      maxStage = std::max(maxStage, d / ii);
+      if (i < p.ops.size())
+        maxStage = std::max(maxStage, d / ii);
     }
     if (auto bad = checkDependences(p, ii, s.dates)) {
       refuse(*bad);
@@ -304,7 +345,8 @@ std::optional<ModuloSchedule> mlir::lvx::scheduleLoop(const ModuloProblem &p,
     // One stage: nothing crosses the back edge, and nothing to build.
     if (maxStage == 0)
       return s;
-    if (!pipelineAllocates(p.loop, s.dates, ii, maxRegisters)) {
+    if (!pipelineAllocates(p.loop, ArrayRef(s.dates).take_front(p.ops.size()),
+                           ii, maxRegisters)) {
       refuse("the pipeline does not allocate as well as the loop");
       continue;
     }
@@ -312,6 +354,7 @@ std::optional<ModuloSchedule> mlir::lvx::scheduleLoop(const ModuloProblem &p,
                << "lvx-modulo-schedule: " << engine.name()
                << " period raised from " << first << " to " << ii << "\n");
     s.pipelined = true;
+    s.fitsResources = engine.honoursResources();
     return s;
   }
   return std::nullopt;
@@ -323,6 +366,8 @@ void mlir::lvx::annotateSchedule(const ModuloProblem &p,
   for (unsigned i = 0; i != p.ops.size(); ++i)
     p.ops[i]->setAttr(kDateAttr, b.getI64IntegerAttr(s.dates[i]));
   p.loop->setAttr(kIIAttr, b.getI64IntegerAttr(s.ii));
+  if (s.fitsResources)
+    p.loop->setAttr(kKeepDatesAttr, b.getUnitAttr());
 }
 
 //===----------------------------------------------------------------------===//

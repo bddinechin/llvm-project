@@ -53,6 +53,16 @@ namespace lvx {
 
 class ParametricLabelCorrecting;
 
+/// On a loop: its dates are to be kept, not only its stages. Set by the
+/// framework for an engine whose dates fit the modulo reservation table,
+/// which DSP's do not.
+constexpr llvm::StringLiteral kKeepDatesAttr = "lvx.keep_dates";
+/// On a kernel op, when its loop kept its dates: the cycle in the kernel the
+/// engine gave it, which `-lvx-schedule` releases it at and places first.
+/// An op the construction or the allocator added has none, and fills what
+/// the dated ones leave.
+constexpr llvm::StringLiteral kKernelDateAttr = "lvx.kernel_date";
+
 /// Where an arc came from: GCC's `lvx_lms_arc_kind`, restricted to what this
 /// IR has. SSA leaves no register anti or output dependence but a tie's, and
 /// `lvx_scf.for` has no early exit, so there is no control kind.
@@ -86,6 +96,14 @@ struct ModuloProblem {
   lvx_scf::ForOp loop;
   /// The body in program order, terminator excluded. Node i is ops[i].
   SmallVector<Operation *> ops;
+  /// Whether the body reads the induction variable, in which case node
+  /// `ops.size()` stands for its increment: the `lvx_scf.for` step is
+  /// implicit in the body, but the kernel materialises it, one `addd` an
+  /// iteration, and an engine that was not charged for it leaves no slot for
+  /// it. It has an `addd`'s reservation, an arc to each reader and its own
+  /// recurrence, and no operation; an engine dates it like any node, and only
+  /// the operations' dates are written.
+  bool induction = false;
   SmallVector<ModuloArc> arcs;
   /// Per operation, what it reserves. A BCU prefix is charged one BCU on
   /// every op that carries it: the bundler shares one syllable between ops
@@ -99,6 +117,9 @@ struct ModuloProblem {
   SmallVector<unsigned> width;
   int64_t recMII = 1;
   int64_t resMII = 1;
+
+  /// The nodes an engine dates: the operations, then the induction.
+  unsigned numNodes() const { return ops.size() + (induction ? 1 : 0); }
 
   /// max(RecMII, ResMII): where the ladder starts.
   int64_t lower() const { return std::max(recMII, resMII); }
@@ -132,7 +153,7 @@ public:
   /// its resources are `-lvx-schedule`'s -- and the framework checks the
   /// table only for an engine that says they do.
   virtual bool honoursResources() const = 0;
-  /// Fills `dates`, one per body operation, and returns true; or returns
+  /// Fills `dates`, one per node, and returns true; or returns
   /// false with `why` naming the obstacle. Any search of the engine's own
   /// happens inside, so two engines asked for the same II differ in one
   /// thing only.
@@ -165,11 +186,14 @@ std::unique_ptr<ModuloEngine> createRCMSEngine(const ModuloProblem &p,
 /// What the ladder settled on.
 struct ModuloSchedule {
   int64_t ii = 0;
-  /// From zero, one per body operation.
+  /// One per node, the operations' from zero.
   SmallVector<int64_t> dates;
   /// Whether the schedule spans more than one stage. One that does not has
   /// nothing crossing the back edge and is left unpipelined.
   bool pipelined = false;
+  /// Whether the dates fit the modulo reservation table, so that the kernel
+  /// can keep them through `-lvx-schedule`.
+  bool fitsResources = false;
 };
 
 /// How far past its first interval the ladder goes: GCC's
@@ -187,7 +211,8 @@ std::optional<ModuloSchedule> scheduleLoop(const ModuloProblem &p,
                                            std::string &why);
 
 /// Records `s` as the schedule `-lvx-pipeline` consumes: `lvx.date` on each
-/// body operation and `lvx.ii` on the loop.
+/// body operation and `lvx.ii` on the loop, and `lvx.keep_dates` when the
+/// dates fit the reservation table.
 void annotateSchedule(const ModuloProblem &p, const ModuloSchedule &s);
 
 /// What the driver is told: which engine, and the framework's knobs.

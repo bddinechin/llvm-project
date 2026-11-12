@@ -45,18 +45,19 @@ lvx_func.func @acc(%base: !lvx.reg<r0>) -> !lvx.reg<r0> {
 // -----
 
 // Three stages, and the induction variable is read a stage late: the multiply
-// works on the iteration after the add's, so it reads the kernel's induction
-// value plus one step rather than a carried copy. The peeled sections get it
-// as a constant, the bounds being constant. Nothing lives longer than a trip,
-// so the kernel is not unrolled.
+// works on the iteration after the add's. The kernel's induction variable
+// counts from that iteration -- its bounds shifted a step, 1 to 4 rather than
+// 0 to 3 -- so the multiply reads it directly, with no add in the kernel. The
+// peeled sections get it as a constant, the bounds being constant. Nothing
+// lives longer than a trip, so the kernel is not unrolled.
 // CHECK-LABEL: lvx_func.func @three
-// CHECK: lvx_scf.for
+// CHECK: %[[KUB:.*]] = lvx.li 4
+// CHECK-NEXT: lvx_scf.for %{{.*}} : !lvx.reg to %[[KUB]]
 // CHECK-NEXT: ^bb0(%[[IV:.*]]: !lvx.reg, %[[A:.*]]: !lvx.reg, %[[W:.*]]: !lvx.reg, %[[V:.*]]: !lvx.reg)
 // Oldest iteration first: the add (stage 2), then the multiply (stage 1),
 // then the load (stage 0).
 // CHECK-NEXT: %[[S:.*]] = lvx.addd %[[A]], %[[W]]
-// CHECK-NEXT: %[[I1:.*]] = lvx.addd_i %[[IV]], 1
-// CHECK-NEXT: %[[MUL:.*]] = lvx.muld %[[V]], %[[I1]]
+// CHECK-NEXT: %[[MUL:.*]] = lvx.muld %[[V]], %[[IV]]
 // CHECK-NEXT: %[[LD:.*]] = lvx.ld
 // CHECK-NEXT: lvx_scf.yield %[[S]], %[[MUL]], %[[LD]]
 // The drain finishes iterations 3 and 4, the last multiply on a constant.

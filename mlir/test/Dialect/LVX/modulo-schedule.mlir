@@ -21,11 +21,11 @@
 // RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.unknown}))' 2>&1 | FileCheck %s --check-prefix=UNKNOWN
 //
 // A solver that answers with a schedule: accepted, and the dates are its.
-// RUN: printf '#!/bin/sh\nprintf "STATUS OPTIMAL\\nx_0_0 1\\nx_1_1 1\\nx_2_16 1\\nk_0 1\\n" > "$2"\n' > %t.optimal && chmod +x %t.optimal
+// RUN: printf '#!/bin/sh\nprintf "STATUS OPTIMAL\\nx_0_0 1\\nx_1_1 1\\nx_2_16 1\\nx_3_0 1\\nk_0 1\\n" > "$2"\n' > %t.optimal && chmod +x %t.optimal
 // RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.optimal}))' 2>&1 | FileCheck %s --check-prefix=OPTIMAL
 //
 // A solver whose answer breaks an arc: refused by the framework, never built.
-// RUN: printf '#!/bin/sh\nprintf "STATUS OPTIMAL\\nx_0_0 1\\nx_1_1 1\\nx_2_2 1\\n" > "$2"\n' > %t.wrong && chmod +x %t.wrong
+// RUN: printf '#!/bin/sh\nprintf "STATUS OPTIMAL\\nx_0_0 1\\nx_1_1 1\\nx_2_2 1\\nx_3_0 1\\n" > "$2"\n' > %t.wrong && chmod +x %t.wrong
 // RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.wrong}))' 2>&1 | FileCheck %s --check-prefix=WRONG
 
 // A fifteen-cycle `.u` load feeding an accumulation: RecMII 1 (the add's
@@ -35,7 +35,7 @@
 // DSP: lvx.addx8d {{.*}}lvx.date = 0
 // DSP: lvx.ld {{.*}}lvx.date = 1
 // DSP: lvx.addd {{.*}}lvx.date = 16
-// DSP: lvx.ii = 1 : i64, lvx.period = 1 : i64
+// DSP: lvx.ii = 1 : i64, lvx.period = 1 : i64}
 
 // NONE: remark: rcms found no schedule (rcms at II = 9: no solver configured (rcms-solver=)); dsp's is taken
 // NONE: lvx.ii = 1
@@ -44,28 +44,36 @@
 // INFEASIBLE-NOT: lvx.ii
 
 // The model at II = 1: the MCRL objective, each value weighted by its width;
-// one assignment row per operation; the flow arcs as aggregated dependence
-// rows; the lifetimes, the accumulator's carrying its iteration distance.
-// MODEL: \ RCMS fn=sum ii=1 n=3 horizon=18
+// one assignment row per node; the flow arcs as aggregated dependence rows;
+// the lifetimes, the accumulator's carrying its iteration distance. Node 3 is
+// the induction's increment, which the body reads through the address and
+// the kernel materialises: one `addd` an iteration, charged here.
+// MODEL: \ RCMS fn=sum ii=1 n=4 horizon=18
 // MODEL-NEXT: Minimize
-// MODEL-NEXT: obj: + 1 k_0 + 1 k_1 + 1 k_2 -1 x_0_1 -1 x_1_1 -2 x_1_2 -16 x_2_16 -17 x_2_17
+// MODEL-NEXT: obj: + 1 k_0 + 1 k_1 + 1 k_2 + 1 k_3 -1 x_0_1 -1 x_1_1 -2 x_1_2 -16 x_2_16 -17 x_2_17 -1 x_3_1
 // MODEL-NEXT: Subject To
 // MODEL-NEXT: asg_0: + x_0_0 + x_0_1 = 1
 // MODEL-NEXT: asg_1: + x_1_1 + x_1_2 = 1
 // MODEL-NEXT: asg_2: + x_2_16 + x_2_17 = 1
+// MODEL-NEXT: asg_3: + x_3_0 + x_3_1 = 1
 // MODEL-NEXT: dep_0: +1 x_0_1 -1 x_1_1 -2 x_1_2 <= -1
 // MODEL-NEXT: dep_2: +1 x_1_1 +2 x_1_2 -16 x_2_16 -17 x_2_17 <= -15
+// MODEL-NEXT: dep_3: +1 x_3_1 -1 x_0_1 <= 0
 // MODEL-NEXT: life_0: k_0 -1 x_1_1 -2 x_1_2 >= 0
 // MODEL-NEXT: life_1: k_2 -16 x_2_16 -17 x_2_17 >= 1
 // MODEL-NEXT: life_2: k_1 -16 x_2_16 -17 x_2_17 >= 0
+// MODEL-NEXT: life_3: k_3 -1 x_0_1 >= 1
+// MODEL-NEXT: life_4: k_3 -1 x_3_1 >= 1
 // MODEL-NEXT: Bounds
 // MODEL-NEXT: 0 <= k_0 <= 20
 // MODEL-NEXT: 0 <= k_1 <= 20
 // MODEL-NEXT: 0 <= k_2 <= 20
+// MODEL-NEXT: 0 <= k_3 <= 20
 // MODEL-NEXT: General
 // MODEL-NEXT: k_0
 // MODEL-NEXT: k_1
 // MODEL-NEXT: k_2
+// MODEL-NEXT: k_3
 // MODEL-NEXT: Binaries
 // MODEL-NEXT: x_0_0
 // MODEL-NEXT: x_0_1
@@ -73,6 +81,8 @@
 // MODEL-NEXT: x_1_2
 // MODEL-NEXT: x_2_16
 // MODEL-NEXT: x_2_17
+// MODEL-NEXT: x_3_0
+// MODEL-NEXT: x_3_1
 // MODEL-NEXT: End
 
 // KEPT: sum.0.ii1.lp
@@ -84,7 +94,7 @@
 // OPTIMAL: lvx.addx8d {{.*}}lvx.date = 0
 // OPTIMAL: lvx.ld {{.*}}lvx.date = 1
 // OPTIMAL: lvx.addd {{.*}}lvx.date = 16
-// OPTIMAL: lvx.ii = 1
+// OPTIMAL: lvx.ii = 1 : i64, lvx.keep_dates
 
 // WRONG: remark: not software-pipelined: no period from 1 to 9 is accepted
 // WRONG-NOT: lvx.ii

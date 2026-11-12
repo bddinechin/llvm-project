@@ -397,6 +397,10 @@ struct Node {
   /// value the previous trip defined cannot issue before that definition's
   /// latency has elapsed, counting the body length (`listSchedule`).
   unsigned release = 0;
+  /// The cycle a modulo scheduler gave it in a pipelined kernel, when the
+  /// loop kept its dates (`lvx.kernel_date`): it is released there and goes
+  /// before any undated op of the same bundle.
+  std::optional<unsigned> date;
 };
 
 /// A dependence that crosses the back edge of a hardware-loop body: the
@@ -433,6 +437,9 @@ private:
   /// Whether this block is a hardware-loop body, so that its last bundle is
   /// followed by its first. `lvx_cf.loopend` is what says so.
   bool cyclic = false;
+  /// Whether some op carries a modulo scheduler's date: a pipelined kernel
+  /// that kept its dates.
+  bool dated = false;
   /// The dependences crossing the back edge, for a cyclic block.
   SmallVector<Carried> carried;
   /// The body length the back edge forces, once scheduled: the longest a
@@ -463,6 +470,11 @@ private:
         n.timing = timingOf(*mnemonic);
       }
       n.prefix = prefixOf(&op);
+      if (auto d = op.getAttrOfType<IntegerAttr>(kKernelDateAttr)) {
+        n.date = static_cast<unsigned>(std::max<int64_t>(0, d.getInt()));
+        n.release = *n.date;
+        dated = true;
+      }
       nodes.push_back(n);
     }
 
@@ -703,7 +715,10 @@ private:
 
     listSchedule();
     bodyCycles = std::max(span(), carriedBound());
-    if (carried.empty())
+    // A kernel that kept its modulo scheduler's dates already satisfies its
+    // carried dependences at the trip length those dates were chosen for;
+    // releasing its uses further would only undo them.
+    if (carried.empty() || dated)
       return;
 
     // A cyclic block takes `max(span, carriedBound)` cycles, the hardware
@@ -784,9 +799,18 @@ private:
       while (progress) {
         progress = false;
         // Highest height first; source order breaks ties, for a
-        // deterministic schedule.
+        // deterministic schedule. In a kernel that kept its dates the dated
+        // ops come first, by date: the modulo scheduler checked that each
+        // bundle's dated ops fit together, so placing them before anything
+        // undated puts each at its date unless an undated predecessor is
+        // late -- and the undated ops fill what is left.
         llvm::stable_sort(ready, [&](unsigned a, unsigned b) {
-          return nodes[a].height > nodes[b].height;
+          const Node &x = nodes[a], &y = nodes[b];
+          if (x.date.has_value() != y.date.has_value())
+            return x.date.has_value();
+          if (x.date && *x.date != *y.date)
+            return *x.date < *y.date;
+          return x.height > y.height;
         });
         for (unsigned k = 0; k != ready.size(); ++k) {
           Node &n = nodes[ready[k]];
@@ -864,6 +888,7 @@ private:
           "lvx.body_cycles", builder.getI64IntegerAttr(bodyCycles));
     Operation *prev = nullptr;
     for (Operation *op : order) {
+      op->removeAttr(kKernelDateAttr);
       op->setAttr(kCycleAttr,
                   builder.getI64IntegerAttr(*nodes[index[op]].bundle));
       if (prev)
