@@ -418,6 +418,7 @@ LogicalResult mlir::lvx::moduloScheduleFunction(lvx_func::FuncOp func,
     }
     if (!s->pipelined)
       continue;
+    s->fitsResources &= o.keepDates;
     annotateSchedule(*p, *s);
     if (o.annotatePeriod)
       loop->setAttr("lvx.period", OpBuilder(loop).getI64IntegerAttr(s->ii));
@@ -442,6 +443,7 @@ struct LVXModuloSchedulePass
     o.maxRegisters = maxRegisters;
     o.annotatePeriod = annotatePeriod;
     o.fallback = fallback;
+    o.keepDates = keepDates;
     o.rcms.solver = rcmsSolver;
     o.rcms.seconds = rcmsSeconds;
     o.rcms.dir = rcmsDir;

@@ -224,6 +224,8 @@ struct ModuloDriverOptions {
   bool annotatePeriod = false;
   /// When RCMS finds no schedule, ask DSP.
   bool fallback = true;
+  /// Mark a schedule whose dates fit the reservation table `lvx.keep_dates`.
+  bool keepDates = true;
   RCMSOptions rcms;
 };
 

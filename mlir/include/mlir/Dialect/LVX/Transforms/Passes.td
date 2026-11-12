@@ -388,6 +388,10 @@ def LVXModuloSchedulePass
            "Also record the period as `lvx.period` on the loop, for tests">,
     Option<"fallback", "fallback", "bool", /*default=*/"true",
            "When rcms finds no schedule, ask dsp">,
+    Option<"keepDates", "keep-dates", "bool", /*default=*/"true",
+           "Have the kernel keep the dates of an engine whose dates fit "
+           "the reservation table, through -lvx-schedule; off, they are "
+           "a staging only, as DSP's are">,
     Option<"rcmsSolver", "rcms-solver", "std::string", /*default=*/"\"\"",
            "The program that solves one model: <solver> <model.lp> "
            "<solution> <seconds>">,
