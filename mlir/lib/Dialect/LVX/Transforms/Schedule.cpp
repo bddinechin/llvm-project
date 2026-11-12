@@ -193,8 +193,8 @@ static llvm::SmallBitVector forwardedOperands(Operation *op) {
 
 /// Sets `format` on an op with an immediate that has none yet: the narrowest
 /// form the immediate fits, among the forms whose required unit modifiers
-/// are exactly the ones the op carries (a `.m` form wants `splat32` and a
-/// bare form wants its absence). Fails if no form fits, which is an
+/// are exactly the ones the op carries (`abdw`'s 32-bit form is written
+/// `abdw.sx`, so it wants `sx`). Fails if no form fits, which is an
 /// immediate the ISA cannot encode in this instruction.
 /// The format `chooseFormat` would set, without setting it: nothing when the
 /// bare form stands, failure -- with the immediate in `unfitting` -- when no

@@ -337,10 +337,12 @@ struct FoldSxwdIntoW : public OpRewritePattern<SxwdOp> {
 ///
 /// Restricted to 32-bit lanes on purpose. There a 32-bit immediate is exactly
 /// one lane, which is the case measured on the ISS (`addwq $d = $s, 5` adds 5
-/// to all four lanes). At 64-bit lanes the same 32-bit immediate has to be
-/// extended or splatted to fill the lane -- what the `splat32` modifier is
-/// for -- and at 8 and 16 bits it would have to be replicated; none of that is
-/// established here, so none of it is folded.
+/// to all four lanes). The ISA defines the other lane widths too, by the
+/// operand's LaneWidth (lvx-mds c389303, 2026-11-10): at 64-bit lanes the
+/// immediate is sign-extended to fill the lane, and at 8 and 16 bits its low
+/// lane is replicated. So a splat of C would fold at 64 bits only when C is a
+/// signed 32-bit value, and at 8 and 16 bits only when C fits the lane. Neither
+/// is measured on the ISS yet, so neither is folded.
 struct FoldSplatConstantIntoImmediate : public RewritePattern {
   FoldSplatConstantIntoImmediate(MLIRContext *ctx)
       : RewritePattern(MatchAnyOpTypeTag(), /*benefit=*/1, ctx) {}
