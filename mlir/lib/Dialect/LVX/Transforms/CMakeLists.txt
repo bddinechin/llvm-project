@@ -5,6 +5,8 @@ add_mlir_dialect_library(MLIRLVXTransforms
   IfConvert.cpp
   SCFToCF.cpp
   DecomposedPipeline.cpp
+  ModuloScheduling.cpp
+  RCMS.cpp
   Pipeline.cpp
   Schedule.cpp
   UncachedLoads.cpp

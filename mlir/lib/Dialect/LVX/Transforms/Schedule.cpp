@@ -42,6 +42,7 @@
 #include "mlir/Dialect/LVX/IR/LVXLatency.h"
 #include "mlir/Dialect/LVX/IR/LVXScheduling.h"
 #include "mlir/Dialect/LVX/IR/RegisterUnits.h"
+#include "mlir/Dialect/LVX/Transforms/ModuloScheduling.h"
 #include "mlir/Dialect/LVXCF/IR/LVXCF.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
@@ -195,10 +196,16 @@ static llvm::SmallBitVector forwardedOperands(Operation *op) {
 /// are exactly the ones the op carries (a `.m` form wants `splat32` and a
 /// bare form wants its absence). Fails if no form fits, which is an
 /// immediate the ISA cannot encode in this instruction.
-static LogicalResult chooseFormat(Operation *op, StringRef mnemonic) {
+/// The format `chooseFormat` would set, without setting it: nothing when the
+/// bare form stands, failure -- with the immediate in `unfitting` -- when no
+/// form fits.
+static FailureOr<std::optional<Format>>
+formatFor(Operation *op, StringRef mnemonic, APInt *unfitting = nullptr) {
   const OpImmediate *imm = immediateOf(mnemonic);
-  if (!imm || op->hasAttr("format"))
-    return success();
+  if (!imm)
+    return std::optional<Format>();
+  if (auto f = op->getAttrOfType<FormatAttr>("format"))
+    return std::optional<Format>(f.getValue());
   auto valueAttr = dyn_cast_or_null<TypedAttr>(op->getAttr(imm->attribute));
   // `lvx.li` is a hand-written pseudo and keeps its immediate in `value`,
   // while the table is written for the real `maked` and calls it `signed16`.
@@ -222,14 +229,14 @@ static LogicalResult chooseFormat(Operation *op, StringRef mnemonic) {
     if (auto li = dyn_cast<LiOp>(op))
       valueAttr = dyn_cast_or_null<TypedAttr>(li.getValueAttr());
   if (!valueAttr)
-    return success(); // not this op's shape (a register form); bare stands
+    return std::optional<Format>(); // not this op's shape (a register form)
   APInt value;
   if (auto i = dyn_cast<IntegerAttr>(valueAttr))
     value = i.getValue();
   else if (auto f = dyn_cast<FloatAttr>(valueAttr))
     value = f.getValue().bitcastToAPInt();
   else
-    return success();
+    return std::optional<Format>();
 
   ArrayRef<ImmediateForm> forms(imm->forms, imm->numForms);
   for (const ImmediateForm &form : forms) {
@@ -247,16 +254,29 @@ static LogicalResult chooseFormat(Operation *op, StringRef mnemonic) {
       }
     if (!match || !valueFits(value, form))
       continue;
-    if (form.formatSlot != kBareFormatSlot)
-      op->setAttr("format",
-                  FormatAttr::get(op->getContext(),
-                                  static_cast<Format>(form.formatSlot)));
-    return success();
+    if (form.formatSlot == kBareFormatSlot)
+      return std::optional<Format>();
+    return std::optional<Format>(static_cast<Format>(form.formatSlot));
   }
-  SmallString<32> text;
-  value.toStringSigned(text);
-  return op->emitError("lvx-schedule: immediate ")
-         << text << " fits no format of " << mnemonic;
+  if (unfitting)
+    *unfitting = value;
+  return failure();
+}
+
+static LogicalResult chooseFormat(Operation *op, StringRef mnemonic) {
+  if (op->hasAttr("format"))
+    return success();
+  APInt value;
+  FailureOr<std::optional<Format>> format = formatFor(op, mnemonic, &value);
+  if (failed(format)) {
+    SmallString<32> text;
+    value.toStringSigned(text);
+    return op->emitError("lvx-schedule: immediate ")
+           << text << " fits no format of " << mnemonic;
+  }
+  if (*format)
+    op->setAttr("format", FormatAttr::get(op->getContext(), **format));
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1095,3 +1115,20 @@ struct LVXSchedulePass : public lvx::impl::LVXSchedulePassBase<LVXSchedulePass> 
 };
 
 } // namespace
+
+// The two rules a modulo scheduler must charge as this bundler does, or a
+// schedule it accepts may not bundle.
+
+std::optional<Format> mlir::lvx::formatOf(Operation *op) {
+  std::optional<StringRef> mnemonic = printedMnemonic(op);
+  if (!mnemonic)
+    return std::nullopt;
+  // An immediate no form fits is this pass's error to report, when it runs;
+  // until then the bare form is the estimate.
+  FailureOr<std::optional<Format>> format = formatFor(instructionOf(op), *mnemonic);
+  return succeeded(format) ? *format : std::nullopt;
+}
+
+bool mlir::lvx::needsBcuPrefix(Operation *op) {
+  return prefixOf(op).has_value();
+}

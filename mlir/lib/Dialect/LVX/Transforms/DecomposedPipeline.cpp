@@ -23,27 +23,19 @@
 // against the real reservation tables. The decomposition falls out of the pass
 // pipeline rather than having to be built.
 //
+// DSP is one engine of the modulo scheduling framework (ModuloScheduling.h),
+// which owns the dependence graph, the bounds, the II ladder and acceptance.
+// This file is the engine, plus `-lvx-decomposed-pipeline`, which is the
+// framework's driver with this engine named.
+//
 // See lvx-mlir/docs/SoftwarePipelining.md §§2-3 and §8.
 //
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/LVX/Analysis/ParametricLabelCorrecting.h"
-#include "mlir/Dialect/LVX/IR/LVX.h"
-#include "mlir/Dialect/LVX/IR/LVXLatency.h"
-#include "mlir/Dialect/LVX/IR/LVXTiedOperands.h"
-#include "mlir/Dialect/LVX/Transforms/RegisterAllocation.h"
-#include "mlir/Dialect/LVX/IR/LVXScheduling.h"
+#include "mlir/Dialect/LVX/Transforms/ModuloScheduling.h"
 #include "mlir/Dialect/LVX/Transforms/Passes.h"
-#include "mlir/Dialect/LVX/Transforms/Pipeline.h"
 #include "mlir/Dialect/LVXFunc/IR/LVXFunc.h"
-#include "mlir/Dialect/LVXSCF/IR/LVXSCF.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
-
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/Support/Debug.h"
-
-#define DEBUG_TYPE "lvx-decomposed-pipeline"
 
 namespace mlir {
 namespace lvx {
@@ -57,251 +49,38 @@ using namespace mlir::lvx;
 
 namespace {
 
-/// The modulo schedule this pass hands to `-lvx-pipeline`: an issue date per
-/// body operation and the initiation interval on the loop. Everything else --
-/// stages, the unrolling, the prologue and the drains -- is derived from these
-/// two by the construction (lvx-csw/docs/mlir-pipeliner-design.md §1).
-constexpr llvm::StringLiteral kDateAttr = "lvx.date";
-constexpr llvm::StringLiteral kIIAttr = "lvx.ii";
-/// How far past its first period the search goes before leaving the loop
-/// unpipelined: GCC's bound (`try_ii <= first_ii + 8`).
-constexpr int64_t kMaxPeriodRaise = 8;
+/// PLC's earliest potentials at the period, which is the resource-free
+/// schedule. PLC settles on max(RecMII, floor), so solving with the floor at
+/// the asked interval is the whole of scheduling at it -- the ladder starts
+/// at max(RecMII, ResMII), so the floor is never below RecMII.
+class DSPEngine : public ModuloEngine {
+public:
+  explicit DSPEngine(const ModuloProblem &p) : p(p) {}
 
-/// The instruction an op prints, from LVXLatency.h -- which the bundler reads
-/// too, and must. Resolving it as the operation's own name finds nothing in
-/// the tables for a pseudo and falls back to the default timings: this pass
-/// did that until 2026-10-16 and so computed the recurrence bound of every
-/// loop with a masked access from `sq`'s default data read of 1 instead of
-/// its real 2, one cycle too long. It showed as a period its own emitted
-/// kernel beat -- 20 against 19 on `gemm`'s beta loop, 24 against 23 on
-/// `vtail` -- which is impossible for a true lower bound and was the clue.
-static std::optional<StringRef> mnemonicOf(Operation *op) {
-  return lvxPrintedMnemonic(op);
-}
+  StringRef name() const override { return "dsp"; }
+  bool honoursResources() const override { return false; }
 
-/// The cycles an operation reads and writes in come from LVXLatency.h, which
-/// `-lvx-schedule` reads too -- they must agree. In particular an uncached
-/// load commits at SR whatever its Opcode record says, and a pipeline staged
-/// against the record's three-cycle figure does not cover the real fifteen:
-/// the stages are how the latency gets hidden, so getting this wrong here
-/// under-stages the pipeline and no later pass can recover it.
-
-/// A dependence latency: `rawLatencyOf`, shared with the pipeliner, which
-/// dates the operations it adds to the kernel by the same rule.
-static int64_t rawLatency(Operation *def, unsigned resultIdx, Operation *use,
-                          unsigned operandIdx) {
-  return rawLatencyOf(def, resultIdx, use, operandIdx);
-}
-
-/// Whether an operation touches memory at all, and whether it writes.
-static bool readsMemory(Operation *op) {
-  auto iface = dyn_cast<MemoryEffectOpInterface>(op);
-  return iface && iface.hasEffect<MemoryEffects::Read>();
-}
-static bool writesMemory(Operation *op) {
-  auto iface = dyn_cast<MemoryEffectOpInterface>(op);
-  return iface && iface.hasEffect<MemoryEffects::Write>();
-}
-
-/// The period the resources alone force: for each resource, the total demand
-/// over its availability, rounded up. `Resource.yml`'s counters through the
-/// generated reservation tables.
-static int64_t resourceBound(ArrayRef<Operation *> ops) {
-  SmallVector<int64_t> demand(kNumResources, 0);
-  for (Operation *op : ops) {
-    auto m = mnemonicOf(op);
-    if (!m)
-      continue;
-    // The format decides a reservation's ISSUE count; before `-lvx-schedule`
-    // has chosen one the bare form is the right estimate, and ResMII is a
-    // lower bound either way.
-    std::optional<Format> format;
-    if (auto f = op->getAttrOfType<FormatAttr>("format"))
-      format = f.getValue();
-    const Reservation *r = reservationOf(*m, format);
-    if (!r)
-      continue;
-    for (unsigned u = 0; u != r->numUses; ++u)
-      demand[static_cast<unsigned>(r->uses[u].resource)] += r->uses[u].count;
-  }
-  int64_t bound = 1;
-  for (unsigned i = 0; i != kNumResources; ++i) {
-    unsigned avail = kResourceAvailability[i];
-    if (avail == 0 || demand[i] == 0)
-      continue;
-    bound = std::max<int64_t>(bound, (demand[i] + avail - 1) / avail);
-  }
-  return bound;
-}
-
-/// Whether `loop` is innermost. Modulo scheduling is for innermost loops --
-/// an outer loop's "operations" include the inner loop, whose cost is a trip
-/// count, not a latency. And pipelining an inner loop replaces it with code
-/// that carries no stage of the outer one, so annotating both and emitting
-/// outside in would leave the outer body half-assigned.
-static bool isInnermost(lvx_scf::ForOp loop) {
-  WalkResult r = loop.getBody()->walk([&](lvx_scf::ForOp inner) {
-    return inner == loop ? WalkResult::advance() : WalkResult::interrupt();
-  });
-  return !r.wasInterrupted();
-}
-
-/// Records the resource-free schedule of `loop`'s body: `lvx.date` on every
-/// operation and `lvx.ii` on the loop.
-static LogicalResult assignStages(lvx_scf::ForOp loop, bool annotatePeriod,
-                                  unsigned maxRegisters) {
-  SmallVector<Operation *> ops;
-  DenseMap<Operation *, unsigned> index;
-  for (Operation &op : loop.getBody()->without_terminator()) {
-    index[&op] = ops.size();
-    ops.push_back(&op);
-  }
-  if (ops.empty())
-    return success();
-
-  auto yield = cast<lvx_scf::YieldOp>(loop.getBody()->getTerminator());
-
-  // The dependence graph, built afresh for each period tried.
-  auto buildGraph = [&](ParametricLabelCorrecting &g) {
-    // Node 0 is the source; body operation i is node i+1.
-    for (unsigned i = 0; i != ops.size() + 1; ++i)
-      g.addNode();
-    for (unsigned i = 0; i != ops.size(); ++i)
-      g.addArc(0, i + 1, 0, 0);
-
-    // Flow dependences. A value arriving through an `iter_arg` is produced by
-    // the previous iteration's yield operand, hence an arc of distance one --
-    // the recurrence that bounds the period.
-    for (unsigned j = 0; j != ops.size(); ++j) {
-      Operation *use = ops[j];
-      for (auto [k, operand] : llvm::enumerate(use->getOperands())) {
-        Operation *def = operand.getDefiningOp();
-        int64_t omega = 0;
-        unsigned resultIdx = 0;
-        if (auto arg = dyn_cast<BlockArgument>(operand)) {
-          if (arg.getOwner() != loop.getBody() || arg.getArgNumber() == 0)
-            continue; // the induction variable, or something from outside
-          Value yielded = yield.getOperand(arg.getArgNumber() - 1);
-          def = yielded.getDefiningOp();
-          omega = 1;
-          if (def)
-            resultIdx = cast<OpResult>(yielded).getResultNumber();
-        } else if (def) {
-          resultIdx = cast<OpResult>(operand).getResultNumber();
-        }
-        if (!def || !index.count(def))
-          continue;
-        g.addArc(index[def] + 1, j + 1,
-                 rawLatency(def, resultIdx, use, k), omega);
-      }
-    }
-
-    // Ties. An operand read through the destination shares the result's
-    // register, so the op overwrites it, and every other reader of that value
-    // has to read first -- an anti-dependence SSA does not show, because the
-    // result is a new value. `legalizeTiedOperands` has already moved readers
-    // after the op onto a copy, so what is left precedes it in the same
-    // iteration (omega 0). The latency is the bundler's WAR rule: the write
-    // may share the reader's bundle only if it lands after the read.
-    for (unsigned t = 0; t != ops.size(); ++t) {
-      Operation *tying = ops[t];
-      const OpTiming *tt = nullptr;
-      if (auto m = mnemonicOf(tying))
-        tt = timingOf(*m);
-      for (TiedOperand tie : tiedOperandsOf(tying->getName().stripDialect())) {
-        Value c = tying->getOperand(tie.operand);
-        int64_t write = writeCycleOf(tying, tt, tie.result);
-        for (OpOperand &use : c.getUses()) {
-          Operation *reader =
-              loop.getBody()->findAncestorOpInBlock(*use.getOwner());
-          if (!reader || reader == tying || !index.count(reader))
-            continue;
-          const OpTiming *rt = nullptr;
-          if (auto m = mnemonicOf(use.getOwner()))
-            rt = timingOf(*m);
-          int64_t read = readCycleOf(rt, use.getOperandNumber());
-          g.addArc(index[reader] + 1, t + 1,
-                   std::max<int64_t>(0, read - write + 1), 0);
-        }
-      }
-    }
-
-    // Memory, conservatively: any two accesses of which at least one writes keep
-    // their program order within an iteration, and do not cross one. Without a
-    // dependence test this is all that can be said, and it is what keeps the
-    // period honest rather than optimistic.
-    for (unsigned a = 0; a != ops.size(); ++a) {
-      if (!readsMemory(ops[a]) && !writesMemory(ops[a]))
-        continue;
-      if (writesMemory(ops[a]))
-        g.addArc(a + 1, a + 1, 1, 1); // its own next iteration
-      for (unsigned b = a + 1; b != ops.size(); ++b) {
-        bool touches = readsMemory(ops[b]) || writesMemory(ops[b]);
-        if (!touches || (!writesMemory(ops[a]) && !writesMemory(ops[b])))
-          continue;
-        g.addArc(a + 1, b + 1, 1, 0);
-        g.addArc(b + 1, a + 1, 1, 1);
-      }
-    }
-  };
-
-  // The period, searched upward until the pipeline it describes allocates
-  // (SoftwarePipelining.md §8, step 3). PLC settles on max(RecMII, floor), so
-  // raising the floor is the whole of trying the next period. A longer period
-  // overlaps fewer iterations, needing fewer names and fewer registers at
-  // once; past `kMaxPeriodRaise` the loop is better left alone.
-  int64_t floor = resourceBound(ops), first = 0, period = 0;
-  SmallVector<int64_t> dates(ops.size());
-  for (;;) {
+  bool scheduleAtII(int64_t ii, SmallVectorImpl<int64_t> &dates,
+                    std::string &why) override {
     ParametricLabelCorrecting g;
-    buildGraph(g);
-    auto result = g.solve(floor);
-    if (result != ParametricLabelCorrecting::Result::Solved) {
-      if (result == ParametricLabelCorrecting::Result::InfeasibleCircuit)
-        return loop.emitError("the loop body has a dependence circuit with "
-                              "no iteration distance: no period makes it "
-                              "feasible");
-      return loop.emitError("could not compute a resource-free schedule for "
-                            "this loop body");
+    p.addTo(g);
+    if (g.solve(ii) != ParametricLabelCorrecting::Result::Solved) {
+      why = "no resource-free schedule";
+      return false;
     }
-
-    period = g.getPeriod();
-    if (!first)
-      first = period;
-    // Dates from zero: the source is at zero and every arc from it is too, so
-    // the earliest operation's date is the origin only after this shift.
-    int64_t lo = g.getDate(1);
-    for (unsigned i = 1; i != ops.size(); ++i)
-      lo = std::min(lo, g.getDate(i + 1));
-    int64_t maxStage = 0;
-    for (unsigned i = 0; i != ops.size(); ++i) {
-      dates[i] = g.getDate(i + 1) - lo;
-      maxStage = std::max(maxStage, dates[i] / period);
+    if (g.getPeriod() != ii) {
+      why = "the recurrences need a period of " + std::to_string(g.getPeriod());
+      return false;
     }
-    if (maxStage == 0)
-      return success(); // one stage: nothing crosses the back edge
-    if (pipelineAllocates(loop, dates, period, maxRegisters))
-      break;
-    if (period >= first + kMaxPeriodRaise) {
-      loop.emitRemark("not software-pipelined: no period from ")
-          << first << " to " << period
-          << " gives a pipeline that allocates as well as the loop";
-      return success();
-    }
-    floor = period + 1;
+    dates.clear();
+    for (unsigned i = 0; i != p.ops.size(); ++i)
+      dates.push_back(g.getDate(i + 1));
+    return true;
   }
-  LLVM_DEBUG(if (period != first) llvm::dbgs()
-             << "lvx-decomposed-pipeline: period raised from " << first
-             << " to " << period << " to allocate\n");
 
-  OpBuilder b(loop);
-  for (unsigned i = 0; i != ops.size(); ++i)
-    ops[i]->setAttr(kDateAttr, b.getI64IntegerAttr(dates[i]));
-  loop->setAttr(kIIAttr, b.getI64IntegerAttr(period));
-  if (annotatePeriod)
-    loop->setAttr("lvx.period", b.getI64IntegerAttr(period));
-  return success();
-}
+private:
+  const ModuloProblem &p;
+};
 
 struct LVXDecomposedPipelinePass
     : public lvx::impl::LVXDecomposedPipelinePassBase<
@@ -309,18 +88,18 @@ struct LVXDecomposedPipelinePass
   using LVXDecomposedPipelinePassBase::LVXDecomposedPipelinePassBase;
 
   void runOnOperation() override {
-    // The copies a tie needs are instructions the stages must place, so they
-    // are made now rather than at allocation, where they used to be.
-    lvx::legalizeTiedOperands(getOperation());
-    SmallVector<lvx_scf::ForOp> loops;
-    getOperation().walk([&](lvx_scf::ForOp loop) {
-      if (isInnermost(loop))
-        loops.push_back(loop);
-    });
-    for (lvx_scf::ForOp loop : loops)
-      if (failed(assignStages(loop, this->annotatePeriod, this->maxRegisters)))
-        return signalPassFailure();
+    ModuloDriverOptions o;
+    o.engine = "dsp";
+    o.maxRegisters = maxRegisters;
+    o.annotatePeriod = annotatePeriod;
+    if (failed(moduloScheduleFunction(getOperation(), o)))
+      signalPassFailure();
   }
 };
 
 } // namespace
+
+std::unique_ptr<ModuloEngine>
+mlir::lvx::createDSPEngine(const ModuloProblem &p) {
+  return std::make_unique<DSPEngine>(p);
+}

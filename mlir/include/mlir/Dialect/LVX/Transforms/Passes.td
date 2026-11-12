@@ -332,6 +332,10 @@ def LVXDecomposedPipelinePass
     (`lvx::pipelineAllocates`, the back half's feasibility test). A loop
     with no such period is left unannotated, with a remark, and stays
     unpipelined.
+
+    This is `-lvx-modulo-schedule{engine=dsp}`: DSP is one engine of the
+    modulo scheduling framework, which owns the graph, the bounds, the
+    ladder and acceptance (ModuloScheduling.h).
   }];
   let options = [
     Option<"annotatePeriod", "annotate-period", "bool", /*default=*/"false",
@@ -339,5 +343,62 @@ def LVXDecomposedPipelinePass
     Option<"maxRegisters", "max-registers", "unsigned", /*default=*/"59",
            "The allocatable pool the feasibility test allocates against; "
            "the same knob as -lvx-allocate-registers'">,
+  ];
+}
+
+def LVXModuloSchedulePass
+    : Pass<"lvx-modulo-schedule", "::mlir::lvx_func::FuncOp"> {
+  let summary = "Modulo-schedule innermost loops with a chosen engine";
+  let description = [{
+    The modulo scheduling framework, after LVX GCC's late modulo scheduling
+    (lvx-gcc config/lvx/lvx-lms.h): the framework builds the dependence
+    graph over the loop body once -- every arc a latency and an iteration
+    distance -- computes RecMII and ResMII, and walks the II ladder from
+    max(RecMII, ResMII), at most eight past it. At each II it asks the
+    ENGINE for dates, and accepts them only if they satisfy every arc, the
+    modulo reservation table when the engine claims to honour it, and the
+    back half: modulo variable expansion, register allocation and the
+    pipeline construction (`lvx::pipelineAllocates`). The first accepted
+    schedule is written as `lvx.date`/`lvx.ii` for `-lvx-pipeline`.
+
+    Two engines:
+
+    - `dsp`, decomposed software pipelining: PLC's resource-free schedule,
+      the resources left to `-lvx-schedule`. `-lvx-decomposed-pipeline` is
+      this engine.
+    - `rcms`, resource-constrained modulo scheduling as the time-indexed
+      integer program (2.17) of Dupont de Dinechin's habilitation, with the
+      minimum cumulative register lifetime as objective by default, each
+      value weighted by its tuple width. The model is written as CPLEX LP and
+      solved by an external program, `rcms-solver`, called as
+      `<solver> <model.lp> <solution> <seconds>` and answering a STATUS line
+      and name/value pairs -- the contract lvx-gcc's wrappers in
+      lvx-csw/validation/cms speak. With `fallback`, a loop RCMS cannot
+      schedule is given DSP's schedule.
+
+    See lvx-mlir/docs/SoftwarePipelining.md §8, step 6.
+  }];
+  let options = [
+    Option<"engine", "engine", "std::string", /*default=*/"\"dsp\"",
+           "The engine that chooses dates: dsp or rcms">,
+    Option<"maxRegisters", "max-registers", "unsigned", /*default=*/"59",
+           "The allocatable pool the feasibility test allocates against; "
+           "the same knob as -lvx-allocate-registers'">,
+    Option<"annotatePeriod", "annotate-period", "bool", /*default=*/"false",
+           "Also record the period as `lvx.period` on the loop, for tests">,
+    Option<"fallback", "fallback", "bool", /*default=*/"true",
+           "When rcms finds no schedule, ask dsp">,
+    Option<"rcmsSolver", "rcms-solver", "std::string", /*default=*/"\"\"",
+           "The program that solves one model: <solver> <model.lp> "
+           "<solution> <seconds>">,
+    Option<"rcmsSeconds", "rcms-seconds", "unsigned", /*default=*/"10",
+           "The time limit handed to the solver for one model">,
+    Option<"rcmsDir", "rcms-dir", "std::string", /*default=*/"\"\"",
+           "Keep each model and its solution in this directory">,
+    Option<"rcmsMargin", "rcms-margin", "unsigned", /*default=*/"1",
+           "Intervals of slack above the critical path in the horizon">,
+    Option<"rcmsObjective", "rcms-objective", "unsigned", /*default=*/"2",
+           "0 feasibility, 1 the makespan, 2 the minimum cumulative "
+           "register lifetime">,
   ];
 }
