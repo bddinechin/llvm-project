@@ -551,7 +551,7 @@ private:
           FailureOr<std::string> rd = reg(op.getResult());
           if (failed(rd))
             return failure();
-          auto value = dyn_cast<IntegerAttr>(op.getSigned16());
+          auto value = dyn_cast<IntegerAttr>(op.getUpper27Lower5());
           if (!value) {
             op->emitError("lvx-emit-asm: makedp without an integer immediate");
             return failure();

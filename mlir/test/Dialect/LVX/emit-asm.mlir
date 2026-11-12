@@ -431,13 +431,13 @@ lvx_func.func @rounding(%base: !lvx.reg<r0>, %mask: !lvx.reg<r1>) {
 
 // MAKEDP has no register operand, so the arity rule cannot reach it: zero
 // printed operands and one result. It prints like `maked` at pair width,
-// which is what it is. The second immediate is 7.0's f64 bit pattern --
-// `-convert-to-lvx` bitcasts a float splat to its integer pattern here,
-// because `.X`/`.Y` carry the full 64 bits.
+// which is what it is. Its one immediate is a signed 32-bit value, extended
+// to 64 bits in each half, so the second is the most negative one: a wider
+// value (an f64 bit pattern, say) is `maked` + `splatdq` instead.
 // CHECK-LABEL: splat_imm:
 // CHECK-NEXT: makedp $r2r3 = 7
 // CHECK-NEXT: ;;
-// CHECK-NEXT: makedp $r4r5 = 4619567317775286272
+// CHECK-NEXT: makedp $r4r5 = -2147483648
 // CHECK-NEXT: ;;
 // CHECK-NEXT: sq 0[$r0] = $r2r3
 // CHECK-NEXT: ;;
@@ -446,8 +446,8 @@ lvx_func.func @rounding(%base: !lvx.reg<r0>, %mask: !lvx.reg<r1>) {
 // CHECK-NEXT: ret
 // CHECK-NEXT: ;;
 lvx_func.func @splat_imm(%base: !lvx.reg<r0>) {
-  %i = lvx.makedp 7 : i64 : () -> !lvx.pair
-  %f = lvx.makedp 4619567317775286272 : i64 : () -> !lvx.pair
+  %i = lvx.makedp_i 7 : i64 : () -> !lvx.pair
+  %f = lvx.makedp_i -2147483648 : i64 : () -> !lvx.pair
   lvx.sq %i, %base, 0 : i64 : (!lvx.pair, !lvx.reg<r0>)
   lvx.sq %f, %base, 16 : i64 : (!lvx.pair, !lvx.reg<r0>)
   lvx_func.return

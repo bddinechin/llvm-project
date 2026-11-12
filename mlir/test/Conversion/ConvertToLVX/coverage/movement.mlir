@@ -335,7 +335,7 @@ func.func @bitcast_f32x4(%a: memref<8xf32>, %c: memref<4xi32>) {
 // non-uniform mask fell in the hole.
 // ROW: arith.constant(splat) | i64x2
 // CHECK-LABEL: @arith_constant_splat_i64x2
-// CHECK: lvx.makedp
+// CHECK: lvx.makedp_i 7
 func.func @arith_constant_splat_i64x2(%c: memref<8xi64>) {
   %i = arith.constant 0 : index
   // ROW-OP
@@ -346,9 +346,14 @@ func.func @arith_constant_splat_i64x2(%c: memref<8xi64>) {
 
 // -----
 
+// An f64 splat's bit pattern does not fit `makedp`'s signed 32-bit immediate
+// (7.0 is 0x401C000000000000), so it is `li` + `splatdq`, the `maked` carrying
+// all 64 bits.
 // ROW: arith.constant(splat) | f64x2
 // CHECK-LABEL: @arith_constant_splat_f64x2
-// CHECK: lvx.makedp
+// CHECK-NOT: lvx.makedp_i
+// CHECK: lvx.li 7.000000e+00 : f64
+// CHECK-NEXT: lvx.splatdq
 func.func @arith_constant_splat_f64x2(%c: memref<8xf64>) {
   %i = arith.constant 0 : index
   // ROW-OP
@@ -365,7 +370,7 @@ func.func @arith_constant_splat_f64x2(%c: memref<8xf64>) {
 // Step 4), which is the same path the `splat*q` constants take.
 // ROW: arith.constant(splat) | i64x4
 // CHECK-LABEL: @arith_constant_splat_i64x4
-// CHECK: lvx.makedp
+// CHECK: lvx.makedp_i 7
 func.func @arith_constant_splat_i64x4(%c: memref<8xi64>) {
   %i = arith.constant 0 : index
   // ROW-OP
@@ -378,7 +383,10 @@ func.func @arith_constant_splat_i64x4(%c: memref<8xi64>) {
 
 // ROW: arith.constant(splat) | f64x4
 // CHECK-LABEL: @arith_constant_splat_f64x4
-// CHECK: lvx.makedp
+// CHECK-NOT: lvx.makedp_i
+// CHECK: lvx.li 7.000000e+00 : f64
+// CHECK-NEXT: lvx.splatdq
+// CHECK-NEXT: lvx.concat
 func.func @arith_constant_splat_f64x4(%c: memref<8xf64>) {
   %i = arith.constant 0 : index
   // ROW-OP

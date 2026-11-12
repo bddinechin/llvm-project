@@ -1088,13 +1088,13 @@ struct VectorSplatConstantToLVX : public OpConversionPattern<arith::ConstantOp> 
     Type regTy = RegisterType::get(rewriter.getContext(), std::nullopt);
     unsigned elemBits = vecTy.getElementTypeBitWidth();
 
-    // 64-bit lanes: `makedp` **is** the splat constant. It writes one
-    // sign-extended immediate into both double words of a pair, so neither
-    // the `li` nor the `splatdq` is needed -- one instruction where this used
-    // to take two, and `.X`/`.Y` carry up to 64 bits exactly as `maked` does,
-    // so an f64 bit pattern fits as well as a small integer. (lvx-mds,
-    // 2026-10-13. `LVXImmediates.inc` has the entry `chooseFormat` needs to
-    // pick the width, so the IMMX accounting is the ordinary one.)
+    // 64-bit lanes: `makedp` **is** the splat constant when the value is a
+    // sign-extended 32-bit one. It writes that immediate, extended to 64
+    // bits, into both double words of a pair, so neither the `li` nor the
+    // `splatdq` is needed -- one instruction where this used to take two.
+    // Its one immediate form is 32 bits with no `.X`/`.Y` (lvx-mds c389303,
+    // 2026-11-10), so a wider value -- an f64 bit pattern, typically -- takes
+    // the `li` + splat path below, whose `maked` does carry 64 bits.
     //
     // A quad is two of them, for the reason the splat path below gives: the
     // concat places its parts at offsets and needs them distinct.
@@ -1104,7 +1104,7 @@ struct VectorSplatConstantToLVX : public OpConversionPattern<arith::ConstantOp> 
         bits = i.getValue().getSExtValue();
       else if (auto f = dyn_cast<FloatAttr>(scalarAttr))
         bits = f.getValue().bitcastToAPInt().getSExtValue();
-      if (bits) {
+      if (bits && llvm::isInt<32>(*bits)) {
         auto imm = rewriter.getI64IntegerAttr(*bits);
         if (units == 2) {
           rewriter.replaceOpWithNewOp<lvx::MakedpImmOp>(op, tupleTy, imm);
