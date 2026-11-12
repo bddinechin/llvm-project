@@ -1023,5 +1023,9 @@ bool mlir::lvx::pipelineAllocates(lvx_scf::ForOp loop,
     return !baseline; // no worse than a function that cannot allocate anyway
   if (!baseline)
     return true;
+  LLVM_DEBUG(llvm::dbgs() << "lvx-pipeline: at II = " << ii << " "
+                          << after.spilled << " spilled against "
+                          << before.spilled << ", " << after.kernelMisses
+                          << " kernel misses\n");
   return after.spilled <= before.spilled && after.kernelMisses == 0;
 }

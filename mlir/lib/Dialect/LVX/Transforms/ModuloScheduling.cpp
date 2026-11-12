@@ -263,6 +263,10 @@ std::optional<ModuloSchedule> mlir::lvx::scheduleLoop(const ModuloProblem &p,
   // cannot reach the construction unverified. A wrong answer is a refusal,
   // never wrong code.
   int64_t first = p.lower();
+  LLVM_DEBUG(llvm::dbgs() << "lvx-modulo-schedule: " << engine.name() << ": "
+                          << p.ops.size() << " operations, " << p.arcs.size()
+                          << " arcs, RecMII " << p.recMII << ", ResMII "
+                          << p.resMII << "\n");
   for (int64_t ii = first; ii <= first + kMaxPeriodRaise; ++ii) {
     ModuloSchedule s;
     s.ii = ii;
