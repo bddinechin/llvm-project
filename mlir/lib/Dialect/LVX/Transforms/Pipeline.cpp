@@ -234,9 +234,10 @@ struct Read {
 class PipelineBuilder {
 public:
   PipelineBuilder(lvx_scf::ForOp loop, ArrayRef<int64_t> dates, int64_t ii,
-                  std::optional<Bounds> bounds, int64_t step, bool keepDates)
+                  std::optional<Bounds> bounds, int64_t step, bool keepDates,
+                  bool unmaskTail)
       : loop(loop), dates(dates), ii(ii), bounds(bounds), step(step),
-        keepDates(keepDates),
+        keepDates(keepDates), unmaskTail(unmaskTail),
         yield(cast<lvx_scf::YieldOp>(loop.getBody()->getTerminator())) {
     for (Operation &op : loop.getBody()->without_terminator()) {
       index[&op] = ops.size();
@@ -304,6 +305,8 @@ private:
   int64_t step;
   /// Whether the kernel copies carry their dates on to `-lvx-schedule`.
   bool keepDates;
+  /// Whether the kernel may drop the loop-tail mask (`unmasked`).
+  bool unmaskTail;
   lvx_scf::YieldOp yield;
 
   SmallVector<Operation *> ops;
@@ -527,7 +530,8 @@ LogicalResult PipelineBuilder::plan() {
     int64_t lastIter = firstKernelExit + kernelTrips * unroll - 1;
     return bounds->ivAt(lastIter) + step <= bounds->ub;
   };
-  if (bounds && kernelTrips >= 2 && !partial && !lastIterFull() &&
+  if (unmaskTail && bounds && kernelTrips >= 2 && !partial &&
+      !lastIterFull() &&
       llvm::any_of(ops, isTailMasked)) {
     --kernelTrips;
     partial = true;
@@ -536,7 +540,7 @@ LogicalResult PipelineBuilder::plan() {
   bool kernelFull = false;
   if (kernelTrips > 0)
     kernelFull = bounds ? lastIterFull() : unroll >= 2;
-  if (kernelFull)
+  if (kernelFull && unmaskTail)
     for (Operation *op : ops)
       if (isTailMasked(op))
         unmasked.insert(op);
@@ -1113,12 +1117,14 @@ LogicalResult PipelineBuilder::emitRuntime() {
 /// one stage is left alone.
 static LogicalResult buildPipeline(lvx_scf::ForOp loop,
                                    ArrayRef<int64_t> dates, int64_t ii,
-                                   bool keepDates = false) {
+                                   bool keepDates = false,
+                                   bool unmaskTail = true) {
   std::optional<int64_t> step = constantOf(loop.getStep());
   if (!step || *step <= 0 || !llvm::isPowerOf2_64(*step))
     return loop.emitError("software pipelining needs a constant power-of-two "
                           "step: the trip count is a shift");
-  PipelineBuilder builder(loop, dates, ii, boundsOf(loop), *step, keepDates);
+  PipelineBuilder builder(loop, dates, ii, boundsOf(loop), *step, keepDates,
+                          unmaskTail);
   if (builder.getNumStages() <= 1)
     return success(); // nothing in flight across the back edge
   if (failed(builder.plan()))
@@ -1216,7 +1222,7 @@ struct LVXPipelinePass : public lvx::impl::LVXPipelinePassBase<LVXPipelinePass> 
             << ii << " it does not allocate as well as the loop it replaces";
         continue;
       }
-      if (failed(buildPipeline(loop, dates, ii, keepDates)))
+      if (failed(buildPipeline(loop, dates, ii, keepDates, unmaskTail)))
         return signalPassFailure();
     }
   }

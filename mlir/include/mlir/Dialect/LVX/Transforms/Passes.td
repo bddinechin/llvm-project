@@ -304,6 +304,10 @@ def LVXPipelinePass
     Option<"maxRegisters", "max-registers", "unsigned", /*default=*/"59",
            "The allocatable pool the feasibility test allocates against; "
            "the same knob as -lvx-allocate-registers'">,
+    Option<"unmaskTail", "unmask-tail", "bool", /*default=*/"true",
+           "Issue the loop-tail-masked accesses of the kernel unmasked when "
+           "no kernel instance is of the last iteration (false keeps every "
+           "mask, the before of a measurement)">,
   ];
 }
 
