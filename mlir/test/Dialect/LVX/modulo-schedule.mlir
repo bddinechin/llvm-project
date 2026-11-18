@@ -12,9 +12,13 @@
 // the models are kept, and the first is the formulation checked below.
 // RUN: rm -rf %t.dir && mkdir -p %t.dir
 // RUN: printf '#!/bin/sh\necho "STATUS INFEASIBLE" > "$2"\n' > %t.infeasible && chmod +x %t.infeasible
-// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.infeasible rcms-dir=%t.dir}))' 2>&1 | FileCheck %s --check-prefix=INFEASIBLE
+// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.infeasible rcms-dir=%t.dir rcms-deps=aggregated}))' 2>&1 | FileCheck %s --check-prefix=INFEASIBLE
 // RUN: FileCheck %s --check-prefix=MODEL < %t.dir/sum.0.ii1.lp
 // RUN: ls %t.dir | FileCheck %s --check-prefix=KEPT
+// The same model disaggregated, the default: lvx-gcc's text, row for row.
+// RUN: rm -rf %t.ddir && mkdir -p %t.ddir
+// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.infeasible rcms-dir=%t.ddir}))' -o /dev/null 2>&1
+// RUN: FileCheck %s --check-prefix=DISAGG < %t.ddir/sum.0.ii1.lp
 //
 // A solver that answers UNKNOWN is not a proof: the remark says so.
 // RUN: printf '#!/bin/sh\necho "STATUS UNKNOWN" > "$2"\n' > %t.unknown && chmod +x %t.unknown
@@ -27,6 +31,11 @@
 // A solver whose answer breaks an arc: refused by the framework, never built.
 // RUN: printf '#!/bin/sh\nprintf "STATUS OPTIMAL\\nx_0_0 1\\nx_1_1 1\\nx_2_2 1\\nx_3_0 1\\n" > "$2"\n' > %t.wrong && chmod +x %t.wrong
 // RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.wrong}))' 2>&1 | FileCheck %s --check-prefix=WRONG
+// An answer inside every window that breaks dependence 0 (both dates 1): the
+// check reads the rows as written, so it is named per form.
+// RUN: printf '#!/bin/sh\nprintf "STATUS OPTIMAL\\nx_0_1 1\\nx_1_1 1\\nx_2_16 1\\nx_3_0 1\\n" > "$2"\n' > %t.row && chmod +x %t.row
+// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.row}))' 2>&1 | FileCheck %s --check-prefix=ROWD
+// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.row rcms-deps=aggregated}))' 2>&1 | FileCheck %s --check-prefix=ROWA
 
 // A fifteen-cycle `.u` load feeding an accumulation: RecMII 1 (the add's
 // own recurrence), ResMII 1, so the ladder starts at II = 1.
@@ -48,6 +57,51 @@
 // the lifetimes, the accumulator's carrying its iteration distance. Node 3 is
 // the induction's increment, which the body reads through the address and
 // the kernel materialises: one `addd` an iteration, charged here.
+// Disaggregated (LAO's default): a dependence i -> j of latency L is a row
+// per date t, `i at t or later` and `j before t + L` not both; the killer
+// is a time-indexed node with an assignment row, and each flow arc i -> j
+// is the arc j -> killer(i) of latency II*omega, written the same way.
+// Rows with an empty sum never bind and are not written; no General section.
+// DISAGG: \ RCMS fn=sum ii=1 n=4 horizon=18
+// DISAGG-NEXT: Minimize
+// DISAGG-NEXT: obj: +1 k_0_1 +2 k_0_2 +16 k_1_16 +17 k_1_17 +17 k_2_17 +18 k_2_18 +1 k_3_1 +2 k_3_2 -1 x_0_1 -1 x_1_1 -2 x_1_2 -16 x_2_16 -17 x_2_17 -1 x_3_1
+// DISAGG-NEXT: Subject To
+// DISAGG-NEXT: asg_0: + x_0_0 + x_0_1 = 1
+// DISAGG-NEXT: asg_1: + x_1_1 + x_1_2 = 1
+// DISAGG-NEXT: asg_2: + x_2_16 + x_2_17 = 1
+// DISAGG-NEXT: asg_3: + x_3_0 + x_3_1 = 1
+// DISAGG-NEXT: dep_0_1: + x_0_1 + x_1_1 <= 1
+// DISAGG-NEXT: dep_2_2: + x_1_2 + x_2_16 <= 1
+// DISAGG-NEXT: dep_3_1: + x_3_1 + x_0_0 <= 1
+// DISAGG-NEXT: kasg_0: + k_0_1 + k_0_2 = 1
+// DISAGG-NEXT: kasg_1: + k_1_16 + k_1_17 = 1
+// DISAGG-NEXT: kasg_2: + k_2_17 + k_2_18 = 1
+// DISAGG-NEXT: kasg_3: + k_3_1 + k_3_2 = 1
+// DISAGG-NEXT: life_0_2: + x_1_2 + k_0_1 <= 1
+// DISAGG-NEXT: life_1_17: + x_2_17 + k_2_17 <= 1
+// DISAGG-NEXT: life_2_17: + x_2_17 + k_1_16 <= 1
+// DISAGG-NEXT: life_3_1: + x_0_1 + k_3_1 <= 1
+// DISAGG-NEXT: life_4_1: + x_3_1 + k_3_1 <= 1
+// DISAGG-NEXT: Bounds
+// DISAGG-NEXT: Binaries
+// DISAGG-NEXT: x_0_0
+// DISAGG-NEXT: x_0_1
+// DISAGG-NEXT: x_1_1
+// DISAGG-NEXT: x_1_2
+// DISAGG-NEXT: x_2_16
+// DISAGG-NEXT: x_2_17
+// DISAGG-NEXT: x_3_0
+// DISAGG-NEXT: x_3_1
+// DISAGG-NEXT: k_0_1
+// DISAGG-NEXT: k_0_2
+// DISAGG-NEXT: k_1_16
+// DISAGG-NEXT: k_1_17
+// DISAGG-NEXT: k_2_17
+// DISAGG-NEXT: k_2_18
+// DISAGG-NEXT: k_3_1
+// DISAGG-NEXT: k_3_2
+// DISAGG-NEXT: End
+
 // MODEL: \ RCMS fn=sum ii=1 n=4 horizon=18
 // MODEL-NEXT: Minimize
 // MODEL-NEXT: obj: + 1 k_0 + 1 k_1 + 1 k_2 + 1 k_3 -1 x_0_1 -1 x_1_1 -2 x_1_2 -16 x_2_16 -17 x_2_17 -1 x_3_1
@@ -96,6 +150,8 @@
 // OPTIMAL: lvx.addd {{.*}}lvx.date = 16
 // OPTIMAL: lvx.ii = 1 : i64, lvx.keep_dates
 
+// ROWD: the solution breaks the model: disaggregated dependence 0 violated
+// ROWA: the solution breaks the model: dependence 0 violated
 // WRONG: remark: not software-pipelined: no period from 1 to 9 is accepted
 // WRONG-NOT: lvx.ii
 lvx_func.func @sum(%base: !lvx.reg<r0>) -> !lvx.reg<r0> {

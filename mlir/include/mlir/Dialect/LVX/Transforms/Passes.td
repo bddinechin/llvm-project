@@ -408,5 +408,10 @@ def LVXModuloSchedulePass
     Option<"rcmsObjective", "rcms-objective", "unsigned", /*default=*/"2",
            "0 feasibility, 1 the makespan, 2 the minimum cumulative "
            "register lifetime">,
+    Option<"rcmsDeps", "rcms-deps", "std::string",
+           /*default=*/"\"disaggregated\"",
+           "The dependence and lifetime rows: aggregated (one per arc) or "
+           "disaggregated (one per arc and date, LAO's default), as lvx-gcc's "
+           "-mlms-rcms-deps">,
   ];
 }

@@ -450,6 +450,12 @@ struct LVXModuloSchedulePass
     o.rcms.dir = rcmsDir;
     o.rcms.margin = rcmsMargin;
     o.rcms.objective = rcmsObjective;
+    if (rcmsDeps != "aggregated" && rcmsDeps != "disaggregated") {
+      getOperation().emitError("lvx-modulo-schedule: unknown rcms-deps '")
+          << rcmsDeps << "'; expected aggregated or disaggregated";
+      return signalPassFailure();
+    }
+    o.rcms.aggregated = rcmsDeps == "aggregated";
     if (failed(moduloScheduleFunction(getOperation(), o)))
       signalPassFailure();
   }

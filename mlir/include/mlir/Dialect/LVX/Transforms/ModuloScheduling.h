@@ -177,6 +177,10 @@ struct RCMSOptions {
   unsigned margin = 1;
   /// 0 feasibility, 1 the makespan, 2 MCRL.
   unsigned objective = 2;
+  /// The dependence and lifetime rows: one per arc over the average date
+  /// (aggregated), or one per arc and date (disaggregated, LAO's default and
+  /// the stronger relaxation). Same formulation, so the same optimum.
+  bool aggregated = false;
 };
 
 /// RCMS: the time-indexed integer program, solved by `options.solver`.

@@ -29,6 +29,18 @@
 // 4, since that is what the allocator has to fit. The makespan (1) and plain
 // feasibility (0) remain, over exactly the same rows.
 //
+// TWO FORMS OF THE SAME ROWS, `rcms-deps`. Aggregated, a dependence is one
+// row over the average dates, sum t*x_i_t - sum t*x_j_t <= -(theta -
+// II*omega), and a lifetime one row per flow arc over an integer killer.
+// Disaggregated -- LAO's default (Formulation_buildDependencesDinechin,
+// OptimizeRCMSSolving_AggrDeps off) -- a dependence is one row per date t,
+// "i at t or later and j before t + theta - II*omega are not both true", and
+// the killer is a time-indexed node with an assignment row, each flow arc
+// i -> j becoming the arc j -> killer(i) of latency II*omega. The LP
+// relaxation of the second constrains every date rather than the average,
+// and both have the same integer optimum. The model text is lvx-gcc's,
+// row for row and name for name, so the two ports' files diff.
+//
 // THE SOLVER IS A SEPARATE PROCESS. Nothing is linked into mlir-opt: the
 // model is CPLEX LP, written to a file, solved by a program named on the
 // command line and called as `<solver> <model> <solution> <seconds>`, and
@@ -54,6 +66,8 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <limits>
 
 #define DEBUG_TYPE "lvx-modulo-schedule"
 
@@ -191,12 +205,48 @@ bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
   auto x = [&](unsigned i, int64_t t) {
     return "x_" + std::to_string(i) + "_" + std::to_string(t);
   };
+  auto k = [&](unsigned i, int64_t t) {
+    return "k_" + std::to_string(i) + "_" + std::to_string(t);
+  };
+  // ` %+d name`, printf's spelling, which lvx-gcc's model files use.
+  auto coef = [](llvm::raw_ostream &out, int64_t c, const std::string &name) {
+    out << ' ' << (c >= 0 ? "+" : "") << c << ' ' << name;
+  };
   // `sum_t coef(t) * x_i_t` over i's window, the zero terms left out.
   auto dated = [&](llvm::raw_ostream &out, unsigned i, int64_t sign) {
     for (int64_t t = win[i].lo; t <= win[i].hi; ++t)
       if (t != 0)
-        out << ' ' << (sign * t >= 0 ? "+" : "") << sign * t << ' ' << x(i, t);
+        coef(out, sign * t, x(i, t));
   };
+  bool disagg = !o.aggregated;
+
+  // THE KILLERS. Value i's killer dates max over its reads j of date(j) +
+  // II*omega. Disaggregated it is a time-indexed node like the operations:
+  // binaries k_i_t over [klo, khi], the bounds of that max over the readers'
+  // windows, capped where the aggregated integer is bounded.
+  SmallVector<int64_t> klo(n, std::numeric_limits<int64_t>::min());
+  SmallVector<int64_t> khi(n, std::numeric_limits<int64_t>::min());
+  SmallVector<int64_t> kdate(n, std::numeric_limits<int64_t>::min());
+  if (mcrl()) {
+    for (const ModuloArc &a : p.arcs) {
+      if (a.kind != ModuloArcKind::RegRaw || !p.width[a.src])
+        continue;
+      int64_t l = ii * a.omega;
+      klo[a.src] = std::max(klo[a.src], win[a.dst].lo + l);
+      khi[a.src] = std::max(khi[a.src], win[a.dst].hi + l);
+      if (!check.empty())
+        kdate[a.src] = std::max(kdate[a.src], check[a.dst] + l);
+    }
+    for (unsigned i = 0; i != n; ++i) {
+      if (!p.width[i])
+        continue;
+      khi[i] = std::min(khi[i], horizon + ii + 1);
+      if (disagg && khi[i] < klo[i]) {
+        why = "empty killer window";
+        return false;
+      }
+    }
+  }
 
   if (os) {
     *os << "\\ RCMS fn=" << funcName << " ii=" << ii << " n=" << n
@@ -205,8 +255,15 @@ bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
       // sum width_i * (k_i - date(i)).
       *os << "Minimize\n obj:";
       for (unsigned i = 0; i != n; ++i)
-        if (p.width[i])
-          *os << " + " << p.width[i] << " k_" << i;
+        if (p.width[i]) {
+          if (!disagg) {
+            *os << " + " << p.width[i] << " k_" << i;
+            continue;
+          }
+          for (int64_t t = klo[i]; t <= khi[i]; ++t)
+            if (t != 0)
+              coef(*os, static_cast<int64_t>(p.width[i]) * t, k(i, t));
+        }
       for (unsigned i = 0; i != n; ++i)
         if (p.width[i])
           dated(*os, i, -static_cast<int64_t>(p.width[i]));
@@ -232,7 +289,7 @@ bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
   }
 
   // Dependences: date(j) - date(i) >= theta - II*omega, aggregated.
-  for (auto [k, a] : llvm::enumerate(p.arcs)) {
+  for (auto [ak, a] : llvm::enumerate(p.arcs)) {
     int64_t w = weight(a);
     if (a.src == a.dst) {
       // A self arc has no variables: satisfiable iff its weight is not
@@ -244,8 +301,37 @@ bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
       }
       continue;
     }
+    if (disagg) {
+      // LAO's Formulation_buildDependencesDinechin, disaggregated: for each
+      // date t, i at t or later and j before t + w cannot both hold. A row
+      // with either sum empty never binds and is not written.
+      int64_t ilo = win[a.src].lo, ihi = win[a.src].hi;
+      int64_t jlo = win[a.dst].lo, jhi = win[a.dst].hi;
+      for (int64_t t = std::max(ilo, jlo - w + 1); t <= ihi; ++t) {
+        int64_t jlast = std::min(t + w - 1, jhi);
+        if (jlast < jlo)
+          continue;
+        // Checked as written, so a mis-emitted row is caught.
+        if (!check.empty() &&
+            (check[a.src] >= t && check[a.src] <= ihi) +
+                    (check[a.dst] >= jlo && check[a.dst] <= jlast) >
+                1) {
+          why = "disaggregated dependence " + std::to_string(ak) + " violated";
+          return false;
+        }
+        if (os) {
+          *os << " dep_" << ak << "_" << t << ":";
+          for (int64_t s = t; s <= ihi; ++s)
+            *os << " + " << x(a.src, s);
+          for (int64_t s = jlo; s <= jlast; ++s)
+            *os << " + " << x(a.dst, s);
+          *os << " <= 1\n";
+        }
+      }
+      continue;
+    }
     if (!check.empty() && check[a.dst] - check[a.src] < w) {
-      why = "dependence " + std::to_string(k) + " violated";
+      why = "dependence " + std::to_string(ak) + " violated";
       return false;
     }
     if (os) {
@@ -256,7 +342,7 @@ bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
       // Both windows {0}: no terms, and the windows already satisfy it,
       // having been computed from these very arcs.
       if (!terms.empty())
-        *os << " dep_" << k << ":" << terms << " <= " << -w << "\n";
+        *os << " dep_" << ak << ":" << terms << " <= " << -w << "\n";
     }
   }
 
@@ -301,16 +387,69 @@ bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
   // The lifetimes: k_i >= date(j) + II*omega for every flow arc i -> j. A
   // read in a later iteration keeps the value alive that many intervals
   // longer; without the term a loop-carried value would be priced as dying
-  // in its own iteration. One integer per value and one row per flow arc,
-  // not a time-indexed node per value.
-  if (os && mcrl())
-    for (auto [k, a] : llvm::enumerate(p.arcs)) {
+  // in its own iteration. Aggregated: one integer per value and one row per
+  // flow arc. Disaggregated: kasg_i gives the killer one date, and each flow
+  // arc i -> j is the arc j -> killer(i) of latency II*omega, written exactly
+  // as a dependence.
+  if (mcrl()) {
+    for (unsigned i = 0; i != n; ++i) {
+      if (!p.width[i] || check.empty())
+        continue;
+      int64_t lo = disagg ? klo[i] : 0;
+      int64_t hi = disagg ? khi[i] : horizon + ii + 1;
+      if (kdate[i] < lo || kdate[i] > hi) {
+        why = "killer outside its window";
+        return false;
+      }
+    }
+    if (os && disagg)
+      for (unsigned i = 0; i != n; ++i) {
+        if (!p.width[i])
+          continue;
+        *os << " kasg_" << i << ":";
+        for (int64_t t = klo[i]; t <= khi[i]; ++t)
+          *os << " + " << k(i, t);
+        *os << " = 1\n";
+      }
+    for (auto [ak, a] : llvm::enumerate(p.arcs)) {
       if (a.kind != ModuloArcKind::RegRaw || !p.width[a.src])
         continue;
-      *os << " life_" << k << ": k_" << a.src;
-      dated(*os, a.dst, -1);
-      *os << " >= " << ii * a.omega << "\n";
+      if (!disagg) {
+        // The integer is free above the last read, and the checked killer
+        // is that read, so the row holds by construction; the window test
+        // above is the part a schedule can violate.
+        if (os) {
+          *os << " life_" << ak << ": k_" << a.src;
+          dated(*os, a.dst, -1);
+          *os << " >= " << ii * a.omega << "\n";
+        }
+        continue;
+      }
+      int64_t l = ii * a.omega;
+      int64_t jlo = win[a.dst].lo, jhi = win[a.dst].hi;
+      int64_t kl = klo[a.src], kh = khi[a.src];
+      for (int64_t t = std::max(jlo, kl - l + 1); t <= jhi; ++t) {
+        int64_t klast = std::min(t + l - 1, kh);
+        if (klast < kl)
+          continue;
+        if (!check.empty() &&
+            (check[a.dst] >= t && check[a.dst] <= jhi) +
+                    (kdate[a.src] >= kl && kdate[a.src] <= klast) >
+                1) {
+          why = "disaggregated lifetime " + std::to_string(ak) + " violated";
+          return false;
+        }
+        if (os) {
+          *os << " life_" << ak << "_" << t << ":";
+          for (int64_t s = t; s <= jhi; ++s)
+            *os << " + " << x(a.dst, s);
+          for (int64_t s = kl; s <= klast; ++s)
+            *os << " + " << k(a.src, s);
+          *os << " <= 1\n";
+        }
+      }
     }
+  }
 
   // The makespan: span >= date(i) + length(i).
   if (os && !mcrl())
@@ -321,17 +460,21 @@ bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
     }
 
   if (os) {
+    // "Bounds" is written even when empty; "General" only over something --
+    // disaggregated MCRL has no general integer.
+    bool aggregatedK = mcrl() && !disagg;
     *os << "Bounds\n";
     if (!mcrl())
       *os << " 0 <= span <= " << horizon + 1 << "\n";
-    else
+    else if (aggregatedK)
       for (unsigned i = 0; i != n; ++i)
         if (p.width[i])
           *os << " 0 <= k_" << i << " <= " << horizon + ii + 1 << "\n";
-    *os << "General\n";
+    if (!mcrl() || aggregatedK)
+      *os << "General\n";
     if (!mcrl())
       *os << " span\n";
-    else
+    else if (aggregatedK)
       for (unsigned i = 0; i != n; ++i)
         if (p.width[i])
           *os << " k_" << i << "\n";
@@ -339,6 +482,11 @@ bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
     for (unsigned i = 0; i != n; ++i)
       for (int64_t t = win[i].lo; t <= win[i].hi; ++t)
         *os << ' ' << x(i, t) << "\n";
+    if (mcrl() && disagg)
+      for (unsigned i = 0; i != n; ++i)
+        if (p.width[i])
+          for (int64_t t = klo[i]; t <= khi[i]; ++t)
+            *os << ' ' << k(i, t) << "\n";
     *os << "End\n";
   }
   return true;
