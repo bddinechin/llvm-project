@@ -41,6 +41,21 @@
 // and both have the same integer optimum. The model text is lvx-gcc's,
 // row for row and name for name, so the two ports' files diff.
 //
+// MMRP, THE MINIMUM MAXIMUM REGISTER PRESSURE (objective 3; 4 is MMRP
+// then MCRL in one solve, R weighted above any MCRL): the modulo RCISP of
+// Dinechin 2006, "Instruction Scheduling Problems and their Application to
+// the ST200", §3.6, with the register availability R a variable. One row per
+// residue tau counts the registers live in kernel cycle tau -- every cycle
+// tau + k*II of the flat schedule folded together -- and bounds it by R;
+// `rcms-max-pressure` bounds R under any objective. A value occupies
+// [date + write, killer], the kernel allocator's interval
+// (RegisterAllocation.cpp, kernelOccupancyOf): the write stage is the
+// opcode's, a per-value offset where lvx-gcc has e_i = 1 for every value,
+// and the killer arcs carry the reader's read stage. A value the code after
+// the loop reads gets a killer arc from every node, latency II -- lvx-gcc
+// LMS's occ_last rule. Row and variable names are lvx-gcc's (press_<tau>, R,
+// exit_<i>_<j>), so the models diff; the coefficients differ by the offsets.
+//
 // THE SOLVER IS A SEPARATE PROCESS. Nothing is linked into mlir-opt: the
 // model is CPLEX LP, written to a file, solved by a program named on the
 // command line and called as `<solver> <model> <solution> <seconds>`, and
@@ -85,6 +100,13 @@ struct Window {
   int64_t hi; ///< latest date, LAO's lateDates
 };
 
+/// An arc into value `src`'s killer: killer(src) >= date(dst) + l.
+struct KillerArc {
+  unsigned src, dst;
+  int64_t l;
+  std::string name; ///< its row: life_<a> or exit_<i>_<j>
+};
+
 class RCMSEngine : public ModuloEngine {
 public:
   RCMSEngine(const ModuloProblem &p, const RCMSOptions &o) : p(p), o(o) {
@@ -94,8 +116,8 @@ public:
     for (const ModuloArc &a : p.arcs)
       if (a.kind == ModuloArcKind::RegRaw)
         length[a.src] = std::max(length[a.src], a.theta);
-    for (unsigned w : p.width)
-      anyLife |= w != 0;
+    for (unsigned i = 0; i != p.numNodes(); ++i)
+      anyLife |= weightOf(i) != 0;
     if (auto func = p.loop->getParentOfType<lvx_func::FuncOp>())
       funcName = func.getSymName().str();
   }
@@ -117,7 +139,38 @@ private:
   bool solve(StringRef modelPath, StringRef solPath, std::string &why) const;
   bool read(StringRef solPath, SmallVectorImpl<int64_t> &dates,
             std::string &why) const;
-  bool mcrl() const { return o.objective == 2 && anyLife; }
+  /// The pressure rows and R: under MMRP (3), MMRP then MCRL (4), or a
+  /// register bound under any objective.
+  bool pressure() const {
+    return o.objective == 3 || o.objective == 4 || o.maxPressure || o.pool;
+  }
+  bool mcrl() const {
+    return (o.objective == 2 || o.objective == 4) && anyLife;
+  }
+  bool spanObjective() const { return o.objective <= 2 && !mcrl(); }
+  /// The registers a value is priced at: its tuple width when the loop reads
+  /// it, and, with the pressure rows on, when the code after the loop does.
+  unsigned weightOf(unsigned i) const {
+    unsigned w = p.width[i];
+    if (o.objective == 3 || o.objective == 4 || o.maxPressure || o.pool)
+      w = std::max(w, p.exitWidth[i]);
+    return w;
+  }
+  /// R's upper bound: the bound asked for, the allocatable pool less what is
+  /// live through the loop, or the register file.
+  int64_t maxPressure() const {
+    if (o.maxPressure)
+      return *o.maxPressure;
+    if (o.pool)
+      return std::max<int64_t>(0, static_cast<int64_t>(o.registers) -
+                                      p.liveThrough);
+    return 64;
+  }
+  int64_t foldedPressure(int64_t ii, ArrayRef<int64_t> dates,
+                         ArrayRef<int64_t> kill) const;
+  SmallVector<KillerArc> killerArcs(int64_t ii) const;
+  /// Each value's killer date for `dates`: max over its killer arcs.
+  SmallVector<int64_t> killersOf(int64_t ii, ArrayRef<int64_t> dates) const;
 
   const ModuloProblem &p;
   RCMSOptions o;
@@ -128,6 +181,9 @@ private:
   SmallVector<Window> win;
   int64_t horizon = 0;
   unsigned serial = 0;
+  /// From the last solution read: its status and R, if it has one.
+  mutable std::string status;
+  mutable std::optional<int64_t> solvedR;
 };
 
 } // namespace
@@ -219,59 +275,74 @@ bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
         coef(out, sign * t, x(i, t));
   };
   bool disagg = !o.aggregated;
+  bool press = pressure();
+  bool wantMcrl = mcrl();
+  bool wantSpan = spanObjective();
+  // The killers exist for MCRL and for the pressure rows, and are a
+  // time-indexed node whenever the rows need them dated (disaggregated, or
+  // any pressure row: a press row counts a value live up to its killer).
+  bool killers = wantMcrl || press;
+  bool timeKillers = killers && (disagg || press);
 
-  // THE KILLERS. Value i's killer dates max over its reads j of date(j) +
-  // II*omega. Disaggregated it is a time-indexed node like the operations:
-  // binaries k_i_t over [klo, khi], the bounds of that max over the readers'
-  // windows, capped where the aggregated integer is bounded.
+  SmallVector<KillerArc> karcs = killerArcs(ii);
   SmallVector<int64_t> klo(n, std::numeric_limits<int64_t>::min());
   SmallVector<int64_t> khi(n, std::numeric_limits<int64_t>::min());
   SmallVector<int64_t> kdate(n, std::numeric_limits<int64_t>::min());
-  if (mcrl()) {
-    for (const ModuloArc &a : p.arcs) {
-      if (a.kind != ModuloArcKind::RegRaw || !p.width[a.src])
-        continue;
-      int64_t l = ii * a.omega;
-      klo[a.src] = std::max(klo[a.src], win[a.dst].lo + l);
-      khi[a.src] = std::max(khi[a.src], win[a.dst].hi + l);
-      if (!check.empty())
-        kdate[a.src] = std::max(kdate[a.src], check[a.dst] + l);
-    }
-    for (unsigned i = 0; i != n; ++i) {
-      if (!p.width[i])
-        continue;
-      khi[i] = std::min(khi[i], horizon + ii + 1);
-      if (disagg && khi[i] < klo[i]) {
-        why = "empty killer window";
-        return false;
-      }
-    }
+  int64_t kmax = 0;
+  for (const KillerArc &a : karcs) {
+    klo[a.src] = std::max(klo[a.src], win[a.dst].lo + a.l);
+    khi[a.src] = std::max(khi[a.src], win[a.dst].hi + a.l);
+    if (!check.empty())
+      kdate[a.src] = std::max(kdate[a.src], check[a.dst] + a.l);
   }
+  for (unsigned i = 0; i != n; ++i) {
+    if (!killers || !weightOf(i))
+      continue;
+    khi[i] = std::min(khi[i], horizon + ii + 1);
+    if (timeKillers && khi[i] < klo[i]) {
+      why = "empty killer window";
+      return false;
+    }
+    kmax = std::max(kmax, khi[i]);
+  }
+  // The killer's MCRL terms: sum_t t * k_i_t, or the aggregated integer.
+  auto killerTerms = [&](llvm::raw_ostream &out, unsigned i, int64_t w) {
+    if (!timeKillers) {
+      out << " + " << w << " k_" << i;
+      return;
+    }
+    for (int64_t t = klo[i]; t <= khi[i]; ++t)
+      if (t != 0)
+        coef(out, w * t, k(i, t));
+  };
 
   if (os) {
     *os << "\\ RCMS fn=" << funcName << " ii=" << ii << " n=" << n
         << " horizon=" << horizon << "\n";
-    if (mcrl()) {
-      // sum width_i * (k_i - date(i)).
-      *os << "Minimize\n obj:";
+    *os << "Minimize\n obj:";
+    if (o.objective == 3) {
+      *os << " R";
+    } else if (wantMcrl) {
+      // sum width_i * (k_i - date(i)); under objective 4 below a weight on R
+      // larger than any MCRL, so R is minimised first.
+      if (o.objective == 4) {
+        int64_t big = 1;
+        for (unsigned i = 0; i != n; ++i)
+          big += static_cast<int64_t>(weightOf(i)) * (kmax + 1);
+        *os << " + " << big << " R";
+      }
       for (unsigned i = 0; i != n; ++i)
-        if (p.width[i]) {
-          if (!disagg) {
-            *os << " + " << p.width[i] << " k_" << i;
-            continue;
-          }
-          for (int64_t t = klo[i]; t <= khi[i]; ++t)
-            if (t != 0)
-              coef(*os, static_cast<int64_t>(p.width[i]) * t, k(i, t));
-        }
+        if (weightOf(i))
+          killerTerms(*os, i, weightOf(i));
       for (unsigned i = 0; i != n; ++i)
-        if (p.width[i])
-          dated(*os, i, -static_cast<int64_t>(p.width[i]));
-      *os << "\nSubject To\n";
+        if (weightOf(i))
+          dated(*os, i, -static_cast<int64_t>(weightOf(i)));
+    } else if (o.objective == 4) {
+      *os << " R";
     } else {
-      *os << "Minimize\n obj: " << (o.objective == 0 ? "0 " : "")
-          << "span\nSubject To\n";
+      *os << ' ' << (o.objective == 0 ? "0 " : "") << "span";
     }
+    *os << "\nSubject To\n";
   }
 
   // Assignment: sum_t x_i_t = 1.
@@ -288,7 +359,35 @@ bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
     }
   }
 
-  // Dependences: date(j) - date(i) >= theta - II*omega, aggregated.
+  // An arc of latency w from `src` (dated by `sv`) to `dst` (by `dv`),
+  // disaggregated: for each date t, src at t or later and dst before t + w
+  // cannot both hold. A row with either sum empty never binds and is not
+  // written. Checked as written, so a mis-emitted row is caught.
+  auto disaggregated = [&](StringRef name, Window si, int64_t sd,
+                           auto srcName, Window dj, int64_t dd, auto dstName,
+                           int64_t w, const std::string &what) {
+    for (int64_t t = std::max(si.lo, dj.lo - w + 1); t <= si.hi; ++t) {
+      int64_t last = std::min(t + w - 1, dj.hi);
+      if (last < dj.lo)
+        continue;
+      if (!check.empty() &&
+          (sd >= t && sd <= si.hi) + (dd >= dj.lo && dd <= last) > 1) {
+        why = what + " violated";
+        return false;
+      }
+      if (os) {
+        *os << ' ' << name << '_' << t << ':';
+        for (int64_t s = t; s <= si.hi; ++s)
+          *os << " + " << srcName(s);
+        for (int64_t s = dj.lo; s <= last; ++s)
+          *os << " + " << dstName(s);
+        *os << " <= 1\n";
+      }
+    }
+    return true;
+  };
+
+  // Dependences: date(j) - date(i) >= theta - II*omega.
   for (auto [ak, a] : llvm::enumerate(p.arcs)) {
     int64_t w = weight(a);
     if (a.src == a.dst) {
@@ -302,32 +401,15 @@ bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
       continue;
     }
     if (disagg) {
-      // LAO's Formulation_buildDependencesDinechin, disaggregated: for each
-      // date t, i at t or later and j before t + w cannot both hold. A row
-      // with either sum empty never binds and is not written.
-      int64_t ilo = win[a.src].lo, ihi = win[a.src].hi;
-      int64_t jlo = win[a.dst].lo, jhi = win[a.dst].hi;
-      for (int64_t t = std::max(ilo, jlo - w + 1); t <= ihi; ++t) {
-        int64_t jlast = std::min(t + w - 1, jhi);
-        if (jlast < jlo)
-          continue;
-        // Checked as written, so a mis-emitted row is caught.
-        if (!check.empty() &&
-            (check[a.src] >= t && check[a.src] <= ihi) +
-                    (check[a.dst] >= jlo && check[a.dst] <= jlast) >
-                1) {
-          why = "disaggregated dependence " + std::to_string(ak) + " violated";
-          return false;
-        }
-        if (os) {
-          *os << " dep_" << ak << "_" << t << ":";
-          for (int64_t s = t; s <= ihi; ++s)
-            *os << " + " << x(a.src, s);
-          for (int64_t s = jlo; s <= jlast; ++s)
-            *os << " + " << x(a.dst, s);
-          *os << " <= 1\n";
-        }
-      }
+      // LAO's Formulation_buildDependencesDinechin, disaggregated.
+      unsigned src = a.src, dst = a.dst;
+      if (!disaggregated(
+              "dep_" + std::to_string(ak), win[src],
+              check.empty() ? 0 : check[src], [&](int64_t s) { return x(src, s); },
+              win[dst], check.empty() ? 0 : check[dst],
+              [&](int64_t s) { return x(dst, s); }, w,
+              "disaggregated dependence " + std::to_string(ak)))
+        return false;
       continue;
     }
     if (!check.empty() && check[a.dst] - check[a.src] < w) {
@@ -384,75 +466,109 @@ bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
     }
   }
 
-  // The lifetimes: k_i >= date(j) + II*omega for every flow arc i -> j. A
-  // read in a later iteration keeps the value alive that many intervals
-  // longer; without the term a loop-carried value would be priced as dying
-  // in its own iteration. Aggregated: one integer per value and one row per
-  // flow arc. Disaggregated: kasg_i gives the killer one date, and each flow
-  // arc i -> j is the arc j -> killer(i) of latency II*omega, written exactly
-  // as a dependence.
-  if (mcrl()) {
+  // The lifetimes: killer(i) >= date(dst) + l for every killer arc. A read in
+  // a later iteration keeps the value alive that many intervals longer;
+  // without the term a loop-carried value would be priced as dying in its own
+  // iteration. Aggregated: one row per arc over the integer killer, or over
+  // the time-indexed one when the pressure rows date it. Disaggregated:
+  // kasg_i gives the killer one date, and each killer arc is written as a
+  // dependence.
+  if (killers) {
     for (unsigned i = 0; i != n; ++i) {
-      if (!p.width[i] || check.empty())
+      if (!weightOf(i) || check.empty())
         continue;
-      int64_t lo = disagg ? klo[i] : 0;
-      int64_t hi = disagg ? khi[i] : horizon + ii + 1;
+      int64_t lo = timeKillers ? klo[i] : 0;
+      int64_t hi = timeKillers ? khi[i] : horizon + ii + 1;
       if (kdate[i] < lo || kdate[i] > hi) {
         why = "killer outside its window";
         return false;
       }
     }
-    if (os && disagg)
+    if (os && timeKillers)
       for (unsigned i = 0; i != n; ++i) {
-        if (!p.width[i])
+        if (!weightOf(i))
           continue;
         *os << " kasg_" << i << ":";
         for (int64_t t = klo[i]; t <= khi[i]; ++t)
           *os << " + " << k(i, t);
         *os << " = 1\n";
       }
-    for (auto [ak, a] : llvm::enumerate(p.arcs)) {
-      if (a.kind != ModuloArcKind::RegRaw || !p.width[a.src])
-        continue;
+    for (const KillerArc &a : karcs) {
       if (!disagg) {
-        // The integer is free above the last read, and the checked killer
-        // is that read, so the row holds by construction; the window test
-        // above is the part a schedule can violate.
+        // The killer is free above the last read, and the checked killer is
+        // that read, so the row holds by construction; the window test above
+        // is the part a schedule can violate.
         if (os) {
-          *os << " life_" << ak << ": k_" << a.src;
+          *os << ' ' << a.name << ':';
+          if (timeKillers) {
+            for (int64_t t = klo[a.src]; t <= khi[a.src]; ++t)
+              if (t != 0)
+                coef(*os, t, k(a.src, t));
+          } else {
+            *os << " k_" << a.src;
+          }
           dated(*os, a.dst, -1);
-          *os << " >= " << ii * a.omega << "\n";
+          *os << " >= " << a.l << "\n";
         }
         continue;
       }
-      int64_t l = ii * a.omega;
-      int64_t jlo = win[a.dst].lo, jhi = win[a.dst].hi;
-      int64_t kl = klo[a.src], kh = khi[a.src];
-      for (int64_t t = std::max(jlo, kl - l + 1); t <= jhi; ++t) {
-        int64_t klast = std::min(t + l - 1, kh);
-        if (klast < kl)
-          continue;
-        if (!check.empty() &&
-            (check[a.dst] >= t && check[a.dst] <= jhi) +
-                    (kdate[a.src] >= kl && kdate[a.src] <= klast) >
-                1) {
-          why = "disaggregated lifetime " + std::to_string(ak) + " violated";
-          return false;
-        }
-        if (os) {
-          *os << " life_" << ak << "_" << t << ":";
-          for (int64_t s = t; s <= jhi; ++s)
-            *os << " + " << x(a.dst, s);
-          for (int64_t s = kl; s <= klast; ++s)
-            *os << " + " << k(a.src, s);
-          *os << " <= 1\n";
-        }
-      }
+      unsigned src = a.src, dst = a.dst;
+      if (!disaggregated(
+              a.name, win[dst], check.empty() ? 0 : check[dst],
+              [&](int64_t s) { return x(dst, s); },
+              Window{klo[src], khi[src]}, check.empty() ? 0 : kdate[src],
+              [&](int64_t s) { return k(src, s); }, a.l,
+              "disaggregated lifetime " + a.name))
+        return false;
     }
   }
 
+  // THE PRESSURE, MMRP: one row per residue tau, the registers live in the
+  // kernel's cycle tau, which is every cycle tau + k*II of the flat schedule
+  // folded together. A value occupies [date(i) + write(i), killer(i)], both
+  // ends included -- the kernel allocator's interval -- so it is live in
+  // cycle c iff date(i) <= c - write(i) and not killer(i) <= c - 1. In
+  // lvx-gcc's notation e_i = 1 - write(i): a per-value offset here, since
+  // the write stage is the opcode's. Collected per variable, so each row has
+  // one term per variable and there are only II rows.
+  if (press) {
+    int64_t kk = std::max(kmax, horizon) / ii + 1;
+    auto count = [&](int64_t t, int64_t tau, int64_t shift) {
+      int64_t c = 0;
+      for (int64_t q = 0; q <= kk; ++q)
+        c += t <= tau + q * ii - shift;
+      return c;
+    };
+    if (!check.empty()) {
+      int64_t folded = foldedPressure(ii, check, kdate);
+      if (folded > maxPressure()) {
+        why = "register pressure " + std::to_string(folded) + " above " +
+              std::to_string(maxPressure());
+        return false;
+      }
+    }
+    if (os)
+      for (int64_t tau = 0; tau != ii; ++tau) {
+        std::string terms;
+        llvm::raw_string_ostream t(terms);
+        for (unsigned i = 0; i != n; ++i) {
+          int64_t w = weightOf(i);
+          if (!w)
+            continue;
+          for (int64_t s = win[i].lo; s <= win[i].hi; ++s)
+            if (int64_t c = count(s, tau, p.write[i]))
+              coef(t, w * c, x(i, s));
+          for (int64_t s = klo[i]; s <= khi[i]; ++s)
+            if (int64_t c = count(s, tau, 1))
+              coef(t, -w * c, k(i, s));
+        }
+        *os << " press_" << tau << ":" << (terms.empty() ? " 0 R" : "")
+            << terms << " - R <= 0\n";
+      }
+  }
+
   // The makespan: span >= date(i) + length(i).
-  if (os && !mcrl())
+  if (os && wantSpan)
     for (unsigned i = 0; i != n; ++i) {
       *os << " mk_" << i << ": span";
       dated(*os, i, -1);
@@ -461,35 +577,95 @@ bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
 
   if (os) {
     // "Bounds" is written even when empty; "General" only over something --
-    // disaggregated MCRL has no general integer.
-    bool aggregatedK = mcrl() && !disagg;
+    // time-indexed killers are binaries.
+    bool integerK = killers && !timeKillers;
     *os << "Bounds\n";
-    if (!mcrl())
+    if (wantSpan)
       *os << " 0 <= span <= " << horizon + 1 << "\n";
-    else if (aggregatedK)
+    if (press)
+      *os << " 0 <= R <= " << maxPressure() << "\n";
+    if (integerK)
       for (unsigned i = 0; i != n; ++i)
-        if (p.width[i])
+        if (weightOf(i))
           *os << " 0 <= k_" << i << " <= " << horizon + ii + 1 << "\n";
-    if (!mcrl() || aggregatedK)
+    if (wantSpan || press || integerK)
       *os << "General\n";
-    if (!mcrl())
+    if (wantSpan)
       *os << " span\n";
-    else if (aggregatedK)
+    if (press)
+      *os << " R\n";
+    if (integerK)
       for (unsigned i = 0; i != n; ++i)
-        if (p.width[i])
+        if (weightOf(i))
           *os << " k_" << i << "\n";
     *os << "Binaries\n";
     for (unsigned i = 0; i != n; ++i)
       for (int64_t t = win[i].lo; t <= win[i].hi; ++t)
         *os << ' ' << x(i, t) << "\n";
-    if (mcrl() && disagg)
+    if (timeKillers)
       for (unsigned i = 0; i != n; ++i)
-        if (p.width[i])
+        if (weightOf(i))
           for (int64_t t = klo[i]; t <= khi[i]; ++t)
             *os << ' ' << k(i, t) << "\n";
     *os << "End\n";
   }
   return true;
+}
+
+/// THE KILLER ARCS. Value i's killer dates max over its arcs of date(dst) +
+/// l. A register flow arc i -> j gives one, l = II*omega; with the pressure
+/// rows on, l also takes the reader's read cycle, since the kernel allocator
+/// holds the register through the stage the last reader reads it in
+/// (RegisterAllocation.cpp, kernelOccupancyOf). A value the code after the
+/// loop reads gets an arc from every node of latency II -- lvx-gcc LMS's
+/// occ_last rule: the allocator keeps a value read past the kernel for the
+/// whole body.
+SmallVector<KillerArc> RCMSEngine::killerArcs(int64_t ii) const {
+  SmallVector<KillerArc> karcs;
+  bool press = pressure();
+  if (!mcrl() && !press)
+    return karcs;
+  unsigned n = p.numNodes();
+  for (auto [ak, a] : llvm::enumerate(p.arcs))
+    if (a.kind == ModuloArcKind::RegRaw && weightOf(a.src))
+      karcs.push_back({a.src, a.dst, ii * a.omega + (press ? a.read : 0),
+                       "life_" + std::to_string(ak)});
+  if (press)
+    for (unsigned i = 0; i != n; ++i)
+      if (p.exitWidth[i])
+        for (unsigned j = 0; j != n; ++j)
+          karcs.push_back(
+              {i, j, ii, "exit_" + std::to_string(i) + "_" + std::to_string(j)});
+  return karcs;
+}
+
+SmallVector<int64_t> RCMSEngine::killersOf(int64_t ii,
+                                           ArrayRef<int64_t> dates) const {
+  SmallVector<int64_t> kill(p.numNodes(), std::numeric_limits<int64_t>::min());
+  for (const KillerArc &a : killerArcs(ii))
+    kill[a.src] = std::max(kill[a.src], dates[a.dst] + a.l);
+  return kill;
+}
+
+/// The registers live in the kernel's busiest cycle, for these dates and
+/// killers: the press rows evaluated, with the same interval.
+int64_t RCMSEngine::foldedPressure(int64_t ii, ArrayRef<int64_t> dates,
+                                   ArrayRef<int64_t> kill) const {
+  int64_t most = 0;
+  for (int64_t tau = 0; tau != ii; ++tau) {
+    int64_t live = 0;
+    for (unsigned i = 0; i != p.numNodes(); ++i) {
+      int64_t w = weightOf(i);
+      if (!w)
+        continue;
+      // Cycles c = tau + q*II in [date + write, killer].
+      int64_t from = dates[i] + p.write[i], to = kill[i];
+      for (int64_t c = tau; c <= to; c += ii)
+        live += c >= from ? w : 0;
+    }
+    most = std::max(most, live);
+  }
+  return most;
 }
 
 bool RCMSEngine::solve(StringRef modelPath, StringRef solPath,
@@ -548,6 +724,8 @@ bool RCMSEngine::read(StringRef solPath, SmallVectorImpl<int64_t> &dates,
       if (name != "STATUS")
         continue;
       haveStatus = true;
+      status = value.str();
+      solvedR.reset();
       if (value == "OPTIMAL" || value == "FEASIBLE")
         continue;
       why = value == "INFEASIBLE" ? "infeasible at this II (proved)"
@@ -555,6 +733,10 @@ bool RCMSEngine::read(StringRef solPath, SmallVectorImpl<int64_t> &dates,
       return false;
     }
     double v;
+    if (name == "R" && !value.getAsDouble(v)) {
+      solvedR = static_cast<int64_t>(std::llround(v));
+      continue;
+    }
     if (value.getAsDouble(v) || v < 0.5 || !name.consume_front("x_"))
       continue;
     auto [is, ts] = name.split('_');
@@ -632,6 +814,21 @@ bool RCMSEngine::scheduleAtII(int64_t ii, SmallVectorImpl<int64_t> &dates,
       ok = false;
     }
   }
+  // MMRP solved to optimality: the pressure of the dates is R, or the model
+  // and the check disagree about what a register is.
+  if (ok && o.objective == 3 && status == "OPTIMAL" && solvedR) {
+    int64_t folded = foldedPressure(ii, dates, killersOf(ii, dates));
+    if (folded != *solvedR) {
+      why = "the solution breaks the model: its register pressure is " +
+            std::to_string(folded) + ", the solver's R " +
+            std::to_string(*solvedR);
+      ok = false;
+    }
+  }
+  LLVM_DEBUG(if (ok && pressure()) llvm::dbgs()
+             << "lvx-modulo-schedule: rcms " << funcName << " ii=" << ii
+             << " pressure="
+             << foldedPressure(ii, dates, killersOf(ii, dates)) << "\n");
   LLVM_DEBUG(llvm::dbgs() << "lvx-modulo-schedule: rcms " << funcName
                           << " ii=" << ii << " horizon=" << horizon << ": "
                           << (ok ? "solved" : why) << "\n");

@@ -93,8 +93,8 @@ FailureOr<ModuloProblem> ModuloProblem::build(lvx_scf::ForOp loop) {
   }
   auto yield = cast<lvx_scf::YieldOp>(loop.getBody()->getTerminator());
   auto arc = [&](unsigned src, unsigned dst, int64_t theta, int64_t omega,
-                 ModuloArcKind kind) {
-    p.arcs.push_back({src, dst, theta, omega, kind});
+                 ModuloArcKind kind, int64_t read = 1) {
+    p.arcs.push_back({src, dst, theta, omega, kind, read});
   };
 
   // Flow dependences. A value arriving through an `iter_arg` is produced by
@@ -120,7 +120,7 @@ FailureOr<ModuloProblem> ModuloProblem::build(lvx_scf::ForOp loop) {
       if (!def || !index.count(def))
         continue;
       arc(index[def], j, rawLatencyOf(def, resultIdx, use, k), omega,
-          ModuloArcKind::RegRaw);
+          ModuloArcKind::RegRaw, readCycleOf(use, k));
     }
   }
 
@@ -184,13 +184,13 @@ FailureOr<ModuloProblem> ModuloProblem::build(lvx_scf::ForOp loop) {
       int64_t read =
           readCycleOf(lvxTimingOf(use.getOwner()), use.getOperandNumber());
       arc(induction, j, std::max<int64_t>(1, ivWrite - read), 1,
-          ModuloArcKind::RegRaw);
+          ModuloArcKind::RegRaw, read);
       p.induction = true;
     }
   if (p.induction)
     arc(induction, induction,
         std::max<int64_t>(1, ivWrite - readCycleOf(adddTiming, 0)), 1,
-        ModuloArcKind::RegRaw);
+        ModuloArcKind::RegRaw, readCycleOf(adddTiming, 0));
 
   // What each node reserves, and how wide the value it defines is.
   SmallVector<unsigned> demandTotal(kNumResources, 0);
@@ -216,6 +216,36 @@ FailureOr<ModuloProblem> ModuloProblem::build(lvx_scf::ForOp loop) {
       for (Type t : p.ops[a.src]->getResultTypes())
         p.width[a.src] = std::max(p.width[a.src], std::max(1u, widthOf(t)));
     }
+
+  // Where each value's occupancy starts, which values the code after the
+  // loop reads, and what is live through the loop.
+  for (Operation *op : p.ops) {
+    int64_t w = 2;
+    for (unsigned r = 0; r != op->getNumResults(); ++r) {
+      int64_t c = writeCycleOf(op, r);
+      w = r ? std::max(w, c) : c;
+    }
+    p.write.push_back(w);
+  }
+  if (p.induction)
+    p.write.push_back(ivWrite);
+  p.exitWidth.assign(p.numNodes(), 0);
+  for (auto [k, result] : llvm::enumerate(loop.getResults())) {
+    if (result.use_empty())
+      continue;
+    Value y = yield.getOperand(k);
+    if (Operation *def = y.getDefiningOp(); def && index.count(def))
+      p.exitWidth[index[def]] = std::max(p.exitWidth[index[def]],
+                                         std::max(1u, widthOf(y.getType())));
+  }
+  llvm::SmallPtrSet<Value, 8> through;
+  for (Operation *op : p.ops)
+    op->walk([&](Operation *inner) {
+      for (Value v : inner->getOperands())
+        if (!loop->isAncestor(v.getParentRegion()->getParentOp()) &&
+            through.insert(v).second)
+          p.liveThrough += std::max(1u, widthOf(v.getType()));
+    });
 
   // ResMII: for each resource, the total demand over its availability,
   // rounded up.
@@ -456,6 +486,23 @@ struct LVXModuloSchedulePass
       return signalPassFailure();
     }
     o.rcms.aggregated = rcmsDeps == "aggregated";
+    if (rcmsObjective > 4) {
+      getOperation().emitError("lvx-modulo-schedule: rcms-objective ")
+          << rcmsObjective << " is not 0 to 4";
+      return signalPassFailure();
+    }
+    o.rcms.registers = maxRegisters;
+    if (rcmsMaxPressure == "pool") {
+      o.rcms.pool = true;
+    } else if (!rcmsMaxPressure.empty()) {
+      unsigned bound;
+      if (StringRef(rcmsMaxPressure).getAsInteger(10, bound)) {
+        getOperation().emitError("lvx-modulo-schedule: rcms-max-pressure '")
+            << rcmsMaxPressure << "' is neither a number nor pool";
+        return signalPassFailure();
+      }
+      o.rcms.maxPressure = bound;
+    }
     if (failed(moduloScheduleFunction(getOperation(), o)))
       signalPassFailure();
   }

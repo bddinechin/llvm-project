@@ -86,6 +86,10 @@ struct ModuloArc {
   int64_t theta;
   int64_t omega;
   ModuloArcKind kind;
+  /// For a register flow arc, the cycle after its own issue that the reader
+  /// reads the value in: where the value's occupancy ends (`write` below
+  /// being where it starts), as the kernel allocator counts it.
+  int64_t read = 1;
 };
 
 /// What one operation reserves when it issues, in `Resource.yml`'s counters.
@@ -115,6 +119,14 @@ struct ModuloProblem {
   /// for a pair, 4 for a quad -- or 0 when no operation of the loop reads it.
   /// The weight MCRL prices a lifetime by.
   SmallVector<unsigned> width;
+  /// Per node, the cycle after its issue that its value is written in.
+  SmallVector<int64_t> write;
+  /// Per node, the registers of its value when the code after the loop reads
+  /// it -- a yielded value whose loop result has a use -- else 0.
+  SmallVector<unsigned> exitWidth;
+  /// The registers live through the loop: values defined before it and read
+  /// in the body, which the body's own values cannot have.
+  unsigned liveThrough = 0;
   int64_t recMII = 1;
   int64_t resMII = 1;
 
@@ -175,8 +187,16 @@ struct RCMSOptions {
   std::string dir;
   /// Intervals of slack above the critical path in the horizon.
   unsigned margin = 1;
-  /// 0 feasibility, 1 the makespan, 2 MCRL.
+  /// 0 feasibility, 1 the makespan, 2 MCRL, 3 MMRP (the minimum maximum
+  /// register pressure, R), 4 MMRP then MCRL (one solve, R weighted above
+  /// any MCRL).
   unsigned objective = 2;
+  /// A bound on R under any objective, the RCISP of Dinechin 2006 §3.6; or
+  /// `pool`, the allocatable registers less those live through the loop.
+  std::optional<unsigned> maxPressure;
+  bool pool = false;
+  /// The allocatable pool, for `pool`: -lvx-allocate-registers' max-registers.
+  unsigned registers = 59;
   /// The dependence and lifetime rows: one per arc over the average date
   /// (aggregated), or one per arc and date (disaggregated, LAO's default and
   /// the stronger relaxation). Same formulation, so the same optimum.

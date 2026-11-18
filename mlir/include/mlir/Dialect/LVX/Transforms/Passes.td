@@ -407,7 +407,13 @@ def LVXModuloSchedulePass
            "Intervals of slack above the critical path in the horizon">,
     Option<"rcmsObjective", "rcms-objective", "unsigned", /*default=*/"2",
            "0 feasibility, 1 the makespan, 2 the minimum cumulative "
-           "register lifetime">,
+           "register lifetime, 3 the minimum maximum register pressure "
+           "(MMRP), 4 MMRP then MCRL">,
+    Option<"rcmsMaxPressure", "rcms-max-pressure", "std::string",
+           /*default=*/"\"\"",
+           "Bound the register pressure under any objective: a number, or "
+           "`pool` for max-registers less what is live through the loop; "
+           "empty for no bound">,
     Option<"rcmsDeps", "rcms-deps", "std::string",
            /*default=*/"\"disaggregated\"",
            "The dependence and lifetime rows: aggregated (one per arc) or "

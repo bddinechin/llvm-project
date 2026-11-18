@@ -19,6 +19,17 @@
 // RUN: rm -rf %t.ddir && mkdir -p %t.ddir
 // RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.infeasible rcms-dir=%t.ddir}))' -o /dev/null 2>&1
 // RUN: FileCheck %s --check-prefix=DISAGG < %t.ddir/sum.0.ii1.lp
+// MMRP then MCRL, aggregated dependences: the killers are time-indexed for
+// the pressure rows, the summed value -- read after the loop -- has an exit
+// arc from every node, and R is weighted above any MCRL.
+// RUN: rm -rf %t.pdir && mkdir -p %t.pdir
+// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.infeasible rcms-dir=%t.pdir rcms-objective=4 rcms-deps=aggregated}))' -o /dev/null 2>&1
+// RUN: FileCheck %s --check-prefix=MMRP < %t.pdir/sum.1.ii2.lp
+// The solver's R must be the dates' pressure under MMRP, and a bound on R
+// holds under any objective.
+// RUN: printf '#!/bin/sh\nprintf "STATUS OPTIMAL\\nx_0_0 1\\nx_1_1 1\\nx_2_16 1\\nx_3_0 1\\nR 99\\n" > "$2"\n' > %t.r99 && chmod +x %t.r99
+// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.r99 rcms-objective=3}))' 2>&1 | FileCheck %s --check-prefix=RMISMATCH
+// RUN: mlir-opt %s --pass-pipeline='builtin.module(any(lvx-modulo-schedule{engine=rcms fallback=false rcms-solver=%t.r99 rcms-max-pressure=1}))' 2>&1 | FileCheck %s --check-prefix=RBOUND
 //
 // A solver that answers UNKNOWN is not a proof: the remark says so.
 // RUN: printf '#!/bin/sh\necho "STATUS UNKNOWN" > "$2"\n' > %t.unknown && chmod +x %t.unknown
@@ -101,6 +112,71 @@
 // DISAGG-NEXT: k_3_1
 // DISAGG-NEXT: k_3_2
 // DISAGG-NEXT: End
+
+// The pressure rows: one per residue, a value live in cycle c iff
+// date + write <= c <= killer (the kernel allocator's interval), the
+// flowing value's killer arcs carrying the reader's read cycle.
+// MMRP: \ RCMS fn=sum ii=2 n=4 horizon=19
+// MMRP-NEXT: Minimize
+// MMRP-NEXT: obj: + 89 R +2 k_0_2 +3 k_0_3 +4 k_0_4 +17 k_1_17 +18 k_1_18 +19 k_1_19 +19 k_2_19 +20 k_2_20 +21 k_2_21 +3 k_3_3 +4 k_3_4 +5 k_3_5 +6 k_3_6 -1 x_0_1 -2 x_0_2 -1 x_1_1 -2 x_1_2 -3 x_1_3 -16 x_2_16 -17 x_2_17 -18 x_2_18 -1 x_3_1 -2 x_3_2 -3 x_3_3
+// MMRP-NEXT: Subject To
+// MMRP-NEXT: asg_0: + x_0_0 + x_0_1 + x_0_2 = 1
+// MMRP-NEXT: asg_1: + x_1_1 + x_1_2 + x_1_3 = 1
+// MMRP-NEXT: asg_2: + x_2_16 + x_2_17 + x_2_18 = 1
+// MMRP-NEXT: asg_3: + x_3_0 + x_3_1 + x_3_2 + x_3_3 = 1
+// MMRP-NEXT: dep_0: +1 x_0_1 +2 x_0_2 -1 x_1_1 -2 x_1_2 -3 x_1_3 <= -1
+// MMRP-NEXT: dep_2: +1 x_1_1 +2 x_1_2 +3 x_1_3 -16 x_2_16 -17 x_2_17 -18 x_2_18 <= -15
+// MMRP-NEXT: dep_3: +1 x_3_1 +2 x_3_2 +3 x_3_3 -1 x_0_1 -2 x_0_2 <= 1
+// MMRP-NEXT: kasg_0: + k_0_2 + k_0_3 + k_0_4 = 1
+// MMRP-NEXT: kasg_1: + k_1_17 + k_1_18 + k_1_19 = 1
+// MMRP-NEXT: kasg_2: + k_2_19 + k_2_20 + k_2_21 = 1
+// MMRP-NEXT: kasg_3: + k_3_3 + k_3_4 + k_3_5 + k_3_6 = 1
+// MMRP-NEXT: life_0: +2 k_0_2 +3 k_0_3 +4 k_0_4 -1 x_1_1 -2 x_1_2 -3 x_1_3 >= 1
+// MMRP-NEXT: life_1: +19 k_2_19 +20 k_2_20 +21 k_2_21 -16 x_2_16 -17 x_2_17 -18 x_2_18 >= 3
+// MMRP-NEXT: life_2: +17 k_1_17 +18 k_1_18 +19 k_1_19 -16 x_2_16 -17 x_2_17 -18 x_2_18 >= 1
+// MMRP-NEXT: life_3: +3 k_3_3 +4 k_3_4 +5 k_3_5 +6 k_3_6 -1 x_0_1 -2 x_0_2 >= 3
+// MMRP-NEXT: life_4: +3 k_3_3 +4 k_3_4 +5 k_3_5 +6 k_3_6 -1 x_3_1 -2 x_3_2 -3 x_3_3 >= 3
+// MMRP-NEXT: exit_2_0: +19 k_2_19 +20 k_2_20 +21 k_2_21 -1 x_0_1 -2 x_0_2 >= 2
+// MMRP-NEXT: exit_2_1: +19 k_2_19 +20 k_2_20 +21 k_2_21 -1 x_1_1 -2 x_1_2 -3 x_1_3 >= 2
+// MMRP-NEXT: exit_2_2: +19 k_2_19 +20 k_2_20 +21 k_2_21 -16 x_2_16 -17 x_2_17 -18 x_2_18 >= 2
+// MMRP-NEXT: exit_2_3: +19 k_2_19 +20 k_2_20 +21 k_2_21 -1 x_3_1 -2 x_3_2 -3 x_3_3 >= 2
+// MMRP-NEXT: press_0: +11 x_0_0 +10 x_0_1 +10 x_0_2 -10 k_0_2 -10 k_0_3 -9 k_0_4 +3 x_1_1 +3 x_1_2 +2 x_1_3 -3 k_1_17 -2 k_1_18 -2 k_1_19 +3 x_2_16 +2 x_2_17 +2 x_2_18 -2 k_2_19 -1 k_2_20 -1 k_2_21 +11 x_3_0 +10 x_3_1 +10 x_3_2 +9 x_3_3 -10 k_3_3 -9 k_3_4 -9 k_3_5 -8 k_3_6 - R <= 0
+// MMRP-NEXT: press_1: +11 x_0_0 +11 x_0_1 +10 x_0_2 -11 k_0_2 -10 k_0_3 -10 k_0_4 +4 x_1_1 +3 x_1_2 +3 x_1_3 -3 k_1_17 -3 k_1_18 -2 k_1_19 +3 x_2_16 +3 x_2_17 +2 x_2_18 -2 k_2_19 -2 k_2_20 -1 k_2_21 +11 x_3_0 +11 x_3_1 +10 x_3_2 +10 x_3_3 -10 k_3_3 -10 k_3_4 -9 k_3_5 -9 k_3_6 - R <= 0
+// MMRP-NEXT: Bounds
+// MMRP-NEXT: 0 <= R <= 64
+// MMRP-NEXT: General
+// MMRP-NEXT: R
+// MMRP-NEXT: Binaries
+// MMRP-NEXT: x_0_0
+// MMRP-NEXT: x_0_1
+// MMRP-NEXT: x_0_2
+// MMRP-NEXT: x_1_1
+// MMRP-NEXT: x_1_2
+// MMRP-NEXT: x_1_3
+// MMRP-NEXT: x_2_16
+// MMRP-NEXT: x_2_17
+// MMRP-NEXT: x_2_18
+// MMRP-NEXT: x_3_0
+// MMRP-NEXT: x_3_1
+// MMRP-NEXT: x_3_2
+// MMRP-NEXT: x_3_3
+// MMRP-NEXT: k_0_2
+// MMRP-NEXT: k_0_3
+// MMRP-NEXT: k_0_4
+// MMRP-NEXT: k_1_17
+// MMRP-NEXT: k_1_18
+// MMRP-NEXT: k_1_19
+// MMRP-NEXT: k_2_19
+// MMRP-NEXT: k_2_20
+// MMRP-NEXT: k_2_21
+// MMRP-NEXT: k_3_3
+// MMRP-NEXT: k_3_4
+// MMRP-NEXT: k_3_5
+// MMRP-NEXT: k_3_6
+// MMRP-NEXT: End
+
+// RMISMATCH: the solution breaks the model: its register pressure is 3, the solver's R 99
+// RBOUND: the solution breaks the model: register pressure 3 above 1
 
 // MODEL: \ RCMS fn=sum ii=1 n=4 horizon=18
 // MODEL-NEXT: Minimize
