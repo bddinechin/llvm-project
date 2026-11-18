@@ -318,3 +318,160 @@ def LoadDSO : LVXBuiltin<"_Vector<4, unsigned long int>(void const*, char const*
   let Spellings = ["__builtin_lvx_loaddso"];
   let Attributes = [NoThrow];
 }
+
+//===----------------------------------------------------------------------===//
+// Lane-wise absolute value, widening, narrowing, select and the 128/256/512
+// concatenations: the surface libgcc's vector divide helpers
+// (libgcc/config/lvx/divmodvx{qi,hi,si}.c) are written against, which
+// validation's divmodvx.c, v_divmod4.c and v_divqi.c compile directly.
+//
+// Every one of them is generic IR in codegen -- abs, sext/zext, trunc, an icmp
+// and a select, shufflevectors -- so none needs a pattern of its own: the
+// lvx_2 description selects the lane-wise instruction, and an lvx_1 one
+// scalarises. The names and C types are lvx-gcc's (lvx-builtins.def), and so
+// are the modifier strings:
+//
+//   abs<s>(a, m)          m: "" wrapping, ".s" saturating (MIN -> MAX)
+//   widen<s><d>(a, m)     m: "" sign-extend, ".z" zero-extend, ".q" Q-format
+//                         (the lane moved to the top half: zext << width)
+//   trunc<w><n>(a)        drop each lane's high half
+//   select<s>(t, f, c, m) per lane, m(c) ? t : f; m is ".nez" ".eqz" ".ltz"
+//                         ".gez" ".lez" ".gtz" ".odd" ".even"
+//
+// The concatenations take lvx-gcc's opaque __lvx_v128/v256/v512, which here
+// are vectors of long: clang's default lax conversions let any integer vector
+// of the same size through, which is what libgcc relies on. A float vector
+// needs a cast, as it would in plain C.
+//===----------------------------------------------------------------------===//
+
+def Absbx : LVXBuiltin<"_Vector<16, signed char>(_Vector<16, signed char>, char const*)"> {
+  let Spellings = ["__builtin_lvx_absbx"];
+}
+def Absbv : LVXBuiltin<"_Vector<32, signed char>(_Vector<32, signed char>, char const*)"> {
+  let Spellings = ["__builtin_lvx_absbv"];
+}
+def Absho : LVXBuiltin<"_Vector<8, short>(_Vector<8, short>, char const*)"> {
+  let Spellings = ["__builtin_lvx_absho"];
+}
+def Abshx : LVXBuiltin<"_Vector<16, short>(_Vector<16, short>, char const*)"> {
+  let Spellings = ["__builtin_lvx_abshx"];
+}
+def Abswq : LVXBuiltin<"_Vector<4, int>(_Vector<4, int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_abswq"];
+}
+def Abswo : LVXBuiltin<"_Vector<8, int>(_Vector<8, int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_abswo"];
+}
+def Absdp : LVXBuiltin<"_Vector<2, long int>(_Vector<2, long int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_absdp"];
+}
+def Absdq : LVXBuiltin<"_Vector<4, long int>(_Vector<4, long int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_absdq"];
+}
+def Widenbhx : LVXBuiltin<"_Vector<16, short>(_Vector<16, signed char>, char const*)"> {
+  let Spellings = ["__builtin_lvx_widenbhx"];
+}
+def Widenbhv : LVXBuiltin<"_Vector<32, short>(_Vector<32, signed char>, char const*)"> {
+  let Spellings = ["__builtin_lvx_widenbhv"];
+}
+def Widenhwo : LVXBuiltin<"_Vector<8, int>(_Vector<8, short>, char const*)"> {
+  let Spellings = ["__builtin_lvx_widenhwo"];
+}
+def Widenhwx : LVXBuiltin<"_Vector<16, int>(_Vector<16, short>, char const*)"> {
+  let Spellings = ["__builtin_lvx_widenhwx"];
+}
+def Widenwdq : LVXBuiltin<"_Vector<4, long int>(_Vector<4, int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_widenwdq"];
+}
+def Widenwdo : LVXBuiltin<"_Vector<8, long int>(_Vector<8, int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_widenwdo"];
+}
+def Trunchbx : LVXBuiltin<"_Vector<16, signed char>(_Vector<16, short>)"> {
+  let Spellings = ["__builtin_lvx_trunchbx"];
+}
+def Truncwho : LVXBuiltin<"_Vector<8, short>(_Vector<8, int>)"> {
+  let Spellings = ["__builtin_lvx_truncwho"];
+}
+def Truncdwq : LVXBuiltin<"_Vector<4, int>(_Vector<4, long int>)"> {
+  let Spellings = ["__builtin_lvx_truncdwq"];
+}
+def Selectbx : LVXBuiltin<"_Vector<16, signed char>(_Vector<16, signed char>, _Vector<16, signed char>, _Vector<16, signed char>, char const*)"> {
+  let Spellings = ["__builtin_lvx_selectbx"];
+}
+def Selectbv : LVXBuiltin<"_Vector<32, signed char>(_Vector<32, signed char>, _Vector<32, signed char>, _Vector<32, signed char>, char const*)"> {
+  let Spellings = ["__builtin_lvx_selectbv"];
+}
+def Selectbt : LVXBuiltin<"_Vector<64, signed char>(_Vector<64, signed char>, _Vector<64, signed char>, _Vector<64, signed char>, char const*)"> {
+  let Spellings = ["__builtin_lvx_selectbt"];
+}
+def Selectho : LVXBuiltin<"_Vector<8, short>(_Vector<8, short>, _Vector<8, short>, _Vector<8, short>, char const*)"> {
+  let Spellings = ["__builtin_lvx_selectho"];
+}
+def Selecthx : LVXBuiltin<"_Vector<16, short>(_Vector<16, short>, _Vector<16, short>, _Vector<16, short>, char const*)"> {
+  let Spellings = ["__builtin_lvx_selecthx"];
+}
+def Selecthv : LVXBuiltin<"_Vector<32, short>(_Vector<32, short>, _Vector<32, short>, _Vector<32, short>, char const*)"> {
+  let Spellings = ["__builtin_lvx_selecthv"];
+}
+def Selectwq : LVXBuiltin<"_Vector<4, int>(_Vector<4, int>, _Vector<4, int>, _Vector<4, int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_selectwq"];
+}
+def Selectwo : LVXBuiltin<"_Vector<8, int>(_Vector<8, int>, _Vector<8, int>, _Vector<8, int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_selectwo"];
+}
+def Selectwx : LVXBuiltin<"_Vector<16, int>(_Vector<16, int>, _Vector<16, int>, _Vector<16, int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_selectwx"];
+}
+def Selectdp : LVXBuiltin<"_Vector<2, long int>(_Vector<2, long int>, _Vector<2, long int>, _Vector<2, long int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_selectdp"];
+}
+def Selectdq : LVXBuiltin<"_Vector<4, long int>(_Vector<4, long int>, _Vector<4, long int>, _Vector<4, long int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_selectdq"];
+}
+def Selectdo : LVXBuiltin<"_Vector<8, long int>(_Vector<8, long int>, _Vector<8, long int>, _Vector<8, long int>, char const*)"> {
+  let Spellings = ["__builtin_lvx_selectdo"];
+}
+def Cat256 : LVXBuiltin<"_Vector<4, long int>(_Vector<2, long int>, _Vector<2, long int>)"> {
+  let Spellings = ["__builtin_lvx_cat256"];
+}
+def Cat512 : LVXBuiltin<"_Vector<8, long int>(_Vector<4, long int>, _Vector<4, long int>)"> {
+  let Spellings = ["__builtin_lvx_cat512"];
+}
+def Low128 : LVXBuiltin<"_Vector<2, long int>(_Vector<4, long int>)"> {
+  let Spellings = ["__builtin_lvx_low128"];
+}
+def High128 : LVXBuiltin<"_Vector<2, long int>(_Vector<4, long int>)"> {
+  let Spellings = ["__builtin_lvx_high128"];
+}
+def Low256 : LVXBuiltin<"_Vector<4, long int>(_Vector<8, long int>)"> {
+  let Spellings = ["__builtin_lvx_low256"];
+}
+def High256 : LVXBuiltin<"_Vector<4, long int>(_Vector<8, long int>)"> {
+  let Spellings = ["__builtin_lvx_high256"];
+}
+
+//===----------------------------------------------------------------------===//
+// STSU at the lane shapes: one restoring-division step per lane, the vector
+// form of __builtin_lvx_stsud above and with its operand order. HO/WQ/DP are
+// one instruction each; HX/WO/DQ are 256 bits, two of them on the halves, as
+// lvx-gcc emits them.
+//===----------------------------------------------------------------------===//
+
+def Stsuho : LVXBuiltin<"_Vector<8, unsigned short>(_Vector<8, unsigned short>, _Vector<8, unsigned short>)"> {
+  let Spellings = ["__builtin_lvx_stsuho"];
+}
+def Stsuhx : LVXBuiltin<"_Vector<16, unsigned short>(_Vector<16, unsigned short>, _Vector<16, unsigned short>)"> {
+  let Spellings = ["__builtin_lvx_stsuhx"];
+}
+def Stsuwq : LVXBuiltin<"_Vector<4, unsigned int>(_Vector<4, unsigned int>, _Vector<4, unsigned int>)"> {
+  let Spellings = ["__builtin_lvx_stsuwq"];
+}
+def Stsuwo : LVXBuiltin<"_Vector<8, unsigned int>(_Vector<8, unsigned int>, _Vector<8, unsigned int>)"> {
+  let Spellings = ["__builtin_lvx_stsuwo"];
+}
+def Stsudp : LVXBuiltin<"_Vector<2, unsigned long int>(_Vector<2, unsigned long int>, _Vector<2, unsigned long int>)"> {
+  let Spellings = ["__builtin_lvx_stsudp"];
+}
+def Stsudq : LVXBuiltin<"_Vector<4, unsigned long int>(_Vector<4, unsigned long int>, _Vector<4, unsigned long int>)"> {
+  let Spellings = ["__builtin_lvx_stsudq"];
+}

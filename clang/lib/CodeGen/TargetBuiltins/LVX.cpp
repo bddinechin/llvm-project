@@ -164,7 +164,172 @@ Value *CodeGenFunction::EmitLVXBuiltinExpr(unsigned BuiltinID,
     return Builder.CreateTrunc(Mask, ConvertType(E->getType()));
   }
 
+  auto Poison = [&]() -> Value * {
+    return llvm::PoisonValue::get(ConvertType(E->getType()));
+  };
+
+  // The lanes 0 .. N-1 of a shuffle: a concatenation when both operands are
+  // given and N is twice their lane count, or a half when N is half of it.
+  auto Lanes = [](unsigned First, unsigned N) {
+    SmallVector<int, 64> Mask;
+    for (unsigned I = 0; I != N; ++I)
+      Mask.push_back(int(First + I));
+    return Mask;
+  };
+  auto LaneCount = [](Value *V) {
+    return cast<FixedVectorType>(V->getType())->getNumElements();
+  };
+
   switch (BuiltinID) {
+  // ABS<shape>: "" wraps (abs of the minimum is the minimum, as the
+  // instruction leaves it), ".s" saturates it to the maximum. The saturating
+  // one is max(a, 0 -sat a): -MIN saturates to MAX, every other lane is |a|.
+  case LVX::BI__builtin_lvx_absbx:
+  case LVX::BI__builtin_lvx_absbv:
+  case LVX::BI__builtin_lvx_absho:
+  case LVX::BI__builtin_lvx_abshx:
+  case LVX::BI__builtin_lvx_abswq:
+  case LVX::BI__builtin_lvx_abswo:
+  case LVX::BI__builtin_lvx_absdp:
+  case LVX::BI__builtin_lvx_absdq: {
+    static const char *SignedSat[] = {"", ".s"};
+    int Sat = Modifier(1, SignedSat, "LVX abs flavour that is not one of \"\" "
+                                     "or \".s\"");
+    if (Sat < 0)
+      return Poison();
+    Value *A = EmitScalarExpr(E->getArg(0));
+    if (Sat == 0)
+      return Builder.CreateBinaryIntrinsic(Intrinsic::abs, A,
+                                           Builder.getFalse());
+    Value *Neg = Builder.CreateBinaryIntrinsic(
+        Intrinsic::ssub_sat, Constant::getNullValue(A->getType()), A);
+    return Builder.CreateBinaryIntrinsic(Intrinsic::smax, A, Neg);
+  }
+
+  // WIDEN<from><to>: each lane to twice its width. "" sign-extends, ".z"
+  // zero-extends, ".q" is the Q-format widening (Q31 -> Q63 at word lanes):
+  // the lane moves to the top half and the bottom half is zero.
+  case LVX::BI__builtin_lvx_widenbhx:
+  case LVX::BI__builtin_lvx_widenbhv:
+  case LVX::BI__builtin_lvx_widenhwo:
+  case LVX::BI__builtin_lvx_widenhwx:
+  case LVX::BI__builtin_lvx_widenwdq:
+  case LVX::BI__builtin_lvx_widenwdo: {
+    static const char *WidenInt[] = {"", ".z", ".q"};
+    int Ext = Modifier(1, WidenInt, "LVX widening that is not one of \"\", "
+                                    "\".z\" or \".q\"");
+    if (Ext < 0)
+      return Poison();
+    Value *A = EmitScalarExpr(E->getArg(0));
+    llvm::Type *Wide = ConvertType(E->getType());
+    if (Ext == 0)
+      return Builder.CreateSExt(A, Wide);
+    Value *Z = Builder.CreateZExt(A, Wide);
+    if (Ext == 1)
+      return Z;
+    unsigned Bits = A->getType()->getScalarSizeInBits();
+    return Builder.CreateShl(Z, Bits);
+  }
+
+  // TRUNC<from><to>: each lane's low half.
+  case LVX::BI__builtin_lvx_trunchbx:
+  case LVX::BI__builtin_lvx_truncwho:
+  case LVX::BI__builtin_lvx_truncdwq:
+    return Builder.CreateTrunc(EmitScalarExpr(E->getArg(0)),
+                               ConvertType(E->getType()));
+
+  // SELECT<shape>(t, f, c, cond): per lane, cond(c) ? t : f -- the condition
+  // tests the third operand against zero, or its low bit.
+  case LVX::BI__builtin_lvx_selectbx:
+  case LVX::BI__builtin_lvx_selectbv:
+  case LVX::BI__builtin_lvx_selectbt:
+  case LVX::BI__builtin_lvx_selectho:
+  case LVX::BI__builtin_lvx_selecthx:
+  case LVX::BI__builtin_lvx_selecthv:
+  case LVX::BI__builtin_lvx_selectwq:
+  case LVX::BI__builtin_lvx_selectwo:
+  case LVX::BI__builtin_lvx_selectwx:
+  case LVX::BI__builtin_lvx_selectdp:
+  case LVX::BI__builtin_lvx_selectdq:
+  case LVX::BI__builtin_lvx_selectdo: {
+    static const char *SimdCond[] = {".nez", ".eqz", ".ltz", ".gez",
+                                     ".lez", ".gtz", ".odd", ".even"};
+    int Cond = Modifier(3, SimdCond,
+                        "LVX select condition that is not one of \".nez\", "
+                        "\".eqz\", \".ltz\", \".gez\", \".lez\", \".gtz\", "
+                        "\".odd\" or \".even\"");
+    if (Cond < 0)
+      return Poison();
+    Value *T = EmitScalarExpr(E->getArg(0));
+    Value *F = EmitScalarExpr(E->getArg(1));
+    Value *C = EmitScalarExpr(E->getArg(2));
+    Value *Zero = Constant::getNullValue(C->getType());
+    Value *Test;
+    switch (Cond) {
+    case 0: Test = Builder.CreateICmpNE(C, Zero); break;
+    case 1: Test = Builder.CreateICmpEQ(C, Zero); break;
+    case 2: Test = Builder.CreateICmpSLT(C, Zero); break;
+    case 3: Test = Builder.CreateICmpSGE(C, Zero); break;
+    case 4: Test = Builder.CreateICmpSLE(C, Zero); break;
+    case 5: Test = Builder.CreateICmpSGT(C, Zero); break;
+    default: {
+      Value *Low = Builder.CreateAnd(C, ConstantInt::get(C->getType(), 1));
+      Test = Cond == 6 ? Builder.CreateICmpNE(Low, Zero)
+                       : Builder.CreateICmpEQ(Low, Zero);
+    }
+    }
+    return Builder.CreateSelect(Test, T, F);
+  }
+
+  // CAT/LOW/HIGH: the opaque-vector concatenations and halves, as shuffles.
+  case LVX::BI__builtin_lvx_cat256:
+  case LVX::BI__builtin_lvx_cat512: {
+    auto [Lo, Hi] = Args();
+    return Builder.CreateShuffleVector(Lo, Hi, Lanes(0, 2 * LaneCount(Lo)));
+  }
+  case LVX::BI__builtin_lvx_low128:
+  case LVX::BI__builtin_lvx_low256:
+  case LVX::BI__builtin_lvx_high128:
+  case LVX::BI__builtin_lvx_high256: {
+    Value *A = EmitScalarExpr(E->getArg(0));
+    unsigned Half = LaneCount(A) / 2;
+    bool High = BuiltinID == LVX::BI__builtin_lvx_high128 ||
+                BuiltinID == LVX::BI__builtin_lvx_high256;
+    return Builder.CreateShuffleVector(A, Lanes(High ? Half : 0, Half));
+  }
+
+  // STSU at a lane shape: the intrinsic per 128 bits, as STSUD's is per
+  // register. A 256-bit operand is two of them on the halves -- what lvx-gcc
+  // emits, there being no 256-bit STSU.
+  case LVX::BI__builtin_lvx_stsuho:
+  case LVX::BI__builtin_lvx_stsuhx:
+  case LVX::BI__builtin_lvx_stsuwq:
+  case LVX::BI__builtin_lvx_stsuwo:
+  case LVX::BI__builtin_lvx_stsudp:
+  case LVX::BI__builtin_lvx_stsudq: {
+    Intrinsic::ID ID = (BuiltinID == LVX::BI__builtin_lvx_stsuho ||
+                        BuiltinID == LVX::BI__builtin_lvx_stsuhx)
+                           ? Intrinsic::lvx_stsuho
+                       : (BuiltinID == LVX::BI__builtin_lvx_stsuwq ||
+                          BuiltinID == LVX::BI__builtin_lvx_stsuwo)
+                           ? Intrinsic::lvx_stsuwq
+                           : Intrinsic::lvx_stsudp;
+    Function *Fn = CGM.getIntrinsic(ID);
+    auto [Z, Y] = Args();
+    unsigned N = LaneCount(Z);
+    unsigned Lane128 =
+        cast<FixedVectorType>(Fn->getReturnType())->getNumElements();
+    if (N == Lane128)
+      return Builder.CreateCall(Fn, {Z, Y});
+    Value *Lo = Builder.CreateCall(
+        Fn, {Builder.CreateShuffleVector(Z, Lanes(0, Lane128)),
+             Builder.CreateShuffleVector(Y, Lanes(0, Lane128))});
+    Value *Hi = Builder.CreateCall(
+        Fn, {Builder.CreateShuffleVector(Z, Lanes(Lane128, Lane128)),
+             Builder.CreateShuffleVector(Y, Lanes(Lane128, Lane128))});
+    return Builder.CreateShuffleVector(Lo, Hi, Lanes(0, N));
+  }
+
   default:
     return nullptr;
 

@@ -91,6 +91,16 @@ def int_lvx_stsud
 // .any and .none are NOT relations: they test the bitwise AND of the two lanes
 // for any/no bits set. They are in the encoding and so reachable here, which is
 // why these are 12 relations and CompQPat's SETCC-driven list is 10.
+// STSU at the 128-bit lane shapes: STSUD one lane at a time, same operand
+// order. lvx-2 only -- an lvx_1 description has no pattern for them (see
+// LVXInstrInfo.td), and clang emits them only for the vector builtins, which
+// are lvx-2's as they are in lvx-gcc.
+class LVXLaneStsu<LLVMType vt>
+    : DefaultAttrsIntrinsic<[vt], [vt, vt], [IntrNoMem, IntrSpeculatable]>;
+def int_lvx_stsuho : LVXLaneStsu<llvm_v8i16_ty>;
+def int_lvx_stsuwq : LVXLaneStsu<llvm_v4i32_ty>;
+def int_lvx_stsudp : LVXLaneStsu<llvm_v2i64_ty>;
+
 class LVXLaneComp<LLVMType vt>
     : DefaultAttrsIntrinsic<[llvm_i64_ty], [vt, vt, llvm_i64_ty],
                             [IntrNoMem, IntrSpeculatable,

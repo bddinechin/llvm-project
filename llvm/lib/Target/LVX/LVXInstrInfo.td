@@ -898,6 +898,33 @@ defm : LaneCompPat<int_lvx_compdp, v2i64, COMPDP_DPCWRR>;
 def : Pat<(int_lvx_stsud GPR:$rZ, GPR:$rY),
           (STSUD_DWRRS GPR:$rZ, GPR:$rY)>;
 
+// The lane forms are lvx-2 only, and this file is shared by both cores'
+// descriptions, so each pattern exists only where its instruction does:
+// !exists keeps an lvx_1 build compiling rather than naming an undefined def.
+class LVXStsuLane<string name, SDPatternOperator op, ValueType vt> {
+  string Name = name;
+  SDPatternOperator Op = op;
+  ValueType VT = vt;
+}
+foreach L = [LVXStsuLane<"STSUHO_HOWRRS", int_lvx_stsuho, v8i16>,
+             LVXStsuLane<"STSUWQ_WQWRRS", int_lvx_stsuwq, v4i32>,
+             LVXStsuLane<"STSUDP_DPWRRS", int_lvx_stsudp, v2i64>] in
+  if !exists<Instruction>(L.Name) then
+    def : Pat<(L.VT (L.Op (L.VT GPR128V:$rP), (L.VT GPR128V:$rO))),
+              (!cast<Instruction>(L.Name) GPR128V:$rP, GPR128V:$rO)>;
+
+// TRUNCDWQ: v4i64 -> v4i32, each lane's low word, a quad into a pair. v4i64 is
+// the one legal 256-bit type, so this is the one truncation from a quad the
+// legalizer leaves whole (the others split first) -- and TRUNCATE stays Legal
+// on the vector types (see LVXISelLowering.cpp), so without a pattern it fails
+// to select. libgcc's 32-bit-lane divider reaches it, through
+// __builtin_lvx_truncdwq. lvx-2 only, guarded as STSU is above; the
+// instruction writes GPR128, the same registers v4i32's GPR128V names.
+if !exists<Instruction>("TRUNCDWQ_WQNWRR") then
+  def : Pat<(v4i32 (trunc (v4i64 GPR256:$rR))),
+            (COPY_TO_REGCLASS (!cast<Instruction>("TRUNCDWQ_WQNWRR")
+                                 GPR256:$rR), GPR128V)>;
+
 // Sign transfer. FSIGNCD is "(argument2 & 0x7FFF…) | (argument3 & 0x8000…)"
 // -- magnitude from $rZ, sign from $rY -- which is exactly ISD::FCOPYSIGN's
 // (magnitude, sign) operand order, so this maps directly.
