@@ -61,10 +61,11 @@ def LVX_MvOp : LVX_Op<"mv", [Pure]> {
     The copy the register allocator inserts (loop-carried and tied-operand
     preservation) and `lvx_func` uses for ABI bridging. A pseudo at every
     width because the ISA's tuple copies do not have the shape a copy of a
-    tuple-typed value needs before its lanes are pinned: `copyq $rM = $rZ,
-    $rY` takes two singles, `copyo $rN = $rR` a quad. `-lvx-emit-asm`
-    prints it by width -- `copyd`, `copyq` from the source's two lanes,
-    `copyo`. Source and result must be the same width.
+    tuple-typed value needs before its lanes are pinned: `catdq $rM = $rZ,
+    $rY` takes two singles, and there is no quad copy at all. `-lvx-emit-asm`
+    prints it by width -- `copyd`, `catdq` from the source's two lanes, and
+    for a quad one `catdq` per half in one bundle, as lvx-gcc does. Source
+    and result must be the same width.
   }];
   let arguments = (ins LVX_AnyRegType:$source, LVX_CycleAttr:$cycle);
   let results = (outs LVX_AnyRegType:$result);

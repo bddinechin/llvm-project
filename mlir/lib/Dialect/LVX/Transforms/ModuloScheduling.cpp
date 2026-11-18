@@ -76,7 +76,8 @@ static ResourceVector demandOf(Operation *op) {
   if (std::optional<StringRef> m = lvxPrintedMnemonic(op))
     if (const Reservation *r = reservationOf(*m, formatOf(op)))
       for (unsigned u = 0; u != r->numUses; ++u)
-        d[static_cast<unsigned>(r->uses[u].resource)] += r->uses[u].count;
+        d[static_cast<unsigned>(r->uses[u].resource)] +=
+            r->uses[u].count * lvxPrintedCount(op);
   if (needsBcuPrefix(op))
     d[static_cast<unsigned>(Resource::bcu)] += 1;
   return d;
@@ -199,7 +200,8 @@ FailureOr<ModuloProblem> ModuloProblem::build(lvx_scf::ForOp loop) {
     ResourceVector d{};
     if (const Reservation *r = reservationOf("addd", std::nullopt))
       for (unsigned u = 0; u != r->numUses; ++u)
-        d[static_cast<unsigned>(r->uses[u].resource)] += r->uses[u].count;
+        d[static_cast<unsigned>(r->uses[u].resource)] +=
+            r->uses[u].count * lvxPrintedCount(op);
     p.demand.push_back(d);
   }
   for (const ResourceVector &d : p.demand)

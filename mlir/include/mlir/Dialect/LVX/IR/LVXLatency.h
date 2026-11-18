@@ -56,10 +56,9 @@ inline std::optional<llvm::StringRef> lvxPrintedMnemonic(Operation *op) {
     switch (widthOf(mv.getResult().getType())) {
     case 1:
       return llvm::StringRef("copyd");
-    case 2:
-      return llvm::StringRef("catdq");
     default:
-      return llvm::StringRef("copyo");
+      // A quad is two `catdq`, one per half: `lvxPrintedCount`.
+      return llvm::StringRef("catdq");
     }
   }
   // A masked access reserves and times as the bare access does; the BCU
@@ -75,6 +74,25 @@ inline std::optional<llvm::StringRef> lvxPrintedMnemonic(Operation *op) {
   if (op->getDialect() && op->getDialect()->getNamespace() == "lvx")
     return op->getName().stripDialect();
   return std::nullopt;
+}
+
+/// How many times `op` prints the instruction `lvxPrintedMnemonic` names, all
+/// in one bundle: two for a quad `lvx.mv`, one for everything else. A
+/// consumer charges the reservation that many times over; the timing is the
+/// one instruction's, the copies reading and writing in the same cycles.
+///
+/// The quad copy was `copyo`, an LSU instruction at latency 3, until lvx-mds
+/// retired it (332579d). What replaces it is lvx-gcc's (d0211530d06): one
+/// `catdq` per half, the destination's half k taking the source's singles 2k
+/// and 2k+1. Both are ALU_LITE, so the pair is the `lite2` a 256-bit
+/// composite is, at catdq's latency of 1. In one bundle every read precedes
+/// every write, so the halves may overlap their source.
+inline unsigned lvxPrintedCount(Operation *op) {
+  if (auto guarded = dyn_cast<GuardedOp>(op))
+    return lvxPrintedCount(guarded.guardedOp());
+  if (auto mv = dyn_cast<MvOp>(op))
+    return widthOf(mv.getResult().getType()) == 4 ? 2 : 1;
+  return 1;
 }
 
 /// The `variant` an op carries, if any: the cached default is absence.

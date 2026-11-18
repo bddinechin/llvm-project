@@ -122,24 +122,33 @@ private:
 
   /// `lvx.mv` at every width: `copyd $rd = $rs`; `catdq $rd = $rs.lo,
   /// $rs.hi`, the ISA's pair copy taking two singles, spelled as the singles
-  /// they are; `copyo $rd = $rs`.
+  /// they are; and for a quad one `catdq` per half, in one bundle
+  /// (`lvxPrintedCount`) -- the ISA has no quad copy since `copyo` retired.
   LogicalResult emitMv(MvOp mv) {
     switch (widthOf(mv.getResult().getType())) {
     case 1:
       return emitUnary(mv, "copyd");
-    case 2: {
-      FailureOr<std::string> rd = reg(mv.getResult());
-      FailureOr<std::string> lo = lane(mv.getSource(), 0);
-      FailureOr<std::string> hi = lane(mv.getSource(), 1);
-      if (failed(rd) || failed(lo) || failed(hi))
-        return failure();
-      os << "\tcatdq " << *rd << " = " << *lo << ", " << *hi << endOfOp();
-      return success();
-    }
+    case 2:
     case 4:
-      return emitUnary(mv, "copyo");
+      break;
+    default:
+      llvm_unreachable("lvx.mv is 1, 2 or 4 units wide");
     }
-    llvm_unreachable("lvx.mv is 1, 2 or 4 units wide");
+    std::optional<PhysLoc> rd = pinnedLoc(mv.getResult().getType());
+    std::optional<PhysLoc> rs = pinnedLoc(mv.getSource().getType());
+    if (!rd || !rs)
+      return emitError(mv.getLoc())
+             << "value reaching lvx-emit-asm has no assigned physical "
+                "register -- run -lvx-allocate-registers first";
+    bool wasLast = lastPart;
+    for (unsigned half = 0; half != rd->width / 2; ++half) {
+      lastPart = wasLast && 2 * (half + 1) == rd->width;
+      os << "\tcatdq $" << spellingOf({rd->base + 2 * half, 2}) << " = $"
+         << spellingOf({rs->base + 2 * half, 1}) << ", $"
+         << spellingOf({rs->base + 2 * half + 1, 1}) << endOfOp();
+    }
+    lastPart = wasLast;
+    return success();
   }
 
   std::string label(Block *block) {

@@ -254,13 +254,31 @@ lvx_func.func @pairs(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
 // CHECK-NEXT: ;;
 // CHECK-NEXT: ret
 // CHECK-NEXT: ;;
-// CHECK-NEXT: .global shuffles
+// CHECK-NEXT: .global quadcopy
 lvx_func.func @composite(%base: !lvx.reg<r0>, %x: !lvx.reg<r1>) {
   %s = lvx.splatwq %x : (!lvx.reg<r1>) -> !lvx.pair
   %acc = lvx.lo %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.quad
   %v = lvx.lo %base, 32 : i64 : (!lvx.reg<r0>) -> !lvx.quad
   %f = lvx.ffmawo %s, %v, %acc : (!lvx.pair, !lvx.quad, !lvx.quad) -> !lvx.quad
   lvx.so %f, %base, 0 : i64 : (!lvx.quad, !lvx.reg<r0>)
+  lvx_func.return
+}
+
+// A quad `lvx.mv` is one `catdq` per half, issued together under one `;;`
+// as lvx-gcc prints it: the ISA has no quad copy since `copyo` retired. Half
+// k of the destination takes the source's singles 2k and 2k+1.
+// CHECK-LABEL: quadcopy:
+// CHECK-NEXT: lo $r4r5r6r7 = 0[$r0]
+// CHECK-NEXT: ;;
+// CHECK-NEXT: catdq $r8r9 = $r4, $r5
+// CHECK-NEXT: catdq $r10r11 = $r6, $r7
+// CHECK-NEXT: ;;
+// CHECK-NOT: copyo
+lvx_func.func @quadcopy(%base: !lvx.reg<r0>) {
+  %v = lvx.lo %base, 0 : i64 : (!lvx.reg<r0>) -> !lvx.quad
+  %c = lvx.mv %v : (!lvx.quad) -> !lvx.quad
+  lvx.so %v, %base, 32 : i64 : (!lvx.quad, !lvx.reg<r0>)
+  lvx.so %c, %base, 0 : i64 : (!lvx.quad, !lvx.reg<r0>)
   lvx_func.return
 }
 

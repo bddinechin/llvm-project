@@ -378,6 +378,7 @@ static void unitAccessesOf(Operation *wrapper, const OpTiming *t,
 struct Node {
   Operation *op;
   const Reservation *reservation = nullptr; // null: takes no resources
+  unsigned copies = 1; // times `reservation` is charged: lvxPrintedCount
   std::optional<PrefixKey> prefix;          // the BCU prefix syllable it needs
   const OpTiming *timing = nullptr;
   SmallVector<Edge, 4> succs;
@@ -467,6 +468,7 @@ private:
         if (auto f = insn->getAttrOfType<FormatAttr>("format"))
           format = f.getValue();
         n.reservation = reservationOf(*mnemonic, format);
+        n.copies = lvxPrintedCount(insn);
         n.timing = timingOf(*mnemonic);
       }
       n.prefix = prefixOf(&op);
@@ -836,7 +838,7 @@ private:
             for (unsigned r = 0; r != n.reservation->numUses; ++r) {
               const ResourceUse &use = n.reservation->uses[r];
               unsigned idx = static_cast<unsigned>(use.resource);
-              if (used[idx] + extra[idx] + use.count >
+              if (used[idx] + extra[idx] + use.count * n.copies >
                   kResourceAvailability[idx])
                 fits = false;
             }
@@ -850,7 +852,7 @@ private:
           if (n.reservation) {
             for (unsigned r = 0; r != n.reservation->numUses; ++r)
               used[static_cast<unsigned>(n.reservation->uses[r].resource)] +=
-                  n.reservation->uses[r].count;
+                  n.reservation->uses[r].count * n.copies;
           }
           n.bundle = bundle;
           ++placed;
