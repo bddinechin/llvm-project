@@ -195,6 +195,15 @@ static bool isLoopTailMask(Value mask, lvx_scf::ForOp loop, int64_t step) {
          sameBound(sub.getLhs(), ub);
 }
 
+/// The mask of a masked access, or null.
+static Value maskOf(Operation *op) {
+  if (auto ml = dyn_cast<MaskedLoadOp>(op))
+    return ml.getMask();
+  if (auto ms = dyn_cast<MaskedStoreOp>(op))
+    return ms.getMask();
+  return Value();
+}
+
 static std::optional<Bounds> boundsOf(lvx_scf::ForOp loop) {
   auto lb = constantOf(loop.getLowerBound());
   auto ub = constantOf(loop.getUpperBound());
@@ -317,6 +326,12 @@ private:
   /// the loop tail's (`isLoopTailMask`), and no kernel instance is of the
   /// last iteration, so it is all ones on every trip.
   SmallPtrSet<Operation *, 4> unmasked;
+  /// Window instances of a tail mask read after the window only by accesses
+  /// in `unmasked`, and so not carried. After the kernel, `fromKernel` holds
+  /// them keyed as `produced` would: a reader finding its mask there is of an
+  /// iteration the kernel began, and is issued unmasked.
+  SmallVector<std::pair<Value, int64_t>> kernelMasks;
+  DenseSet<std::pair<Value, int64_t>> fromKernel;
 
   /// (value, section iteration) -> the instance's result, in straight-line
   /// code and for what the kernel loop leaves behind.
@@ -498,25 +513,33 @@ LogicalResult PipelineBuilder::plan() {
   // The prologue, the remainder copy and every drain keep their masks: which
   // of them holds the last iteration is a run-time fact, and an all-ones
   // mask costs only a prefix.
-  bool kernelFull = false;
-  if (kernelTrips > 0) {
-    if (!bounds) {
-      kernelFull = unroll >= 2;
-    } else {
-      int64_t lastIter = firstKernelExit + kernelTrips * unroll - 1;
-      kernelFull = bounds->ivAt(lastIter) + step <= bounds->ub;
-    }
+  //
+  // A constant count whose exit falls on the kernel's last loopback leaves
+  // the last iteration in the kernel. When that iteration is partial and the
+  // body has a tail mask, the last trip is peeled instead -- emitted as the
+  // straight-line `partial` trip, masks and all -- so the trips left are of
+  // full iterations: one window of code more, for no mask on any trip.
+  auto isTailMasked = [&](Operation *op) {
+    Value mask = maskOf(op);
+    return mask && isLoopTailMask(mask, loop, step);
+  };
+  auto lastIterFull = [&] {
+    int64_t lastIter = firstKernelExit + kernelTrips * unroll - 1;
+    return bounds->ivAt(lastIter) + step <= bounds->ub;
+  };
+  if (bounds && kernelTrips >= 2 && !partial && !lastIterFull() &&
+      llvm::any_of(ops, isTailMasked)) {
+    --kernelTrips;
+    partial = true;
+    partialExit = firstKernelExit + unroll - 1;
   }
+  bool kernelFull = false;
+  if (kernelTrips > 0)
+    kernelFull = bounds ? lastIterFull() : unroll >= 2;
   if (kernelFull)
-    for (Operation *op : ops) {
-      Value mask;
-      if (auto ml = dyn_cast<MaskedLoadOp>(op))
-        mask = ml.getMask();
-      else if (auto ms = dyn_cast<MaskedStoreOp>(op))
-        mask = ms.getMask();
-      if (mask && isLoopTailMask(mask, loop, step))
+    for (Operation *op : ops)
+      if (isTailMasked(op))
         unmasked.insert(op);
-    }
 
   // The kernel's iter_args: window instances whose value is read after the
   // window ends -- by the next trip, or by the remainder or the drain after
@@ -536,10 +559,21 @@ LogicalResult PipelineBuilder::plan() {
         continue;
       for (Value v : ops[s.op]->getResults()) {
         bool live = yielded.contains(v) && s.iter == iterIteration;
-        for (auto [r, distance] : readers.lookup(v))
-          live |= dateOf(r, s.iter + distance) > iterDate;
+        // A tail mask read after the window only as the mask of an access
+        // the kernel unmasks is not carried: that reader is an instance of an
+        // iteration the kernel began, a full one, and is issued unmasked too.
+        bool maskOnly = false;
+        for (auto [r, distance] : readers.lookup(v)) {
+          bool after = dateOf(r, s.iter + distance) > iterDate;
+          if (unmasked.contains(ops[r]) && maskOf(ops[r]) == v)
+            maskOnly |= after;
+          else
+            live |= after;
+        }
         if (live)
           carried.push_back({v, s.iter});
+        else if (maskOnly)
+          kernelMasks.push_back({v, s.iter});
       }
     }
   }
@@ -552,7 +586,8 @@ LogicalResult PipelineBuilder::plan() {
                           << " trips=" << trips << " kernel_trips="
                           << kernelTrips << " partial=" << partial
                           << " carried=" << carried.size() << " unmasked="
-                          << unmasked.size() << "\n");
+                          << unmasked.size() << " kernel_masks="
+                          << kernelMasks.size() << "\n");
   return success();
 }
 
@@ -610,13 +645,22 @@ void PipelineBuilder::emitStraight(OpBuilder &b, const Slot &s) {
   if (s.op == loopback())
     return;
   Operation *op = ops[s.op];
+  Value plainMask;
+  if (unmasked.contains(op)) {
+    Read rd = readOf(maskOf(op));
+    if (rd.kind == Read::Body &&
+        fromKernel.contains({rd.value, s.iter - rd.distance}))
+      plainMask = maskOf(op);
+  }
   IRMapping map;
   for (Value operand : op->getOperands())
-    if (Value v = straight(b, operand, s.iter))
-      map.map(operand, v);
+    if (operand != plainMask)
+      if (Value v = straight(b, operand, s.iter))
+        map.map(operand, v);
   if (failedResolve)
     return;
-  Operation *clone = b.clone(*op, map);
+  Operation *clone =
+      plainMask ? cloneUnmasked(b, op, map) : b.clone(*op, map);
   for (auto [orig, fresh] : llvm::zip(op->getResults(), clone->getResults()))
     produced[{orig, s.iter}] = fresh;
 }
@@ -710,8 +754,12 @@ FailureOr<lvx_scf::ForOp> PipelineBuilder::buildKernel(OpBuilder &b,
     if (s.op == loopback())
       continue;
     Operation *op = ops[s.op];
+    // An unmasked access does not read its mask, which need not be held.
+    Value plainMask = unmasked.contains(op) ? maskOf(op) : Value();
     IRMapping map;
     for (Value operand : op->getOperands()) {
+      if (operand == plainMask)
+        continue;
       Read rd = readOf(operand);
       if (rd.kind == Read::External) {
         map.map(operand, rd.value);
@@ -751,11 +799,16 @@ FailureOr<lvx_scf::ForOp> PipelineBuilder::buildKernel(OpBuilder &b,
   // it a register and the bundler a slot. Effect-free ones only -- MLIR
   // counts an unread load as dead too, and an unread load in the body is the
   // schedule's business, not this sweep's.
-  if (!unmasked.empty())
-    for (Operation &op : llvm::make_early_inc_range(
-             llvm::reverse(body->without_terminator())))
-      if (isMemoryEffectFree(&op) && isOpTriviallyDead(&op))
-        op.erase();
+  // Last first, so a chain dies whole; collected first, since erasing under
+  // a reverse iterator invalidates it.
+  if (!unmasked.empty()) {
+    SmallVector<Operation *> sweep;
+    for (Operation &op : body->without_terminator())
+      sweep.push_back(&op);
+    for (Operation *op : llvm::reverse(sweep))
+      if (isMemoryEffectFree(op) && isOpTriviallyDead(op))
+        op->erase();
+  }
   dateKernel(kernel);
   return kernel;
 }
@@ -826,6 +879,8 @@ void PipelineBuilder::afterKernel(lvx_scf::ForOp kernel) {
   produced.clear();
   for (auto [i, c] : llvm::enumerate(carried))
     produced[c] = kernel.getResult(i);
+  fromKernel.clear();
+  fromKernel.insert(kernelMasks.begin(), kernelMasks.end());
   // Nothing after the kernel reads back past its last trip's window, the
   // lifetimes being shorter than `unroll * II`: an iteration before 0 here is
   // a fault, not the loop's init.
@@ -876,6 +931,8 @@ LogicalResult PipelineBuilder::emitConstant() {
     int64_t last = (kernelTrips - 1) * unroll;
     for (auto [i, c] : llvm::enumerate(carried))
       produced[{c.first, c.second + last}] = kernel->getResult(i);
+    for (auto [v, rel] : kernelMasks)
+      fromKernel.insert({v, rel + last});
   }
 
   // --- The leading part of one more trip, up to its exit.
