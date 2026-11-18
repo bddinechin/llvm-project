@@ -2,7 +2,8 @@
 ; RUN: llc -mtriple=lvx-mbr -stop-after=finalize-isel < %s | FileCheck %s --check-prefix=MIR
 
 ; A base+offset load or store carries 10 bits of displacement in one syllable,
-; 37 in two (LSU_LSBO.X / LSU_SSBO.X) and 64 in three. Selection picks the
+; 32 in two (LSU_LSBI.W / LSU_SSBI.W, the base+index encoding with the
+; index field spent on offset bits) and 64 in three. Selection picks the
 ; narrowest that holds the displacement, so a large offset folds into the
 ; access instead of needing a separate addd to compute the address.
 
@@ -19,7 +20,7 @@ define i64 @load_far(ptr %p) {
 ; CHECK-LABEL: load_far:
 ; CHECK:     ld $r0 = 100000[$r0]
 ; CHECK-NOT: addd
-; MIR: LD_LSBO_X 100000, %0, 0
+; MIR: LD_LSBI_W 100000, %0, 0
   %q = getelementptr i8, ptr %p, i64 100000
   %v = load i64, ptr %q
   ret i64 %v
@@ -39,7 +40,7 @@ define void @store_far(ptr %p, i64 %v) {
 ; CHECK-LABEL: store_far:
 ; CHECK:     sd 100000[$r0] = $r1
 ; CHECK-NOT: addd
-; MIR: SD_SSBO_X 100000, %0, %1
+; MIR: SD_SSBI_W 100000, %0, %1
   %q = getelementptr i8, ptr %p, i64 100000
   store i64 %v, ptr %q
   ret void

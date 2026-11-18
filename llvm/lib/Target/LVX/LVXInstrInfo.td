@@ -13,18 +13,19 @@
 //
 // Generated instruction names are <INSTRUCTION>_<format>, with the execution
 // unit stripped from the format -- ADDD_DWRR0 is "addd $rW = $rZ, $rY"
-// (ALU_DWRR0), ADDD_DWRI is the 10-bit-immediate form, and ADDD_DWRI_X /
-// ADDD_DWRI_Y are its 37-bit and 64-bit widened forms.  The same mnemonic
-// has up to five encodings, so the format is part of the name.
+// (ALU_DWRR0), ADDD_DWRI is the 10-bit-immediate form, ADDD_DWRR0_S the
+// 32-bit one and ADDD_DWRI_Y the 64-bit one.  The same mnemonic has several
+// encodings, so the format is part of the name.
 //
 // Immediate extensions.  A widened instruction prefixes one or two extension
 // syllables to the base one and spends them on immediate bits:
 //
 //   addd $rW = $rZ, imm10     ADDD_DWRI      32 bits, simm10
-//   addd $rW = $rZ, imm37     ADDD_DWRI_X    64 bits, simm37 (upper27+lower10)
+//   addd $rW = $rZ, imm32     ADDD_DWRR0_S   64 bits, simm32 in place of $rY
 //   addd $rW = $rZ, imm64     ADDD_DWRI_Y    96 bits, wimm64 (+extend27)
-//   addd $rW = $rZ, imm32     ADDD_DWRR0_M   64 bits, wimm32 in place of $rY,
-//                                            plus the ".@" splat modifier
+//
+// (The 37-bit .X forms were retired in lvx-mds 3b344c6: a value between 33
+// and 43 bits now takes the three-syllable .Y.)
 //
 // The assembler spells all of them "addd" and picks by immediate magnitude,
 // so the widened forms need no new mnemonic -- only a wider operand class.
@@ -243,12 +244,12 @@ def COPYD : LVXInst32<(outs GPR:$rW), (ins GPR:$rZ),
 
 // ---- Materializing a constant ---------------------------------------------
 //
-// "maked $rW = imm" in the width that holds it: 16 bits in one syllable, 43
+// "maked $rW = imm" in the width that holds it: 16 bits in one syllable, 32
 // in two, 64 in three. Same narrowest-first ordering as the binary-operation
 // immediates below, for the same reason.
 
 def : Pat<(simm16imm:$imm), (MAKED_DWI   simm16imm:$imm)>;
-def : Pat<(simm43imm:$imm), (MAKED_DWI_X simm43imm:$imm)>;
+def : Pat<(simm32imm:$imm), (MAKED_DWR_S simm32imm:$imm)>;
 def : Pat<(wimm64imm:$imm), (MAKED_DWI_Y wimm64imm:$imm)>;
 
 // ---- Materializing a constant splat ---------------------------------------
@@ -280,8 +281,8 @@ def splatLaneOnes16 : ImmLeaf<i64, [{ return uint16_t(Imm) == 0xFFFFu; }]>;
 def splatLaneOnes32 : ImmLeaf<i64, [{ return uint32_t(Imm) == 0xFFFFFFFFu; }]>;
 
 let AddedComplexity = 10 in {
-def : Pat<(v2i64 (splat_vector wimm32imm:$imm)),
-          (COPY_TO_REGCLASS (MAKEDP_DPWR_S wimm32imm:$imm), GPR128V)>;
+def : Pat<(v2i64 (splat_vector simm32imm:$imm)),
+          (COPY_TO_REGCLASS (MAKEDP_DPWR_S simm32imm:$imm), GPR128V)>;
 foreach VT = [v4i32, v8i16, v16i8] in
 def : Pat<(VT (splat_vector (i64 0))),
           (COPY_TO_REGCLASS (MAKEDP_DPWR_S 0), GPR128V)>;
@@ -407,16 +408,16 @@ defm : AddXPat<8, ADDX256D_DWRR1>;
 // ---- Integer arithmetic and logic, register-immediate ---------------------
 //
 // Three widths per operation, tried widest-last: the 10-bit form fits in one
-// syllable, the 37-bit form costs a second, the 64-bit form a third.  LLVM
+// syllable, the 32-bit .S form costs a second, the 64-bit form a third.  LLVM
 // picks the first whose ImmLeaf predicate accepts the constant, and the
 // predicates are nested ranges, so listing them narrowest-first selects the
 // shortest encoding that can hold the value.  Without the widened forms
 // every constant above 10 bits would need a separate MAKE into a scratch
 // register first.
-multiclass BinOpImm<SDPatternOperator node, Instruction i10, Instruction i37,
+multiclass BinOpImm<SDPatternOperator node, Instruction i10, Instruction i32,
                     Instruction i64> {
   def : Pat<(node GPR:$rZ, simm10imm:$imm), (i10 GPR:$rZ, simm10imm:$imm)>;
-  def : Pat<(node GPR:$rZ, simm37imm:$imm), (i37 GPR:$rZ, simm37imm:$imm)>;
+  def : Pat<(node GPR:$rZ, simm32imm:$imm), (i32 GPR:$rZ, simm32imm:$imm)>;
   def : Pat<(node GPR:$rZ, wimm64imm:$imm), (i64 GPR:$rZ, wimm64imm:$imm)>;
 }
 
@@ -425,10 +426,10 @@ multiclass BinOpImm<SDPatternOperator node, Instruction i10, Instruction i37,
 // is the thing generating them was meant to remove. The four below stay because
 // the integer min/max have no ISD node the generator maps, so nothing produces
 // them yet.
-defm : BinOpImm<smin, MIND_DWRI,  MIND_DWRI_X,  MIND_DWRI_Y>;
-defm : BinOpImm<smax, MAXD_DWRI,  MAXD_DWRI_X,  MAXD_DWRI_Y>;
-defm : BinOpImm<umin, MINUD_DWRI, MINUD_DWRI_X, MINUD_DWRI_Y>;
-defm : BinOpImm<umax, MAXUD_DWRI, MAXUD_DWRI_X, MAXUD_DWRI_Y>;
+defm : BinOpImm<smin, MIND_DWRI,  MIND_DWRR0_S,  MIND_DWRI_Y>;
+defm : BinOpImm<smax, MAXD_DWRI,  MAXD_DWRR0_S,  MAXD_DWRI_Y>;
+defm : BinOpImm<umin, MINUD_DWRI, MINUD_DWRR0_S, MINUD_DWRI_Y>;
+defm : BinOpImm<umax, MAXUD_DWRI, MAXUD_DWRR0_S, MAXUD_DWRI_Y>;
 
 // ---- Shifts and rotates ---------------------------------------------------
 

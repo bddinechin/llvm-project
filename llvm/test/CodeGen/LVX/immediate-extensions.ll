@@ -3,8 +3,9 @@
 
 ; An LVX instruction carrying an immediate has widened encodings that spend
 ; one or two extra 32-bit syllables on immediate bits: "addd $rW = $rZ, imm"
-; holds 10 bits in 4 bytes (ALU_DWRI), 37 in 8 (ALU_DWRI.X) and 64 in 12
-; (ALU_DWRI.Y). All three assemble to the same mnemonic -- the assembler picks
+; holds 10 bits in 4 bytes (ALU_DWRI), 32 in 8 (ALU_DWRR0.S, the immediate in
+; place of $rY) and 64 in 12 (ALU_DWRI.Y). All three assemble to the same
+; mnemonic -- the assembler picks
 ; by magnitude -- so the only thing selection has to get right is choosing the
 ; narrowest form that holds the constant, instead of materialising it into a
 ; scratch register with maked first.
@@ -18,11 +19,11 @@ define i64 @add_imm10(i64 %a) {
   ret i64 %r
 }
 
-define i64 @add_imm37(i64 %a) {
-; CHECK-LABEL: add_imm37:
+define i64 @add_imm32(i64 %a) {
+; CHECK-LABEL: add_imm32:
 ; CHECK: addd $r0 = $r0, 100000
 ; CHECK-NOT: maked
-; MIR: ADDD_DWRI_X %0, 100000
+; MIR: ADDD_DWRR0_S %0, 100000
   %r = add i64 %a, 100000
   ret i64 %r
 }
@@ -36,28 +37,41 @@ define i64 @add_imm64(i64 %a) {
   ret i64 %r
 }
 
-; The boundary: 2^36-1 is the largest value the 37-bit signed form holds, 2^36
-; is the first that needs the 64-bit one.
+; The boundary: 2^31-1 is the largest value the 32-bit signed form holds, 2^31
+; is the first that needs the 64-bit one. 2^36-1 took the 37-bit .X form until
+; lvx-mds 3b344c6 retired it; the 33..43-bit band is three syllables now.
 
-define i64 @add_imm37_max(i64 %a) {
-; MIR: ADDD_DWRI_X %0, 68719476735
-  %r = add i64 %a, 68719476735
+define i64 @add_imm32_max(i64 %a) {
+; MIR: ADDD_DWRR0_S %0, 2147483647
+  %r = add i64 %a, 2147483647
   ret i64 %r
 }
 
-define i64 @add_imm37_overflow(i64 %a) {
-; MIR: ADDD_DWRI_Y %0, 68719476736
-  %r = add i64 %a, 68719476736
+define i64 @add_imm32_min(i64 %a) {
+; MIR: ADDD_DWRR0_S %0, -2147483648
+  %r = add i64 %a, -2147483648
+  ret i64 %r
+}
+
+define i64 @add_imm32_overflow(i64 %a) {
+; MIR: ADDD_DWRI_Y %0, 2147483648
+  %r = add i64 %a, 2147483648
+  ret i64 %r
+}
+
+define i64 @add_imm37_band(i64 %a) {
+; MIR: ADDD_DWRI_Y %0, 68719476735
+  %r = add i64 %a, 68719476735
   ret i64 %r
 }
 
 ; The same widening applies to every logical operation that has an immediate
 ; form, not just add.
 
-define i64 @and_imm37(i64 %a) {
-; CHECK-LABEL: and_imm37:
+define i64 @and_imm32(i64 %a) {
+; CHECK-LABEL: and_imm32:
 ; CHECK: andd $r0 = $r0, 305419896
-; MIR: ANDD_DWRI_X %0, 305419896
+; MIR: ANDD_DWRR0_S %0, 305419896
   %r = and i64 %a, 305419896
   ret i64 %r
 }

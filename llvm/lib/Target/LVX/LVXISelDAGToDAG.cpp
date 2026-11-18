@@ -495,7 +495,7 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
                       ? (int64_t)Bits.getZExtValue()
                       : (int64_t)Bits.getSExtValue();
     unsigned Opc = isInt<16>(Val) ? LVX::MAKED_DWI
-                 : isInt<43>(Val) ? LVX::MAKED_DWI_X
+                 : isInt<32>(Val) ? LVX::MAKED_DWR_S
                                   : LVX::MAKED_DWI_Y;
     SDValue Imm = CurDAG->getTargetConstant(Val, DL, MVT::i64);
     SDNode *Res = CurDAG->getMachineNode(Opc, DL, VT, Imm);
@@ -525,7 +525,7 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
     }
     auto Make = [&](int64_t Val) {
       unsigned Opc = isInt<16>(Val) ? LVX::MAKED_DWI
-                   : isInt<43>(Val) ? LVX::MAKED_DWI_X
+                   : isInt<32>(Val) ? LVX::MAKED_DWR_S
                                     : LVX::MAKED_DWI_Y;
       return SDValue(CurDAG->getMachineNode(
                          Opc, DL, MVT::i64,
@@ -802,7 +802,7 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
 
   // ISD::GlobalAddress used as a plain VALUE -- any &global reference that is
   // not a direct CALL callee (that case is handled in the LVXISD::CALL block
-  // below). MAKED_DWI_Y unconditionally, not the narrower MAKED_DWI/_X: a
+  // below). MAKED_DWI_Y unconditionally, not the narrower MAKED_DWI/_S: a
   // link-time symbol's address is not known at compile time and so cannot be
   // range-checked into the shorter forms the way a literal constant can.
   // LVXMCInstLower's MO_GlobalAddress case turns it into a real symbol

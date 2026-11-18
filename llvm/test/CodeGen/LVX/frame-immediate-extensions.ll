@@ -3,11 +3,12 @@
 
 ; A frame bigger than the simm10 offset field ([-512,511]) used to cost a
 ; scratch register plus a maked/addd pair on every out-of-range access. The
-; widened encodings hold the offset directly -- LSU_SSBO.X takes 37 bits, .Y
-; takes 64 -- so both the stack adjustment and each access stay one
-; instruction, just a syllable or two longer.
+; widened encodings hold the offset directly -- LSU_SSBI.W and ALU_DWRR0.S
+; take 32 bits in two syllables, the .Y forms 64 in three -- so both the stack
+; adjustment and each access stay one instruction, just a syllable or two
+; longer. (The 32-bit rung was the 37-bit .X until lvx-mds 3b344c6.)
 
-; A ~800-byte frame: the offsets need more than 10 bits but fit 37.
+; A ~800-byte frame: the offsets need more than 10 bits but fit 32.
 define void @large_frame(i64 %v) {
 ; CHECK-LABEL: large_frame:
 ; CHECK:      addd $r12 = $r12, -808
@@ -15,9 +16,9 @@ define void @large_frame(i64 %v) {
 ; CHECK:      sd 808[$r12] = $r0
 ; CHECK-NOT:  maked
 ; CHECK:      addd $r12 = $r12, 808
-; MIR: $r12 = ADDD_DWRI_X $r12, -808
+; MIR: $r12 = ADDD_DWRR0_S $r12, -808
 ; MIR: SD_SSBO 8, $r12, $r0
-; MIR: SD_SSBO_X 808, $r12, killed $r0
+; MIR: SD_SSBI_W 808, $r12, killed $r0
 entry:
   %buf = alloca [100 x i64], align 8
   %p_last = getelementptr inbounds [100 x i64], ptr %buf, i64 0, i64 100
@@ -27,15 +28,15 @@ entry:
   ret void
 }
 
-; A 64KB frame: still one instruction each, since 37 bits is plenty.
+; A 64KB frame: still one instruction each, since 32 bits is plenty.
 define void @huge_frame(i64 %v) {
 ; CHECK-LABEL: huge_frame:
 ; CHECK:      addd $r12 = $r12, -65544
 ; CHECK-NOT:  maked
 ; CHECK:      sd 65544[$r12] = $r0
-; MIR: $r12 = ADDD_DWRI_X $r12, -65544
+; MIR: $r12 = ADDD_DWRR0_S $r12, -65544
 ; MIR: SD_SSBO 8, $r12, $r0
-; MIR: SD_SSBO_X 65544, $r12, killed $r0
+; MIR: SD_SSBI_W 65544, $r12, killed $r0
 entry:
   %buf = alloca [8192 x i64], align 8
   %p_last = getelementptr inbounds [8192 x i64], ptr %buf, i64 0, i64 8192
