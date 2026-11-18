@@ -56,7 +56,10 @@
 //
 //    The remainder runs 1 to K iterations, never 0, and T may be 0, which
 //    LOOPDO skips. At K = 1 there is no remainder copy: the kernel runs
-//    M - L0 trips and its own closing instance is the main exit.
+//    M - L0 trips and its own closing instance is the main exit -- unless
+//    the body has a loop-tail mask, when K = 1 takes the arrangement above
+//    (M - 1 - L0 trips, a remainder copy of one iteration) so that the
+//    kernel never runs the last iteration and can drop the mask.
 //
 //    Rounding up instead -- ceil(M / K) trips with the counted exits inside
 //    the kernel -- is legal here, since nothing downstream has to recognise
@@ -322,6 +325,9 @@ private:
   int64_t exitIter = 0;      // the iteration whose loopback exits
   int64_t kernelTrips = 0;   // whole trips of the kernel loop
   bool partial = false;      // a leading part of one more trip follows them
+  /// A run-time count at kunroll 1 with a tail mask: one iteration is peeled
+  /// into a remainder copy, as at K >= 2, so the kernel never runs the last.
+  bool peelOne = false;
   int64_t partialExit = 0;   // its exit, as a window iteration
   /// Window instances whose value outlives the trip: the iter_args.
   SmallVector<std::pair<Value, int64_t>> carried;
@@ -335,6 +341,12 @@ private:
   /// iteration the kernel began, and is issued unmasked.
   SmallVector<std::pair<Value, int64_t>> kernelMasks;
   DenseSet<std::pair<Value, int64_t>> fromKernel;
+  /// The tail masks' chains: pure operations computing an unmasked access's
+  /// mask from the induction variable and loop invariants alone, whose every
+  /// reader is another link or that mask operand. The kernel neither carries
+  /// nor -- its accesses unmasked -- computes them, and a straight-line
+  /// section needing one recomputes it for its iteration.
+  SmallPtrSet<Operation *, 8> maskChain;
 
   /// (value, section iteration) -> the instance's result, in straight-line
   /// code and for what the kernel loop leaves behind.
@@ -508,8 +520,8 @@ LogicalResult PipelineBuilder::plan() {
   // and no further: an iteration's instances come after the loopback that
   // admits it. With a run-time count and K >= 2 that loopback is iteration
   // L0 + T*K - 1 <= M - 2, since T = (M - 1 - L0) >> log2 K leaves the
-  // remainder copy 1 to K iterations. At K = 1 there is no remainder copy
-  // and the kernel's last trip is the last iteration, so the masks stay. With
+  // remainder copy 1 to K iterations. At K = 1 that is `peelOne`, below:
+  // without it the kernel's last trip is the last iteration. With
   // constant bounds the last iteration the kernel holds is known, and so is
   // whether it is full -- it is the last one when no partial trip follows.
   //
@@ -537,13 +549,60 @@ LogicalResult PipelineBuilder::plan() {
     partial = true;
     partialExit = firstKernelExit + unroll - 1;
   }
+  // A run-time count at kunroll 1 has no remainder copy, and its kernel's
+  // last trip is the last iteration. With a tail mask in the body it gets
+  // the K >= 2 arrangement at K = 1 instead: T = M - 1 - L0 trips and a
+  // remainder copy of one iteration -- one window of code more, for a kernel
+  // with no mask.
+  if (unmaskTail && !bounds && unroll == 1 && llvm::any_of(ops, isTailMasked))
+    peelOne = true;
   bool kernelFull = false;
   if (kernelTrips > 0)
-    kernelFull = bounds ? lastIterFull() : unroll >= 2;
+    kernelFull = bounds ? lastIterFull() : unroll >= 2 || peelOne;
   if (kernelFull && unmaskTail)
     for (Operation *op : ops)
       if (isTailMasked(op))
         unmasked.insert(op);
+
+  // The mask chains, from each unmasked access's mask back through pure
+  // operations, then pruned to a fixed point: a link must read only the
+  // induction variable, invariants or other links in its own iteration, and
+  // be read only by links or as an unmasked access's mask.
+  if (!unmasked.empty()) {
+    SmallVector<Operation *> work;
+    for (Operation *op : unmasked)
+      if (Operation *def = maskOf(op).getDefiningOp(); def && index.count(def))
+        work.push_back(def);
+    while (!work.empty()) {
+      Operation *op = work.pop_back_val();
+      if (!isMemoryEffectFree(op) || !maskChain.insert(op).second)
+        continue;
+      for (Value operand : op->getOperands())
+        if (Operation *def = operand.getDefiningOp(); def && index.count(def))
+          work.push_back(def);
+    }
+    for (bool changed = true; changed;) {
+      changed = false;
+      for (Operation *op : llvm::to_vector(maskChain)) {
+        bool ok = llvm::all_of(op->getOperands(), [&](Value v) {
+          Read rd = readOf(v);
+          return rd.kind != Read::Body ||
+                 (rd.distance == 0 &&
+                  maskChain.contains(rd.value.getDefiningOp()));
+        });
+        for (Value res : op->getResults())
+          for (OpOperand &use : res.getUses()) {
+            Operation *user = use.getOwner();
+            ok &= maskChain.contains(user) ||
+                  (unmasked.contains(user) && maskOf(user) == res);
+          }
+        if (!ok) {
+          maskChain.erase(op);
+          changed = true;
+        }
+      }
+    }
+  }
 
   // The kernel's iter_args: window instances whose value is read after the
   // window ends -- by the next trip, or by the remainder or the drain after
@@ -561,6 +620,8 @@ LogicalResult PipelineBuilder::plan() {
     for (const Slot &s : window) {
       if (s.op == loopback())
         continue;
+      // A mask-chain link is recomputed where it is needed, never carried.
+      bool link = maskChain.contains(ops[s.op]);
       for (Value v : ops[s.op]->getResults()) {
         bool live = yielded.contains(v) && s.iter == iterIteration;
         // A tail mask read after the window only as the mask of an access
@@ -574,7 +635,7 @@ LogicalResult PipelineBuilder::plan() {
           else
             live |= after;
         }
-        if (live)
+        if (live && !link)
           carried.push_back({v, s.iter});
         else if (maskOnly)
           kernelMasks.push_back({v, s.iter});
@@ -617,8 +678,17 @@ Value PipelineBuilder::straight(OpBuilder &b, Value operand, int64_t iter) {
     return rd.value;
   case Read::Induction:
     return inductionAt(b, iter);
-  case Read::Body:
-    return producedAt(rd.value, iter - rd.distance);
+  case Read::Body: {
+    int64_t from = iter - rd.distance;
+    // A mask-chain link of an iteration the kernel ran is not carried out of
+    // it: recompute that instance here, from its iteration's induction value.
+    Operation *def = rd.value.getDefiningOp();
+    if (def && maskChain.contains(def) && !produced.count({rd.value, from})) {
+      unsigned i = index.lookup(def);
+      emitStraight(b, slot(i, from));
+    }
+    return producedAt(rd.value, from);
+  }
   }
   llvm_unreachable("unknown read");
 }
@@ -758,6 +828,9 @@ FailureOr<lvx_scf::ForOp> PipelineBuilder::buildKernel(OpBuilder &b,
     if (s.op == loopback())
       continue;
     Operation *op = ops[s.op];
+    // A mask-chain link feeds only masks the kernel does not read.
+    if (maskChain.contains(op))
+      continue;
     // An unmasked access does not read its mask, which need not be held.
     Value plainMask = unmasked.contains(op) ? maskOf(op) : Value();
     IRMapping map;
@@ -1059,8 +1132,10 @@ LogicalResult PipelineBuilder::emitRuntime() {
   // --- SETUP: the whole trips, and which of the remainder's exits is taken.
   // Past the prologue M >= L0 + 1, so X is not negative.
   Value trips, which;
-  if (k == 1) {
+  if (k == 1 && !peelOne) {
     trips = minus(l0);
+  } else if (k == 1) {
+    trips = minus(l0 + 1); // the remainder copy runs the last iteration
   } else {
     Value x = minus(l0 + 1);
     trips = b.create<SrldImmOp>(loc, t, x, i64(llvm::Log2_64(k)));
@@ -1084,7 +1159,7 @@ LogicalResult PipelineBuilder::emitRuntime() {
   ivShift = -k;
   ivCache.clear();
   int64_t mainExit = iterIteration;
-  if (k > 1) {
+  if (k > 1 || peelOne) {
     for (const Slot &s : window) {
       Slot next{s.op, s.iter + k, s.date + k * ii};
       emitStraight(b, next);
