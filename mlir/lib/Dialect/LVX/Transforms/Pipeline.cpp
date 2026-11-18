@@ -748,11 +748,14 @@ FailureOr<lvx_scf::ForOp> PipelineBuilder::buildKernel(OpBuilder &b,
   b.create<lvx_scf::YieldOp>(loc, yielded);
   // An unmasked access leaves its mask's `taild` and `extb*d` unread, and
   // nothing downstream removes a dead instruction: the allocator would give
-  // it a register and the bundler a slot.
-  for (Operation &op :
-       llvm::make_early_inc_range(llvm::reverse(body->without_terminator())))
-    if (isOpTriviallyDead(&op))
-      op.erase();
+  // it a register and the bundler a slot. Effect-free ones only -- MLIR
+  // counts an unread load as dead too, and an unread load in the body is the
+  // schedule's business, not this sweep's.
+  if (!unmasked.empty())
+    for (Operation &op : llvm::make_early_inc_range(
+             llvm::reverse(body->without_terminator())))
+      if (isMemoryEffectFree(&op) && isOpTriviallyDead(&op))
+        op.erase();
   dateKernel(kernel);
   return kernel;
 }
