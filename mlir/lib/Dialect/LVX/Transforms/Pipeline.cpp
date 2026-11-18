@@ -85,6 +85,7 @@
 #include "mlir/Dialect/LVXSCF/IR/LVXSCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
@@ -148,6 +149,34 @@ static std::optional<int64_t> constantOf(Value v) {
   if (auto i = dyn_cast<IntegerAttr>(li.getValue()))
     return i.getValue().getSExtValue();
   return std::nullopt;
+}
+
+/// The loop-tail mask `mask` is, if it is one: `taild(iv, ub)` over `loop`'s
+/// own induction variable and upper bound, at a lane count no wider than the
+/// step, possibly widened to bytes by an `extb*d`. Lane `i` of it is set iff
+/// `iv + i < ub`, so on an iteration that is not the last -- `iv + step <=
+/// ub` -- every lane is, and the access it masks is the plain one.
+///
+/// Anything else stays masked: a mask computed from data, a bound that is
+/// not the loop's, or a lane count past the step, whose high lanes reach
+/// into the next iteration and may be off on any of them.
+static TaildOp loopTailMaskOf(Value mask, lvx_scf::ForOp loop, int64_t step) {
+  if (Operation *def = mask.getDefiningOp();
+      def && isa<Extb2dOp, Extb4dOp, Extb8dOp>(def))
+    mask = def->getOperand(0);
+  auto tail = mask.getDefiningOp<TaildOp>();
+  if (!tail || tail.getLhs() != loop.getInductionVar())
+    return {};
+  Value ub = loop.getUpperBound();
+  if (tail.getRhs() != ub) {
+    std::optional<int64_t> a = constantOf(tail.getRhs()), b = constantOf(ub);
+    if (!a || !b || *a != *b)
+      return {};
+  }
+  int64_t lanes = int64_t(1) << static_cast<unsigned>(tail.getLanecount());
+  if (step <= 0 || lanes > step)
+    return {};
+  return tail;
 }
 
 static std::optional<Bounds> boundsOf(lvx_scf::ForOp loop) {
@@ -227,6 +256,7 @@ private:
   FailureOr<lvx_scf::ForOp> buildKernel(OpBuilder &b, Value lb, Value ub,
                                         Value st);
   void dateKernel(lvx_scf::ForOp kernel);
+  Operation *cloneUnmasked(OpBuilder &b, Operation *op, IRMapping &map);
   /// Starts the section after the kernel: only what the kernel carried out of
   /// its last trip, in that trip's window iterations, is readable.
   void afterKernel(lvx_scf::ForOp kernel);
@@ -267,6 +297,10 @@ private:
   int64_t partialExit = 0;   // its exit, as a window iteration
   /// Window instances whose value outlives the trip: the iter_args.
   SmallVector<std::pair<Value, int64_t>> carried;
+  /// The body's masked accesses the kernel issues unmasked: their mask is
+  /// the loop tail's (`loopTailMaskOf`), and no kernel instance is of the
+  /// last iteration, so it is all ones on every trip.
+  SmallPtrSet<Operation *, 4> unmasked;
 
   /// (value, section iteration) -> the instance's result, in straight-line
   /// code and for what the kernel loop leaves behind.
@@ -435,6 +469,39 @@ LogicalResult PipelineBuilder::plan() {
     }
   }
 
+  // THE KERNEL'S TAIL MASKS. Only the last iteration can be partial, and the
+  // kernel's last trip holds instances of iterations up to its last loopback
+  // and no further: an iteration's instances come after the loopback that
+  // admits it. With a run-time count and K >= 2 that loopback is iteration
+  // L0 + T*K - 1 <= M - 2, since T = (M - 1 - L0) >> log2 K leaves the
+  // remainder copy 1 to K iterations. At K = 1 there is no remainder copy
+  // and the kernel's last trip is the last iteration, so the masks stay. With
+  // constant bounds the last iteration the kernel holds is known, and so is
+  // whether it is full -- it is the last one when no partial trip follows.
+  //
+  // The prologue, the remainder copy and every drain keep their masks: which
+  // of them holds the last iteration is a run-time fact, and an all-ones
+  // mask costs only a prefix.
+  bool kernelFull = false;
+  if (kernelTrips > 0) {
+    if (!bounds) {
+      kernelFull = unroll >= 2;
+    } else {
+      int64_t lastIter = firstKernelExit + kernelTrips * unroll - 1;
+      kernelFull = bounds->ivAt(lastIter) + step <= bounds->ub;
+    }
+  }
+  if (kernelFull)
+    for (Operation *op : ops) {
+      Value mask;
+      if (auto ml = dyn_cast<MaskedLoadOp>(op))
+        mask = ml.getMask();
+      else if (auto ms = dyn_cast<MaskedStoreOp>(op))
+        mask = ms.getMask();
+      if (mask && loopTailMaskOf(mask, loop, step))
+        unmasked.insert(op);
+    }
+
   // The kernel's iter_args: window instances whose value is read after the
   // window ends -- by the next trip, or by the remainder or the drain after
   // the last one -- or that are the loop's result.
@@ -468,7 +535,8 @@ LogicalResult PipelineBuilder::plan() {
                           << prologue.size() << " kernel=" << window.size()
                           << " trips=" << trips << " kernel_trips="
                           << kernelTrips << " partial=" << partial
-                          << " carried=" << carried.size() << "\n");
+                          << " carried=" << carried.size() << " unmasked="
+                          << unmasked.size() << "\n");
   return success();
 }
 
@@ -649,7 +717,8 @@ FailureOr<lvx_scf::ForOp> PipelineBuilder::buildKernel(OpBuilder &b,
       }
       map.map(operand, v);
     }
-    Operation *clone = b.clone(*op, map);
+    Operation *clone = unmasked.contains(op) ? cloneUnmasked(b, op, map)
+                                             : b.clone(*op, map);
     clone->setAttr(kKernelCycleAttr, b.getI64IntegerAttr(s.date - kernelFirst));
     if (keepDates)
       clone->setAttr(kKernelDateAttr, b.getI64IntegerAttr(s.date - kernelFirst));
@@ -661,8 +730,37 @@ FailureOr<lvx_scf::ForOp> PipelineBuilder::buildKernel(OpBuilder &b,
   for (auto c : carried)
     yielded.push_back(fresh.lookup(c));
   b.create<lvx_scf::YieldOp>(loc, yielded);
+  // An unmasked access leaves its mask's `taild` and `extb*d` unread, and
+  // nothing downstream removes a dead instruction: the allocator would give
+  // it a register and the bundler a slot.
+  for (Operation &op :
+       llvm::make_early_inc_range(llvm::reverse(body->without_terminator())))
+    if (isOpTriviallyDead(&op))
+      op.erase();
   dateKernel(kernel);
   return kernel;
+}
+
+/// `op`, a masked access in `unmasked`, as the plain access the `maskm` prefix
+/// governs: `lq`/`lo`, keeping the load's `variant`, or `sq`/`so`.
+Operation *PipelineBuilder::cloneUnmasked(OpBuilder &b, Operation *op,
+                                          IRMapping &map) {
+  Location loc = op->getLoc();
+  if (auto ml = dyn_cast<MaskedLoadOp>(op)) {
+    Value base = map.lookupOrDefault(ml.getBase());
+    Type type = ml.getResult().getType();
+    if (widthOf(type) == 4)
+      return b.create<LoOp>(loc, type, ml.getVariantAttr(), base,
+                            ml.getOffsetAttr(), FormatAttr(), IntegerAttr());
+    return b.create<LqOp>(loc, type, ml.getVariantAttr(), base,
+                          ml.getOffsetAttr(), FormatAttr(), IntegerAttr());
+  }
+  auto ms = cast<MaskedStoreOp>(op);
+  Value value = map.lookupOrDefault(ms.getValue());
+  Value base = map.lookupOrDefault(ms.getBase());
+  if (widthOf(value.getType()) == 4)
+    return b.create<SoOp>(loc, value, base, ms.getOffsetAttr());
+  return b.create<SqOp>(loc, value, base, ms.getOffsetAttr());
 }
 
 /// Leaves the kernel's schedule for the allocator: the period on the loop, and
