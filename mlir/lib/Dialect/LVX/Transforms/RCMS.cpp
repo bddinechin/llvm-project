@@ -167,10 +167,13 @@ private:
     return 64;
   }
   int64_t foldedPressure(int64_t ii, ArrayRef<int64_t> dates,
-                         ArrayRef<int64_t> kill) const;
-  SmallVector<KillerArc> killerArcs(int64_t ii) const;
+                         ArrayRef<int64_t> kill, bool occupancy = false) const;
+  /// The killer arcs the model holds; with `occupancy`, those the pressure
+  /// rows would hold whatever the objective, for reporting a pressure.
+  SmallVector<KillerArc> killerArcs(int64_t ii, bool occupancy = false) const;
   /// Each value's killer date for `dates`: max over its killer arcs.
-  SmallVector<int64_t> killersOf(int64_t ii, ArrayRef<int64_t> dates) const;
+  SmallVector<int64_t> killersOf(int64_t ii, ArrayRef<int64_t> dates,
+                                 bool occupancy = false) const;
 
   const ModuloProblem &p;
   RCMSOptions o;
@@ -620,14 +623,15 @@ bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
 /// loop reads gets an arc from every node of latency II -- lvx-gcc LMS's
 /// occ_last rule: the allocator keeps a value read past the kernel for the
 /// whole body.
-SmallVector<KillerArc> RCMSEngine::killerArcs(int64_t ii) const {
+SmallVector<KillerArc> RCMSEngine::killerArcs(int64_t ii,
+                                              bool occupancy) const {
   SmallVector<KillerArc> karcs;
-  bool press = pressure();
+  bool press = pressure() || occupancy;
   if (!mcrl() && !press)
     return karcs;
   unsigned n = p.numNodes();
   for (auto [ak, a] : llvm::enumerate(p.arcs))
-    if (a.kind == ModuloArcKind::RegRaw && weightOf(a.src))
+    if (a.kind == ModuloArcKind::RegRaw && (weightOf(a.src) || occupancy))
       karcs.push_back({a.src, a.dst, ii * a.omega + (press ? a.read : 0),
                        "life_" + std::to_string(ak)});
   if (press)
@@ -639,10 +643,10 @@ SmallVector<KillerArc> RCMSEngine::killerArcs(int64_t ii) const {
   return karcs;
 }
 
-SmallVector<int64_t> RCMSEngine::killersOf(int64_t ii,
-                                           ArrayRef<int64_t> dates) const {
+SmallVector<int64_t> RCMSEngine::killersOf(int64_t ii, ArrayRef<int64_t> dates,
+                                           bool occupancy) const {
   SmallVector<int64_t> kill(p.numNodes(), std::numeric_limits<int64_t>::min());
-  for (const KillerArc &a : killerArcs(ii))
+  for (const KillerArc &a : killerArcs(ii, occupancy))
     kill[a.src] = std::max(kill[a.src], dates[a.dst] + a.l);
   return kill;
 }
@@ -650,12 +654,14 @@ SmallVector<int64_t> RCMSEngine::killersOf(int64_t ii,
 /// The registers live in the kernel's busiest cycle, for these dates and
 /// killers: the press rows evaluated, with the same interval.
 int64_t RCMSEngine::foldedPressure(int64_t ii, ArrayRef<int64_t> dates,
-                                   ArrayRef<int64_t> kill) const {
+                                   ArrayRef<int64_t> kill,
+                                   bool occupancy) const {
   int64_t most = 0;
   for (int64_t tau = 0; tau != ii; ++tau) {
     int64_t live = 0;
     for (unsigned i = 0; i != p.numNodes(); ++i) {
-      int64_t w = weightOf(i);
+      int64_t w = occupancy ? std::max(p.width[i], p.exitWidth[i])
+                            : weightOf(i);
       if (!w)
         continue;
       // Cycles c = tau + q*II in [date + write, killer].
@@ -825,10 +831,12 @@ bool RCMSEngine::scheduleAtII(int64_t ii, SmallVectorImpl<int64_t> &dates,
       ok = false;
     }
   }
-  LLVM_DEBUG(if (ok && pressure()) llvm::dbgs()
+  LLVM_DEBUG(if (ok) llvm::dbgs()
              << "lvx-modulo-schedule: rcms " << funcName << " ii=" << ii
              << " pressure="
-             << foldedPressure(ii, dates, killersOf(ii, dates)) << "\n");
+             << foldedPressure(ii, dates, killersOf(ii, dates, true),
+                               /*occupancy=*/true)
+             << (solvedR ? " R=" + std::to_string(*solvedR) : "") << "\n");
   LLVM_DEBUG(llvm::dbgs() << "lvx-modulo-schedule: rcms " << funcName
                           << " ii=" << ii << " horizon=" << horizon << ": "
                           << (ok ? "solved" : why) << "\n");
