@@ -200,8 +200,7 @@ FailureOr<ModuloProblem> ModuloProblem::build(lvx_scf::ForOp loop) {
     ResourceVector d{};
     if (const Reservation *r = reservationOf("addd", std::nullopt))
       for (unsigned u = 0; u != r->numUses; ++u)
-        d[static_cast<unsigned>(r->uses[u].resource)] +=
-            r->uses[u].count * lvxPrintedCount(op);
+        d[static_cast<unsigned>(r->uses[u].resource)] += r->uses[u].count;
     p.demand.push_back(d);
   }
   for (const ResourceVector &d : p.demand)
