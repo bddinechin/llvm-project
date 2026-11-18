@@ -136,6 +136,15 @@ bool LVXRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
   Register FrameReg = HasFP ? getFrameRegister(MF) : Register(LVX::R12);
 
+  // An inline asm memory operand is printed as text, "off[base]", and the
+  // assembler picks the encoding that holds the offset -- there is no opcode
+  // here to widen and nothing to scavenge for.
+  if (MI.isInlineAsm()) {
+    MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, /*isDef=*/false);
+    OffsetOp.ChangeToImmediate(Offset);
+    return false;
+  }
+
   // An offset too big for the instruction's current offset field does not
   // need a scratch register: the widened forms of the same load or store
   // (LSU_LSBO.X/.Y, LSU_SSBO.X/.Y and the pair/quad equivalents) hold 37 and

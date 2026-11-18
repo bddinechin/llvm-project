@@ -1075,6 +1075,33 @@ void LVXDAGToDAGISel::Select(SDNode *N) {
   SelectCode(N);
 }
 
+// An inline asm memory operand ("m", "o"): the address as an offset and a
+// base, in that order -- the order eliminateFrameIndex looks for, since the
+// operand before a FrameIndex is its offset (after it would be the next
+// operand group's flag word), and the order LVXAsmPrinter prints, "off[base]".
+// The same addressing selectAddr gives a load or a store, so a FrameIndex
+// becomes the frame register plus its final offset and an ADD of a constant
+// folds into the displacement. The assembler picks the encoding that holds the
+// offset, so no range check is needed here.
+bool LVXDAGToDAGISel::SelectInlineAsmMemoryOperand(
+    const SDValue &Op, InlineAsm::ConstraintCode ConstraintID,
+    std::vector<SDValue> &OutOps) {
+  switch (ConstraintID) {
+  case InlineAsm::ConstraintCode::m:
+  case InlineAsm::ConstraintCode::o:
+    break;
+  default:
+    return true;
+  }
+  SDValue Base, Offset;
+  bool IsFrameIndex;
+  if (!selectAddr(CurDAG, SDLoc(Op), Op, Base, Offset, IsFrameIndex))
+    return true;
+  OutOps.push_back(Offset);
+  OutOps.push_back(Base);
+  return false;
+}
+
 FunctionPass *llvm::createLVXISelDag(LVXTargetMachine &TM,
                                      CodeGenOptLevel OptLevel) {
   return new SelectionDAGISelLegacy(

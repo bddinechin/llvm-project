@@ -40,6 +40,8 @@ public:
 
   bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                        const char *ExtraCode, raw_ostream &OS) override;
+  bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
+                             const char *ExtraCode, raw_ostream &OS) override;
   void emitInlineAsmEnd(const MCSubtargetInfo &StartInfo,
                         const MCSubtargetInfo *EndInfo,
                         const MachineInstr *MI) override;
@@ -150,6 +152,24 @@ bool LVXAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
   default:
     return true;
   }
+}
+
+// An inline asm memory operand, "off[base]" -- the two operands
+// LVXDAGToDAGISel::SelectInlineAsmMemoryOperand produced, in that order, the
+// offset final once eliminateFrameIndex has run.
+bool LVXAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
+                                          unsigned OpNo,
+                                          const char *ExtraCode,
+                                          raw_ostream &OS) {
+  if (ExtraCode && ExtraCode[0])
+    return true;
+  const MachineOperand &Off = MI->getOperand(OpNo);
+  const MachineOperand &Base = MI->getOperand(OpNo + 1);
+  if (!Off.isImm() || !Base.isReg())
+    return true;
+  OS << Off.getImm() << '[' << LVXInstPrinter::getRegisterName(Base.getReg())
+     << ']';
+  return false;
 }
 
 // Inline asm is passed through as text, and gets the same ";;" every other
