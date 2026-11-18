@@ -533,7 +533,9 @@ LogicalResult PipelineBuilder::plan() {
   // the last iteration in the kernel. When that iteration is partial and the
   // body has a tail mask, the last trip is peeled instead -- emitted as the
   // straight-line `partial` trip, masks and all -- so the trips left are of
-  // full iterations: one window of code more, for no mask on any trip.
+  // full iterations: one window of code more, for no mask on any trip. A
+  // kernel of one trip peels to none, and the pipeline is straight-line
+  // code: a hardware loop counted to one is only its overhead.
   auto isTailMasked = [&](Operation *op) {
     Value mask = maskOf(op);
     return mask && isLoopTailMask(mask, loop, step);
@@ -542,7 +544,7 @@ LogicalResult PipelineBuilder::plan() {
     int64_t lastIter = firstKernelExit + kernelTrips * unroll - 1;
     return bounds->ivAt(lastIter) + step <= bounds->ub;
   };
-  if (unmaskTail && bounds && kernelTrips >= 2 && !partial &&
+  if (unmaskTail && bounds && kernelTrips >= 1 && !partial &&
       !lastIterFull() &&
       llvm::any_of(ops, isTailMasked)) {
     --kernelTrips;
