@@ -151,32 +151,48 @@ static std::optional<int64_t> constantOf(Value v) {
   return std::nullopt;
 }
 
-/// The loop-tail mask `mask` is, if it is one: `taild(iv, ub)` over `loop`'s
-/// own induction variable and upper bound, at a lane count no wider than the
-/// step, possibly widened to bytes by an `extb*d`. Lane `i` of it is set iff
-/// `iv + i < ub`, so on an iteration that is not the last -- `iv + step <=
-/// ub` -- every lane is, and the access it masks is the plain one.
+/// Whether `a` and `b` are the same bound: one value, or equal constants.
+static bool sameBound(Value a, Value b) {
+  if (a == b)
+    return true;
+  std::optional<int64_t> x = constantOf(a), y = constantOf(b);
+  return x && y && *x == *y;
+}
+
+/// Whether `mask` is the loop tail's, possibly widened to bytes by an
+/// `extb*d`, at a lane count no wider than the step. Two shapes are:
 ///
-/// Anything else stays masked: a mask computed from data, a bound that is
-/// not the loop's, or a lane count past the step, whose high lanes reach
-/// into the next iteration and may be off on any of them.
-static TaildOp loopTailMaskOf(Value mask, lvx_scf::ForOp loop, int64_t step) {
+///   - `taild(iv, ub)`, lane `i` set iff `iv + i < ub` -- what `-lvx-combine`
+///     folds the second to when it can prove both operands non-negative;
+///   - `taild(0, max(ub - iv, 0))`, lane `i` set iff `i < ub - iv` -- what is
+///     left when it cannot, as for a run-time bound that is an argument.
+///
+/// Either way, on an iteration that is not the last -- `iv + step <= ub` --
+/// every lane is set, and the access it masks is the plain one. Anything else
+/// stays masked: a mask computed from data, a bound that is not the loop's,
+/// or a lane count past the step, whose high lanes reach into the next
+/// iteration and may be off on any of them.
+static bool isLoopTailMask(Value mask, lvx_scf::ForOp loop, int64_t step) {
   if (Operation *def = mask.getDefiningOp();
       def && isa<Extb2dOp, Extb4dOp, Extb8dOp>(def))
     mask = def->getOperand(0);
   auto tail = mask.getDefiningOp<TaildOp>();
-  if (!tail || tail.getLhs() != loop.getInductionVar())
-    return {};
-  Value ub = loop.getUpperBound();
-  if (tail.getRhs() != ub) {
-    std::optional<int64_t> a = constantOf(tail.getRhs()), b = constantOf(ub);
-    if (!a || !b || *a != *b)
-      return {};
-  }
+  if (!tail)
+    return false;
   int64_t lanes = int64_t(1) << static_cast<unsigned>(tail.getLanecount());
   if (step <= 0 || lanes > step)
-    return {};
-  return tail;
+    return false;
+  Value iv = loop.getInductionVar(), ub = loop.getUpperBound();
+  if (tail.getLhs() == iv)
+    return sameBound(tail.getRhs(), ub);
+  std::optional<int64_t> base = constantOf(tail.getLhs());
+  auto clamp = tail.getRhs().getDefiningOp<MaxdImmOp>();
+  if (!base || *base != 0 || !clamp)
+    return false;
+  auto floor = dyn_cast_or_null<IntegerAttr>(clamp.getSigned10());
+  auto sub = clamp.getOperand().getDefiningOp<SbfdOp>();
+  return floor && floor.getValue().isZero() && sub && sub.getRhs() == iv &&
+         sameBound(sub.getLhs(), ub);
 }
 
 static std::optional<Bounds> boundsOf(lvx_scf::ForOp loop) {
@@ -298,7 +314,7 @@ private:
   /// Window instances whose value outlives the trip: the iter_args.
   SmallVector<std::pair<Value, int64_t>> carried;
   /// The body's masked accesses the kernel issues unmasked: their mask is
-  /// the loop tail's (`loopTailMaskOf`), and no kernel instance is of the
+  /// the loop tail's (`isLoopTailMask`), and no kernel instance is of the
   /// last iteration, so it is all ones on every trip.
   SmallPtrSet<Operation *, 4> unmasked;
 
@@ -498,7 +514,7 @@ LogicalResult PipelineBuilder::plan() {
         mask = ml.getMask();
       else if (auto ms = dyn_cast<MaskedStoreOp>(op))
         mask = ms.getMask();
-      if (mask && loopTailMaskOf(mask, loop, step))
+      if (mask && isLoopTailMask(mask, loop, step))
         unmasked.insert(op);
     }
 
