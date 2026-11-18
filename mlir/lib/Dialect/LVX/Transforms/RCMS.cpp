@@ -622,7 +622,9 @@ bool RCMSEngine::model(int64_t ii, llvm::raw_ostream *os,
 /// (RegisterAllocation.cpp, kernelOccupancyOf). A value the code after the
 /// loop reads gets an arc from every node of latency II -- lvx-gcc LMS's
 /// occ_last rule: the allocator keeps a value read past the kernel for the
-/// whole body.
+/// whole body. No read stage is added to an exit arc: nothing in the kernel
+/// reads the value at a cycle of its own, the code after the loop reading
+/// the loop's result.
 SmallVector<KillerArc> RCMSEngine::killerArcs(int64_t ii,
                                               bool occupancy) const {
   SmallVector<KillerArc> karcs;
